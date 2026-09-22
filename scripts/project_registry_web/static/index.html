@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="ja">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,16 +10,16 @@
   <header class="app-header">
     <div class="brand-row">
       <div>
-        <p class="eyebrow">atproto survey</p>
+        <p class="eyebrow">atproto調査</p>
         <h1>Project Registry</h1>
       </div>
-      <button id="refresh" class="secondary">Refresh</button>
+      <button id="refresh" class="secondary">再読込</button>
     </div>
-    <nav class="primary-nav" aria-label="Primary">
-      <button data-screen="review" class="active">Review</button>
-      <button data-screen="projects">Projects</button>
-      <button data-screen="operations">Operations</button>
-      <button data-screen="settings">Settings</button>
+    <nav class="primary-nav" aria-label="メインナビゲーション">
+      <button data-screen="review" class="active">レビュー</button>
+      <button data-screen="projects">登録プロジェクト</button>
+      <button data-screen="operations">処理・定期実行</button>
+      <button data-screen="settings">設定</button>
     </nav>
     <div id="status" class="status" role="status"></div>
   </header>
@@ -31,7 +31,7 @@
         <div id="list" class="list"></div>
       </div>
       <aside id="detail" class="detail-pane">
-        <div class="empty-state"><h2>Select a project</h2><p>Review normalized identifiers, evidence, and operator decisions.</p></div>
+        <div class="empty-state"><h2>登録プロジェクトを選択</h2><p>識別子・調査根拠・手動判断を確認できます。</p></div>
       </aside>
     </section>
     <section id="single-pane" class="single-pane" hidden></section>
@@ -39,37 +39,37 @@
 
   <dialog id="confirm-dialog" tabindex="-1" autofocus>
     <form method="dialog">
-      <p id="confirm-context" class="eyebrow">Confirm database change</p>
-      <h2 id="confirm-title">Confirm action</h2>
+      <p id="confirm-context" class="eyebrow">データベースへの変更を確認</p>
+      <h2 id="confirm-title">操作を確認</h2>
       <p id="confirm-message"></p>
-      <label id="confirm-note-label"><span id="confirm-note-text">Reason or note</span>
+      <label id="confirm-note-label"><span id="confirm-note-text">理由・メモ</span>
         <input id="confirm-note" type="text" autocomplete="off">
       </label>
       <div class="dialog-actions">
-        <button value="cancel" class="secondary">Cancel</button>
-        <button id="confirm-submit" value="confirm" class="danger">Apply change</button>
+        <button value="cancel" class="secondary">キャンセル</button>
+        <button id="confirm-submit" value="confirm" class="danger">変更を適用</button>
       </div>
     </form>
   </dialog>
 
   <dialog id="profile-dialog" tabindex="-1" autofocus>
     <form method="dialog">
-      <p class="eyebrow">Edit profile</p>
-      <h2>Project fields</h2>
-      <label>Name<input id="profile-name" type="text"></label>
-      <label>Tagline<input id="profile-tagline" type="text" maxlength="30"></label>
-      <label>Summary<textarea id="profile-summary" rows="6" maxlength="8000"></textarea></label>
-      <label>Features (one per line, up to 6)<textarea id="profile-features" rows="4"></textarea></label>
+      <p class="eyebrow">紹介情報を編集</p>
+      <h2>登録プロジェクトの情報</h2>
+      <label>名前<input id="profile-name" type="text"></label>
+      <label>短い説明<input id="profile-tagline" type="text" maxlength="30"></label>
+      <label>説明<textarea id="profile-summary" rows="6" maxlength="8000"></textarea></label>
+      <label>特徴（1行に1項目、最大6件）<textarea id="profile-features" rows="4"></textarea></label>
       <label><input id="profile-automatic" type="checkbox">根拠のある説明変更を自動反映する</label>
       <p class="muted">用途・技術的特徴を残し、過去の特徴には時点を添えます。説明を編集すると自動反映は解除されます。</p>
       <div id="profile-proposal"></div>
-      <label>Introduced URL<input id="profile-introduced-url" type="url" placeholder="https://bsky.app/profile/yamarten.bsky.social/post/..."></label>
-      <label>Notes<textarea id="profile-notes" rows="6"></textarea></label>
+      <label>紹介済み投稿のURL<input id="profile-introduced-url" type="url" placeholder="https://bsky.app/profile/yamarten.bsky.social/post/..."></label>
+      <label>メモ<textarea id="profile-notes" rows="6"></textarea></label>
       <div id="profile-diff"></div>
       <div class="dialog-actions">
-        <button value="cancel" class="secondary">Cancel</button>
-        <button id="profile-preview" type="button">Preview</button>
-        <button id="profile-apply" type="button" class="primary" disabled>Apply</button>
+        <button value="cancel" class="secondary">キャンセル</button>
+        <button id="profile-preview" type="button">プレビュー</button>
+        <button id="profile-apply" type="button" class="primary" disabled>適用</button>
       </div>
     </form>
   </dialog>

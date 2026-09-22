@@ -33,7 +33,7 @@ project-registry-web-service install
 project-registry-web-service status
 ```
 
-Web UIの`Projects`からシードを登録・調査し、`Review`で要レビュー項目や紹介候補を確認します。CLIで最小フローを行う場合は次の通りです。
+Web UIの`登録プロジェクト`からシードを登録・調査し、`レビュー`で要レビュー項目や紹介候補を確認します。CLIで最小フローを行う場合は次の通りです。
 
 ```bash
 project-registry add-seed sh.tangled.repo

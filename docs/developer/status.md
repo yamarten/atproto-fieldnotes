@@ -74,6 +74,8 @@ Gemmaは比較時のrepository解析でJSON失敗が再現し、通常処理へ�
 
 ## JobとWeb運用
 
+Web UIのナビゲーション、操作、説明、状態・手動判断・定期実行の表示を日本語へ統一しています。API・CLI・DBの名前と保存値は維持し、識別子・引用・JSON・診断原文は改変しません。開発DBで主要画面、編集と判断の保存・解除、マージ比較、通信しないreview job、デスクトップとモバイル幅の表示を確認しています。母艦への統合後、実運用HTTPSのHTML・JavaScript・CSSが統合済みファイルと一致することを確認しました。静的ファイルはリクエストごとに読み込まれるためサーバー再起動は不要で、開いているページの再読込で反映されます。正本での更新操作は再検証していません。表示方針と操作名は[Web UIガイド](../user/web-ui.md)を参照してください。
+
 enrich、sync、追跡状態を見直すreview、匿名browser確認を別processで実行し、進捗表示・処理境界での停止（協調停止）・presetの手動／定期実行に対応します。一括enrichは進行状況を保存したcheckpointから再開できます。Webの手動reloadとmacOS LaunchAgentによる自動起動も利用できます。実worker・一時DBの完了／中断／再開、Webからのjob実行、正本での一括enrich停止・再開の記録があります。
 
 実運用Webは[Tailscale Serve経由のHTTPS入口](../user/web-ui.md#tailscale経由のhttps)も利用できます。専用8445ポートから既存8888へ転送し、API token認証と直接HTTPの`0.0.0.0:8888`を維持しています。2026-09-22にこのMacから証明書検証付きHTTPS、静的asset、無認証・不正tokenの拒否、認証付き設定・一覧・job API、Chromiumでの一覧・詳細・Settingsと再読込を確認しました。HTTPと同じserver instance・DBへの接続、既存Serveの8443・8444設定不変、Funnel未使用も確認しています。アプリ再起動・DB更新・job開始は行っていません。別端末からの到達とアクセス許可、Mac再起動後の復帰、証明書自動更新は未検証です。

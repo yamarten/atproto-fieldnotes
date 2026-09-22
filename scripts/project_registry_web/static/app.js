@@ -1,13 +1,383 @@
+// Display labels never change API values, stored data, quoted text, or JSON.
+const displayLabels = {
+  "sync_state_missing": "取得状態の記録なし",
+  "sync_state_invalid": "取得状態の記録が不正",
+  "sync_not_completed": "取得未完了",
+  "sync_completion_time_invalid": "取得完了時刻が不正",
+  "observation_precedes_sync": "観測時刻が取得完了より前",
+  "sync_too_old": "取得結果が古い",
+  "post_sync": "取得完了後",
+  "pre_evaluation_baseline": "比較開始点より前",
+  "parked_domain_detected": "ドメイン販売・駐車ページを検出",
+  "not_found": "対象なし",
+  "server_error": "サーバーエラー",
+  "login_surface_detected": "ログイン画面を検出",
+  "invite_text_detected": "招待制の記述あり",
+  "beta_text_detected": "ベータ版の記述あり",
+  "coming_soon_detected": "公開予定の記述あり",
+  "docs_only_surface_detected": "ドキュメントのみの画面",
+  "app_shell_detected": "アプリ画面の構成を検出",
+  "mixed_launch_signals_detected": "公開状態の根拠が混在",
+  "redirect_detected": "転送を検出",
+  "redirect_http_to_https": "HTTPからHTTPSへ転送",
+  "redirect_https_to_http": "HTTPSからHTTPへ転送",
+  "redirect_same_host": "同じホストへ転送",
+  "redirect_same_site_family": "同系列サイトへ転送",
+  "redirect_cross_host": "別ホストへ転送",
+  "verified_authority_service_surface": "管理ドメインのサービス画面を確認",
+  "browser_checked": "ブラウザー確認済み",
+  "rendered_surface": "描画後の利用画面",
+  "service_probe": "サービス確認",
+  "probe": "接続確認",
+  "fetch": "取得",
+  "triage": "説明・分類の評価",
+  "repository_analysis": "リポジトリ解析",
+  "project_repository_urls": "プロジェクトのリポジトリURL",
+  "github_repo_urls": "GitHubリポジトリURL",
+  "candidate_project_repository_urls": "リポジトリ候補URL",
+  "service_urls": "サービスURL",
+  "website_urls": "公式サイトURL",
+  "recorded_lexicon_namespaces": "記録済みLexicon名前空間",
+  "record_creators": "レコード作成者",
+  "authority_service_families": "管理ドメインとサービスの対応",
+  "domain_identity_tokens": "ドメインの識別情報",
+  "merge_aliases": "マージ済みの別名",
+  "namespace_lineage": "名前空間の階層の一致",
+  "repository_readme": "リポジトリのREADME",
+  "service_html": "サービスのHTML",
+  "service_description": "サービスの説明文",
+  "not_observed": "未観測",
+  "repository_homepage": "リポジトリの公開先",
+  "four_successful_weekly_observations": "比較可能な週次観測が4回に到達",
+  "reviewed_publisher_delete_or_identity_change": "確認済み発行者の削除・識別情報の変化",
+  "non_record_lexicon_usage_request": "レコード以外のLexicon利用の調査依頼",
+  "candidate value is required": "候補の値を入力してください",
+  "seed is required": "シードを入力してください",
+  "API token is required": "APIトークンを入力してください",
+  "Resource not found": "対象が見つかりません",
+  "project not found": "登録プロジェクトが見つかりません",
+  "job not found": "ジョブが見つかりません",
+  "investigation run not found": "調査実行記録が見つかりません",
+  "introduced_url must be an http(s) URL": "紹介済み投稿のURLはhttpまたはhttpsで指定してください",
+  "features must contain at most 6 short strings": "特徴は短い文で6件まで指定してください",
+  "schedule time must be HH:MM": "定期実行の時刻はHH:MM形式で指定してください",
+  "schedule week_of_month must be between 0 and 5": "定期実行の週は毎週または第1〜第5週を指定してください",
+  "schedule weekday must be between 0 and 6": "定期実行の曜日を選択してください",
+  "identifier value could not be normalized": "識別子の値を確認してください。正規化できませんでした",
+  "review target is stale or does not belong to this project": "レビュー対象が変更されたか、別プロジェクトに属しています。詳細を再読込してください",
+  "guarded identifier cannot be added as a seed": "除外・保留中の識別子はシードへ追加できません",
+  "project and other project resolve to the same project": "同じ登録プロジェクト同士は指定できません",
+  "service_url is not saved on the selected project": "このサービスURLは選択したプロジェクトに保存されていません",
+  "enrich checkpoint is not available": "調査の再開地点が見つかりません",
+  "enrich checkpoint is already complete": "この再開地点の調査は完了しています",
+  "only bulk enrich jobs can be resumed": "再開できるのは一括調査のみです",
+  "server reload is already in progress": "サーバーは再起動中です",
+  "invalid checkpoint run id": "再開地点の実行IDが不正です",
+  "checkpoint run id mismatch": "再開地点の実行IDが一致しません",
+  "Failed to fetch": "サーバーへ接続できません。接続状態を確認してください",
+  "Load failed": "読込みに失敗しました。接続状態を確認してください",
+  "confirm-candidate": "識別子を採用",
+  "reject-candidate": "識別子を除外",
+  "block-identifier": "識別子を除外",
+  "defer-identifier": "識別子を30日保留",
+  "split-project": "識別子を別プロジェクトへ分割",
+  "clear-block-identifier": "識別子の除外を解除",
+  "clear-defer-identifier": "識別子の保留を解除",
+  "defer-promotion": "紹介候補を情報待ちにする",
+  "clear-promotion-deferral": "紹介候補の情報待ちを解除",
+  "dismiss-review-target": "レビュー対象から除外",
+  "defer-review-target": "レビュー対象を30日保留",
+  "clear-review-target": "レビュー対象の手動判断を解除",
+  "clear-separate": "別プロジェクト指定を解除",
+  "service_observation": "サービス観測",
+  "enrich_all": "通常追跡中の全件調査",
+  "sync_introduced": "紹介済み投稿の取り込み",
+  "sync_sources_then_enrich": "外部情報の取り込み・新規分の調査",
+  "enrich_all_states": "全追跡状態の調査・見直し",
+  "lexicon_publication_weekly": "Lexicon公開状況の観測",
+  "active": "通常追跡",
+  "stable": "安定稼働",
+  "stalled": "活動停滞",
+  "out_of_scope": "調査範囲外",
+  "archived": "アーカイブ",
+  "ignore": "追跡対象外",
+  "beta": "ベータ公開",
+  "live": "利用可能",
+  "dead": "提供終了",
+  "private": "非公開",
+  "unreleased": "未公開",
+  "unverified": "未確認",
+  "invite_only": "招待制",
+  "unknown": "不明",
+  "none": "なし",
+  "core": "中核的な利用",
+  "substantial": "実質的な利用",
+  "optional": "任意の利用",
+  "auth_only": "認証のみ",
+  "high": "高い",
+  "medium": "中程度",
+  "low": "低い",
+  "exceptional": "特に高い",
+  "confirmed": "採用済み",
+  "candidate": "候補",
+  "derived": "導出",
+  "heuristic": "推測",
+  "introduced": "紹介済み",
+  "candidates": "候補あり",
+  "ready": "準備済み",
+  "primary": "代表",
+  "account": "アカウント",
+  "did": "DID",
+  "domain": "ドメイン",
+  "handle": "ハンドル",
+  "nsid": "NSID",
+  "repo_url": "リポジトリURL",
+  "service_url": "サービスURL",
+  "site_url": "公式サイトURL",
+  "project_key": "プロジェクトキー",
+  "repo": "リポジトリ",
+  "repository": "リポジトリ",
+  "service": "サービス",
+  "website": "公式サイト",
+  "webApp": "Webアプリ",
+  "distribution": "配布先",
+  "appStore": "App Store",
+  "playStore": "Google Play",
+  "fdroid": "F-Droid",
+  "docs": "ドキュメント",
+  "support": "サポート",
+  "changelog": "変更履歴",
+  "status": "稼働状況",
+  "privacyPolicy": "プライバシーポリシー",
+  "termsOfService": "利用規約",
+  "webManifest": "Webマニフェスト",
+  "project": "登録プロジェクト",
+  "collection": "コレクション",
+  "oauth_client": "OAuthクライアント",
+  "owned_nsid": "帰属NSID",
+  "project_site": "公式サイト",
+  "project_repository": "プロジェクトのリポジトリ",
+  "source_repository_record": "リポジトリの登録情報",
+  "developer_account": "開発者アカウント",
+  "developer_handle": "開発者ハンドル",
+  "developer_did": "開発者DID",
+  "project_account": "公式アカウント",
+  "project_handle": "公式ハンドル",
+  "authority_domain": "管理ドメイン",
+  "owned": "帰属",
+  "developer": "開発者",
+  "project site": "公式サイト",
+  "project handle": "公式ハンドル",
+  "authority": "管理ドメイン",
+  "source": "情報源",
+  "identity": "アカウント・ドメイン",
+  "schema": "スキーマ",
+  "assess_atproto_usage": "atproto利用範囲の判断",
+  "atproto_usage": "atproto利用範囲",
+  "confirm_identifier": "識別子の採用",
+  "block_identifier": "識別子の除外",
+  "defer_identifier": "識別子の保留",
+  "defer_promotion": "紹介候補の情報待ち",
+  "lower_promotion_priority": "紹介候補の優先度を下げる",
+  "promotion_priority": "紹介候補の優先度",
+  "review_promotion": "紹介候補の確認済み判断",
+  "defer_review_target": "個別のレビュー対象を保留",
+  "dismiss_review": "要レビューの種類を除外",
+  "dismiss_review_target": "個別のレビュー対象を除外",
+  "separate_project": "別プロジェクト指定",
+  "review_kind": "要レビューの種類",
+  "review_target": "レビュー対象",
+  "queued": "実行待ち",
+  "running": "実行中",
+  "cancelling": "停止要求中",
+  "completed": "完了",
+  "cancelled": "中断",
+  "failed": "失敗",
+  "retry_wait": "再試行待ち",
+  "complete": "完了",
+  "partial": "一部失敗",
+  "success": "成功",
+  "ok": "成功",
+  "problems": "問題あり",
+  "not_started": "未開始",
+  "observed": "観測済み",
+  "observed_not_adopted": "観測済み・未採用",
+  "supported": "根拠あり",
+  "needs_review": "要レビュー",
+  "pending": "待機中",
+  "recommended": "推奨",
+  "blocked": "制限あり",
+  "suggested": "候補",
+  "available": "利用可能",
+  "unavailable": "取得できません",
+  "expired": "期限切れ",
+  "cleared": "解除済み",
+  "deferred": "保留",
+  "skipped": "スキップ",
+  "waiting": "待機中",
+  "enabled": "有効",
+  "disabled": "無効",
+  "review due": "レビュー時期",
+  "monitoring": "観測中",
+  "bulk": "一括",
+  "operation": "処理",
+  "enrich": "調査",
+  "sync": "外部情報の取り込み",
+  "review": "追跡状態の見直し",
+  "verify_service": "匿名ブラウザー確認",
+  "monitor_services": "サービス観測",
+  "lexicon_publication_observation": "Lexicon公開状況の観測",
+  "service_status": "サービス状態",
+  "ownership": "帰属",
+  "contribution": "atproto寄与度",
+  "merge_candidate": "マージ候補",
+  "trust": "信頼の根拠",
+  "no_confirmed_owned_nsid": "採用済みの帰属NSIDなし",
+  "unsupported_confirmed": "現在の根拠で支持されない採用済み識別子",
+  "saved service verification state": "保存済みのサービス確認状態",
+  "confirmed identifiers plus saved ownership relations": "採用済み識別子と保存済みの帰属関係",
+  "rule-based atproto contribution evaluation": "規則に基づくatproto寄与度の評価",
+  "current duplicate candidate and merge recommendation evaluation": "現在の重複候補とマージ推奨の評価",
+  "trust-graph-v1 mutual directed trust paths for URL, collection, DID, handle, and domain identifiers": "URL・コレクション・DID・ハンドル・ドメインの相互信頼経路（trust-graph-v1）",
+  "no confirmed service/repository/lexicon": "採用済みのサービス・リポジトリ・Lexiconがない",
+  "service_status is still unknown": "サービス状態が不明",
+  "summary missing": "説明が未登録",
+  "tagline missing": "短い説明が未登録",
+  "fewer than 3 features": "特徴が3件未満",
+  "category missing": "分類が未登録",
+  "LLM review missing": "LLMによる評価が未実施",
+  "editorial_refresh": "説明の更新案あり",
+  "service_observation_changed": "サービスの観測に変化あり",
+  "llm_manual_review_recommended": "LLMが手動レビューを推奨",
+  "service_candidate_needs_confirmation": "サービス候補の確認が必要",
+  "candidate_repo_needs_confirmation": "リポジトリ候補の確認が必要",
+  "service_now_usable_but_needs_editorial_review": "サービス利用可能・紹介情報の確認が必要",
+  "more_evidence_than_current_classification": "現在の分類を見直す材料あり",
+  "stale_metadata_with_recent_activity": "最近の活動あり・登録情報が古い",
+  "service_status_unverified_but_promising": "有望だがサービス状態は未確認",
+  "category_recheck_needed": "分類の再確認が必要",
+  "external_lexicon_dependency_needs_review": "外部Lexiconへの依存の確認が必要",
+  "high_information_density": "調査材料が豊富",
+  "many_identity_candidates": "アカウント・ドメインの候補が多数",
+  "service_status_unverified": "サービス状態が未確認",
+  "browser_surface_not_confirmed": "ブラウザーで利用面を確認できず",
+  "browser_password_form_detected": "パスワード入力欄を検出",
+  "browser_identity_form_detected": "アカウント入力欄を検出",
+  "browser_oauth_entry_detected": "OAuth認証の入口を検出",
+  "browser_public_app_surface_detected": "公開されたアプリ画面を検出",
+  "browser_rendered_surface": "ブラウザー表示を確認",
+  "browser_rendered_error_detected": "ブラウザー表示でエラーを検出",
+  "static": "HTML取得",
+  "browser": "ブラウザー",
+  "service_static": "サービスHTML取得",
+  "service_browser": "サービスのブラウザー確認",
+  "deep": "詳細調査",
+  "html": "HTML本文",
+  "readme": "README",
+  "page_description": "ページ説明",
+  "record": "レコード",
+  "create": "作成",
+  "update": "更新",
+  "delete": "削除",
+  "read": "読取り",
+  "write": "書込み",
+  "rpc": "RPC呼出し",
+  "blob": "Blob",
+  "include": "権限セット",
+  "transition": "移行用権限",
+  "atproto": "atproto",
+  "rate_limited": "通信回数の制限",
+  "timeout": "タイムアウト",
+  "network_error": "通信エラー",
+  "parse_error": "解析エラー",
+  "http_error": "HTTPエラー",
+  "Service observation": "サービス観測",
+  "Enrich all": "通常追跡中の全件調査",
+  "Sync introduced": "紹介済み投稿の取り込み",
+  "Sync sources + enrich": "外部情報の取り込み・新規分の調査",
+  "All-state maintenance": "全追跡状態の調査・見直し",
+  "Lexicon publication observation": "Lexicon公開状況の観測",
+  "Observe up to 20 confirmed service URLs last checked at least 30 days ago, including stable/stalled/out-of-scope projects. No automatic tracking changes.": "最終確認から30日以上経過した採用済みサービスURLを最大20件観測します。安定稼働・活動停滞・調査範囲外も対象です。追跡状態は変更しません。",
+  "Run normal enrich --all for active projects.": "通常追跡中のプロジェクトを一括調査します。",
+  "Run introduced-post sync with SQLite updates.": "紹介済み投稿を取り込み、SQLiteを更新します。",
+  "Run non-introduced sync sources, then enrich newly created projects only.": "紹介済み投稿以外の外部情報を取り込み、新規登録分だけを調査します。",
+  "Run enrich --all across every tracking state, then apply stalled review updates.": "すべての追跡状態を対象に一括調査し、活動停滞・安定稼働への見直しを適用します。",
+  "Update the fixed sidecar and evaluate bounded weekly review signals without changing the registry.": "専用の観測DBを更新し、週次のレビュー材料を確認します。登録プロジェクトのDBは変更しません。",
+  "observe due services": "確認時期を迎えたサービスを観測",
+  "enrich --all": "通常追跡中の全件調査",
+  "enrich --all --all-tracking-states": "全追跡状態の調査",
+  "review stalled --execute": "活動停滞・安定稼働への変更を適用",
+  "sync introduced": "紹介済み投稿の取り込み",
+  "sync github": "GitHubから取り込み",
+  "sync collections": "コレクション一覧から取り込み",
+  "sync semble": "Sembleから取り込み",
+  "sync tangled": "Tangledから取り込み",
+  "enrich --all --new-only": "新規登録分の調査",
+  "observe Lexicon publications": "Lexicon公開状況の観測",
+  "queued by scheduler": "定期実行による実行待ち",
+  "queued manually": "手動操作による実行待ち",
+  "resume pending steps manually": "保留中の処理を手動で再開してください",
+  "scheduled preset completed": "定期実行の処理が完了",
+  "waiting for active background job": "実行中のジョブの終了待ち",
+  "previous scheduled worker was interrupted; retrying step": "前回の処理が中断したため、同じ処理を再試行",
+  "prerequisite_incomplete": "前提となる処理が未完了",
+  "github": "GitHub",
+  "semble": "Semble",
+  "tangled": "Tangled",
+  "collections": "コレクション一覧",
+  "page": "ページ",
+  "item": "件",
+  "strict": "厳密",
+  "moderate": "標準",
+  "broad": "広範",
+  "defines_schema": "スキーマを定義",
+  "mentions_collection": "コレクションに言及",
+  "official_account": "公式アカウント",
+  "operates_service": "サービスを運営",
+  "redirects_to": "転送先",
+  "requests_permission": "権限を要求",
+  "uses_collection": "コレクションを利用",
+  "owns_namespace": "名前空間を所有",
+  "serves_collection": "コレクションを提供",
+  "links_to_service": "サービスへリンク",
+  "links_to_repository": "リポジトリへリンク",
+  "links_to": "リンク先",
+  "same_as": "同一対象",
+  "publishes_lexicon": "Lexiconを公開",
+  "malformed_schema_observation": "形式不正のスキーマ観測",
+  "known_schema_overlap": "既知のスキーマとの一致",
+  "existing_project_unique_candidate": "既存プロジェクトへの一意の帰属候補",
+  "unattributed_schema_catalog_observation": "帰属未確定のスキーマ観測"
+};
+function displayLabel(value) {
+  const text = String(value ?? "");
+  if (Object.hasOwn(displayLabels, text)) return displayLabels[text];
+  // Known machine-generated evidence prefixes; leave the identifier suffix intact.
+  if (/^http_\d{3}$/.test(text)) return `HTTP ${text.slice(5)}`;
+  const colon = text.indexOf(":");
+  if (colon > 0 && Object.hasOwn(displayLabels, text.slice(0, colon))) {
+    return `${displayLabels[text.slice(0, colon)]}: ${text.slice(colon + 1)}`;
+  }
+  return text;
+}
+function scheduleMessage(value) {
+  const text = String(value || "");
+  if (text.startsWith("running ")) return `実行中: ${displayLabel(text.slice(8))}`;
+  const stopped = text.match(/^scheduled step ([^:]+): (.*); resume pending steps manually$/);
+  if (stopped) return `${displayLabel(stopped[1])}: ${displayLabel(stopped[2])}。保留中の処理を手動で再開してください。`;
+  if (text.startsWith("scheduled step could not start:")) return `処理を開始できませんでした。保留中の処理を手動で再開してください。（技術詳細: ${text.slice(31).replace(/; resume pending steps manually$/, "")}）`;
+  return displayLabel(text);
+}
 const $ = (id) => document.getElementById(id);
 // Security boundary for HTML templates: every external string must pass through
 // esc(), link(), pill(), or json() before it reaches innerHTML/outerHTML.
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
 const list = (value) => Array.isArray(value) ? value : [];
 const resetDetailScroll = () => { if ($("detail")) $("detail").scrollTop = 0; window.scrollTo({top:0, left:0}); };
-const backToListButton = () => `<button class="mobile-back secondary" data-detail-back>Back to list</button>`;
+const backToListButton = () => `<button class="mobile-back secondary" data-detail-back>一覧へ戻る</button>`;
 function contextualBackButton() {
   if (!state.detailBackTarget) return "";
-  const label = state.detailBackTarget.type === "merge" ? "Back to merge review" : "Back to project detail";
+  const label = state.detailBackTarget.type === "merge" ? "マージ比較へ戻る" : "プロジェクト詳細へ戻る";
   return `<button class="context-back secondary" data-detail-return>${esc(label)}</button>`;
 }
 function bindBackToListButtons() {
@@ -38,10 +408,10 @@ const filterOptionFallbacks = {
   decision_target_types: ["account", "did", "domain", "handle", "nsid", "project_key", "promotion_priority", "repo_url", "review_kind", "review_target", "service_url"],
 };
 const decisionKindOptionLabels = {
-  lower_promotion_priority: "Lower candidate priority [lower_promotion_priority]",
+  lower_promotion_priority: "紹介候補の優先度を下げる",
 };
 const decisionTargetOptionLabels = {
-  promotion_priority: "Candidate priority [promotion_priority]",
+  promotion_priority: "紹介候補の優先度",
 };
 const state = {
   screen: "review",
@@ -90,7 +460,7 @@ if (params.get("token")) {
   history.replaceState(null, "", location.pathname + (params.toString() ? `?${params}` : ""));
 }
 restoreStateFromUrl(params);
-let token = localStorage.getItem("projectRegistryToken") || prompt("Project Registry token") || "";
+let token = localStorage.getItem("projectRegistryToken") || prompt("Project RegistryのAPIトークン") || "";
 if (token) localStorage.setItem("projectRegistryToken", token);
 
 function loadSettings() {
@@ -105,7 +475,7 @@ function status(message, error = false) { $("status").textContent = message || "
 function safeUrl(value) { try { const url = new URL(String(value || "")); return ["http:", "https:"].includes(url.protocol) ? url.href : ""; } catch { return ""; } }
 function link(value) { const href = safeUrl(value); return href ? `<a href="${esc(href)}" target="_blank" rel="noreferrer">${esc(value)}</a>` : esc(value); }
 function externalLink(href, label) { const safe = safeUrl(href); return safe ? `<a href="${esc(safe)}" target="_blank" rel="noreferrer">${esc(label)}</a>` : esc(label); }
-function pill(value, kind = "") { return value ? `<span class="pill ${esc(kind)}">${esc(value === "retry_wait" ? "再試行待ち" : value)}</span>` : ""; }
+function pill(value, kind = "") { return value ? `<span class="pill ${esc(kind)}">${esc(displayLabel(value))}</span>` : ""; }
 function json(value) { return `<pre>${esc(JSON.stringify(value, null, 2))}</pre>`; }
 function parseTimeZoneOffset(value) {
   const match = String(value || "").trim().match(/^(?:UTC|GMT)?([+-])(\d{1,2})(?::?(\d{2}))?$/i);
@@ -164,24 +534,53 @@ function showDialogWithoutInputFocus(dialog) {
 function formatDuration(seconds) {
   if (seconds === null || seconds === undefined || !Number.isFinite(Number(seconds))) return "";
   const value = Math.max(0, Math.round(Number(seconds)));
-  if (value < 60) return `${value}s`;
-  if (value < 3600) return `${Math.floor(value / 60)}m ${value % 60}s`;
-  return `${Math.floor(value / 3600)}h ${Math.floor((value % 3600) / 60)}m`;
+  if (value < 60) return `${value}秒`;
+  if (value < 3600) return `${Math.floor(value / 60)}分${value % 60}秒`;
+  return `${Math.floor(value / 3600)}時間${Math.floor((value % 3600) / 60)}分`;
 }
 
 function formatMilliseconds(milliseconds) {
   if (milliseconds === null || milliseconds === undefined || !Number.isFinite(Number(milliseconds))) return "";
   const value = Math.max(0, Math.round(Number(milliseconds)));
-  return value < 1000 ? `${value}ms` : formatDuration(value / 1000);
+  return value < 1000 ? `${value}ミリ秒` : formatDuration(value / 1000);
+}
+
+function apiErrorMessage(error = {}) {
+  const message = String(error.message || "");
+  const known = displayLabel(message);
+  if (known !== message) return known;
+  const prefixes = {
+    "project not found:": "登録プロジェクトが見つかりません:",
+    "unknown schedule timezone:": "定期実行のタイムゾーンが不正です:",
+    "background job already active:": "別のジョブが実行中です:",
+    "invalid tracking_state:": "追跡状態が不正です:",
+  };
+  for (const [prefix, label] of Object.entries(prefixes)) {
+    if (message.startsWith(prefix)) return `${label} ${message.slice(prefix.length).trim()}`;
+  }
+  const codes = {
+    unauthorized: "APIトークンを確認してください。",
+    not_found: "対象が見つかりません。",
+    validation_error: "入力内容を確認してください。",
+    job_conflict: "別の処理と競合しました。実行中の処理を確認してください。",
+    stale_project: "別の操作でプロジェクトが変更されました。詳細を再読込してから再操作してください。",
+    database_busy: "データベースが使用中です。しばらく待ってから再操作してください。",
+    database_error: "データベースの処理に失敗しました。",
+    internal_error: "サーバーの処理に失敗しました。",
+  };
+  // Unrecognized diagnostics remain available verbatim; never guess their meaning.
+  return `${codes[error.code] || "処理に失敗しました。"}${message ? `（技術詳細: ${message}）` : ""}`;
 }
 
 async function api(path, options = {}) {
   const headers = {"X-Project-Registry-Token": token, ...(options.headers || {})};
   if (options.body) headers["Content-Type"] = "application/json";
-  const response = await fetch(path, {...options, headers});
+  let response;
+  try { response = await fetch(path, {...options, headers}); }
+  catch (error) { throw new Error(apiErrorMessage(error)); }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(payload.error?.message || response.statusText);
+    const error = new Error(apiErrorMessage(payload.error || {message: response.statusText}));
     error.code = payload.error?.code || "request_failed";
     throw error;
   }
@@ -288,46 +687,46 @@ function listControls() {
       ? renderExplicitMergePairForm()
       : "";
     const reviewFilter = state.reviewView === "queue"
-      ? `<div class="toolbar"><label>Signal kind<input id="review-signal-kind" placeholder="e.g. candidate_repo_needs_confirmation" value="${esc(state.reviewSignalKind)}"></label><button id="apply-review-filter" class="primary">Apply</button><button id="clear-review-filter" class="secondary">Clear</button></div>`
+      ? `<div class="toolbar"><label>要レビューの種類<input id="review-signal-kind" placeholder="例: candidate_repo_needs_confirmation" value="${esc(state.reviewSignalKind)}"></label><button id="apply-review-filter" class="primary">適用</button><button id="clear-review-filter" class="secondary">解除</button></div>`
       : "";
     const promotionFilter = state.reviewView === "promotion" ? `<div class="toolbar">
-      <label>候補の扱い<select id="promotion-view">${selectOptions([["inbox", "確認対象"], ["technical", "技術候補"], ["reviewed", "確認済み"], ["waiting", "情報待ち"], ["lowered", "Lowered / 特集候補"], ["all", "すべて"]], state.promotionView)}</select></label>
+      <label>候補の扱い<select id="promotion-view">${selectOptions([["inbox", "確認対象"], ["technical", "技術候補"], ["reviewed", "確認済み"], ["waiting", "情報待ち"], ["lowered", "低優先度・特集候補"], ["all", "すべて"]], state.promotionView)}</select></label>
       <label>理由を検索<input id="promotion-reason" type="search" value="${esc(state.promotionReason)}" placeholder="例: 認証のみ、公開待ち"></label>
       <button id="apply-promotion-filter">検索</button><button id="clear-promotion-filter" class="secondary">条件を解除</button>
       </div><div id="promotion-reasons" class="actions"></div>` : "";
     return `<div class="controls"><div class="subnav">
-      <button data-review-view="queue" class="${state.reviewView === "queue" ? "active" : ""}">Review Queue</button>
-      <button data-review-view="promotion" class="${state.reviewView === "promotion" ? "active" : ""}">Promotion</button>
-      <button data-review-view="merge" class="${state.reviewView === "merge" ? "active" : ""}">Merge</button>
-      <button id="refresh-review-list" class="secondary">Refresh</button>
+      <button data-review-view="queue" class="${state.reviewView === "queue" ? "active" : ""}">要レビュー一覧</button>
+      <button data-review-view="promotion" class="${state.reviewView === "promotion" ? "active" : ""}">紹介候補一覧</button>
+      <button data-review-view="merge" class="${state.reviewView === "merge" ? "active" : ""}">マージ</button>
+      <button id="refresh-review-list" class="secondary">再読込</button>
     </div>${reviewFilter}${promotionFilter}${explicitMerge}</div>`;
   }
   const relationSources = filterOptionValues("relation_sources");
   return `<div class="controls">
-    <div class="toolbar"><input id="project-query" type="search" placeholder="Search name, NSID, account, URL" value="${esc(state.projectSearch.query)}"><button id="search-projects" class="primary">Search</button><button id="new-seed">New Seed</button></div>
-    <details><summary>Filters</summary><p class="muted">Multiple-choice filters accept any number of selections; no selection means Any.</p><div class="filter-grid">
-      <label>Tracking states<select id="filter-tracking" multiple size="5">${multiEnumOptions(filterOptionValues("tracking_states"), state.projectSearch.tracking)}</select></label>
-      <label>Service status<select id="filter-service" multiple size="5">${multiEnumOptions(filterOptionValues("service_statuses"), state.projectSearch.service)}</select></label>
-      <label>Contribution<select id="filter-contribution" multiple size="5">${multiEnumOptions(filterOptionValues("contribution_levels"), state.projectSearch.contribution)}</select></label>
-      <label>Notes<select id="filter-notes">${selectOptions([["any", "Any"], ["yes", "Yes"], ["no", "No"]], state.projectSearch.notes)}</select></label>
-      <label>Introduced<select id="filter-introduced">${selectOptions([["any", "Any"], ["yes", "Yes"], ["no", "No"]], state.projectSearch.introduced)}</select></label>
-      <label>Candidates<select id="filter-candidates">${selectOptions([["any", "Any"], ["yes", "Yes"], ["no", "No"]], state.projectSearch.candidates)}</select></label>
-      <label>Errors<select id="filter-errors">${selectOptions([["any", "Any"], ["yes", "Yes"], ["no", "No"]], state.projectSearch.errors)}</select></label>
-      <label>Sort<select id="filter-sort">${selectOptions([["last_seen_desc", "Recently seen"], ["first_seen_desc", "Recently added"], ["first_seen_asc", "Oldest added"], ["last_enriched_asc", "Needs enrich"], ["name_asc", "Name"]], state.projectSearch.sort)}</select></label>
-      <label>Identifier kind<select id="filter-identifier-kind">${enumOptions(filterOptionValues("identifier_kinds"), state.projectSearch.identifierKind)}</select></label>
-      <label>Identifier value<input id="filter-identifier-value" value="${esc(state.projectSearch.identifierValue)}"></label>
-      <label>Identifier classification<select id="filter-identifier-classification">${enumOptions(filterOptionValues("identifier_classifications"), state.projectSearch.identifierClassification)}</select></label>
-      <label>Relation predicate<select id="filter-relation-predicate">${enumOptions(filterOptionValues("relation_predicates"), state.projectSearch.relationPredicate)}</select></label>
-      <label>Relation subject type<select id="filter-relation-subject-type">${enumOptions(filterOptionValues("relation_subject_types"), state.projectSearch.relationSubjectType)}</select></label>
-      <label>Relation subject value<input id="filter-relation-subject-value" value="${esc(state.projectSearch.relationSubjectValue)}"></label>
-      <label>Relation object type<select id="filter-relation-object-type">${enumOptions(filterOptionValues("relation_object_types"), state.projectSearch.relationObjectType)}</select></label>
-      <label>Relation object value<input id="filter-relation-object-value" value="${esc(state.projectSearch.relationObjectValue)}"></label>
-      <label>Relation source<input id="filter-relation-source" list="filter-relation-sources" value="${esc(state.projectSearch.relationSource)}"></label>
+    <div class="toolbar"><input id="project-query" type="search" placeholder="名前・NSID・アカウント・URLを検索" value="${esc(state.projectSearch.query)}"><button id="search-projects" class="primary">検索</button><button id="new-seed">シードを登録</button></div>
+    <details><summary>絞り込み</summary><p class="muted">複数選択できます。未選択ならすべてが対象です。</p><div class="filter-grid">
+      <label>追跡状態<select id="filter-tracking" multiple size="5">${multiEnumOptions(filterOptionValues("tracking_states"), state.projectSearch.tracking)}</select></label>
+      <label>サービス状態<select id="filter-service" multiple size="5">${multiEnumOptions(filterOptionValues("service_statuses"), state.projectSearch.service)}</select></label>
+      <label>atproto寄与度<select id="filter-contribution" multiple size="5">${multiEnumOptions(filterOptionValues("contribution_levels"), state.projectSearch.contribution)}</select></label>
+      <label>メモ<select id="filter-notes">${selectOptions([["any", "すべて"], ["yes", "あり"], ["no", "なし"]], state.projectSearch.notes)}</select></label>
+      <label>紹介済み<select id="filter-introduced">${selectOptions([["any", "すべて"], ["yes", "あり"], ["no", "なし"]], state.projectSearch.introduced)}</select></label>
+      <label>候補<select id="filter-candidates">${selectOptions([["any", "すべて"], ["yes", "あり"], ["no", "なし"]], state.projectSearch.candidates)}</select></label>
+      <label>エラー<select id="filter-errors">${selectOptions([["any", "すべて"], ["yes", "あり"], ["no", "なし"]], state.projectSearch.errors)}</select></label>
+      <label>並び順<select id="filter-sort">${selectOptions([["last_seen_desc", "最終観測が新しい順"], ["first_seen_desc", "登録が新しい順"], ["first_seen_asc", "登録が古い順"], ["last_enriched_asc", "調査が古い順"], ["name_asc", "名前"]], state.projectSearch.sort)}</select></label>
+      <label>識別子の種類<select id="filter-identifier-kind">${enumOptions(filterOptionValues("identifier_kinds"), state.projectSearch.identifierKind)}</select></label>
+      <label>識別子の値<input id="filter-identifier-value" value="${esc(state.projectSearch.identifierValue)}"></label>
+      <label>識別子の判定区分<select id="filter-identifier-classification">${enumOptions(filterOptionValues("identifier_classifications"), state.projectSearch.identifierClassification)}</select></label>
+      <label>関係の種類<select id="filter-relation-predicate">${enumOptions(filterOptionValues("relation_predicates"), state.projectSearch.relationPredicate)}</select></label>
+      <label>関係元の種類<select id="filter-relation-subject-type">${enumOptions(filterOptionValues("relation_subject_types"), state.projectSearch.relationSubjectType)}</select></label>
+      <label>関係元の値<input id="filter-relation-subject-value" value="${esc(state.projectSearch.relationSubjectValue)}"></label>
+      <label>関係先の種類<select id="filter-relation-object-type">${enumOptions(filterOptionValues("relation_object_types"), state.projectSearch.relationObjectType)}</select></label>
+      <label>関係先の値<input id="filter-relation-object-value" value="${esc(state.projectSearch.relationObjectValue)}"></label>
+      <label>関係の情報源<input id="filter-relation-source" list="filter-relation-sources" value="${esc(state.projectSearch.relationSource)}"></label>
       <datalist id="filter-relation-sources">${relationSources.map((value) => `<option value="${esc(value)}"></option>`).join("")}</datalist>
-      <label>Decision kind<select id="filter-decision-kind">${enumOptions(filterOptionValues("decision_kinds"), state.projectSearch.decisionKind, decisionKindOptionLabels)}</select></label>
-      <label>Decision target type<select id="filter-decision-target-type">${enumOptions(filterOptionValues("decision_target_types"), state.projectSearch.decisionTargetType, decisionTargetOptionLabels)}</select></label>
-      <label>Decision target value<input id="filter-decision-target-value" value="${esc(state.projectSearch.decisionTargetValue)}"></label>
-      <label>Decision status<select id="filter-decision-status">${selectOptions([["", "Any"], ["active", "Active"], ["expired", "Expired"], ["cleared", "Cleared"]], state.projectSearch.decisionStatus)}</select></label>
+      <label>手動判断の種類<select id="filter-decision-kind">${enumOptions(filterOptionValues("decision_kinds"), state.projectSearch.decisionKind, decisionKindOptionLabels)}</select></label>
+      <label>判断対象の種類<select id="filter-decision-target-type">${enumOptions(filterOptionValues("decision_target_types"), state.projectSearch.decisionTargetType, decisionTargetOptionLabels)}</select></label>
+      <label>判断対象の値<input id="filter-decision-target-value" value="${esc(state.projectSearch.decisionTargetValue)}"></label>
+      <label>手動判断の状態<select id="filter-decision-status">${selectOptions([["", "すべて"], ["active", "有効"], ["expired", "期限切れ"], ["cleared", "解除済み"]], state.projectSearch.decisionStatus)}</select></label>
     </div></details>
   </div>`;
 }
@@ -335,7 +734,7 @@ function listControls() {
 async function loadList() {
   const request = ++state.listRequest;
   $("list-controls").innerHTML = listControls();
-  $("list").innerHTML = `<p class="muted">Loading...</p>`;
+  $("list").innerHTML = `<p class="muted">読込中…</p>`;
   bindControls();
   try {
     let data;
@@ -398,14 +797,14 @@ function splitSelections(value) {
 function enumOptions(values, selected, labels = {}) {
   const options = [...values];
   if (selected && !options.includes(selected)) options.push(selected);
-  return selectOptions([["", "Any"], ...options.map((value) => [value, labels[value] || value])], selected);
+  return selectOptions([["", "すべて"], ...options.map((value) => [value, labels[value] || displayLabel(value)])], selected);
 }
 
 function multiEnumOptions(values, selected) {
   const selectedValues = new Set(splitSelections(selected));
   const options = [...values];
   selectedValues.forEach((value) => { if (!options.includes(value)) options.push(value); });
-  return options.map((value) => `<option value="${esc(value)}" ${selectedValues.has(value) ? "selected" : ""}>${esc(value)}</option>`).join("");
+  return options.map((value) => `<option value="${esc(value)}" ${selectedValues.has(value) ? "selected" : ""}>${esc(displayLabel(value))}</option>`).join("");
 }
 
 function selectedValues(id) {
@@ -473,9 +872,9 @@ function renderExplicitMergePairForm({source = "", target = "", sourceFixed = fa
   const sourceMode = sourceFixed ? "readonly" : "";
   const backProject = sourceFixed ? ` data-explicit-merge-back-project="${esc(source)}"` : "";
   return `<div class="explicit-merge-pair" data-explicit-merge-pair${backProject}>
-    <label>Source project<input data-explicit-merge-source placeholder="proj:3930cb0bedfd" value="${esc(source)}" ${sourceMode}></label>
-    <label>Target project<input data-explicit-merge-target placeholder="proj:aefc07410260" value="${esc(target)}"></label>
-    <button data-compare-explicit-merge class="primary">Compare pair</button>
+    <label>マージ元のプロジェクト<input data-explicit-merge-source placeholder="proj:3930cb0bedfd" value="${esc(source)}" ${sourceMode}></label>
+    <label>マージ先のプロジェクト<input data-explicit-merge-target placeholder="proj:aefc07410260" value="${esc(target)}"></label>
+    <button data-compare-explicit-merge class="primary">2件を比較</button>
   </div>`;
 }
 
@@ -494,11 +893,11 @@ function compareExplicitMergePair(form) {
   const source = form?.querySelector("[data-explicit-merge-source]")?.value.trim() || "";
   const target = form?.querySelector("[data-explicit-merge-target]")?.value.trim() || "";
   if (!source || !target) {
-    status("Source and target project keys are required.", true);
+    status("マージ元とマージ先のプロジェクトキーを入力してください。", true);
     return;
   }
   if (source === target) {
-    status("Source and target must be different projects.", true);
+    status("マージ元とマージ先には異なるプロジェクトを指定してください。", true);
     return;
   }
   status("");
@@ -512,49 +911,49 @@ function normalizeQueueItem(item) {
 }
 
 const promotionServiceLabels = {
-  confirmed: "Usable service screen confirmed",
-  needs_validation: "Service screen needs validation",
-  not_applicable: "No service-screen assessment",
+  confirmed: "利用できるサービス画面を確認済み",
+  needs_validation: "サービス画面の追加確認が必要",
+  not_applicable: "サービス画面の評価なし",
 };
 
 const promotionPriorityLabels = {
-  normal: "Normal priority",
-  lowered: "Lower priority",
+  normal: "通常の優先度",
+  lowered: "低い優先度",
 };
 
 const promotionVisibilityLabels = {
-  eligible: "Shown in candidate list",
-  deferred: "Temporarily hidden from candidate list",
-  excluded: "Not in candidate list",
+  eligible: "紹介候補一覧の対象",
+  deferred: "紹介候補一覧で一時保留",
+  excluded: "紹介候補一覧の対象外",
 };
 
 const promotionScoreLabels = {
-  service_evidence: "Usable service screen",
-  lexicon_publication: "Verified Lexicon publication",
-  technical_interest: "Technical interest",
-  service_status: "Service status",
-  service_confidence: "Service-status confidence",
-  profile_completeness: "Profile completeness",
-  repository_evidence: "Repository found",
-  lexicon_evidence: "Lexicon found",
-  review_readiness: "No manual-review flag",
+  service_evidence: "サービスの利用画面",
+  lexicon_publication: "Lexiconの公開を確認済み",
+  technical_interest: "技術的な学び",
+  service_status: "サービス状態",
+  service_confidence: "サービス状態の確信度",
+  profile_completeness: "紹介情報の充足度",
+  repository_evidence: "リポジトリを発見",
+  lexicon_evidence: "Lexiconを発見",
+  review_readiness: "要レビュー項目なし",
   atproto_usage: "主機能でのatproto利用",
-  promotion_blockers: "Missing introduction material",
-  recent_activity: "Recent activity",
-  recent_collection_activity: "Recent record activity",
-  recent_repository_activity: "Recent repository activity",
+  promotion_blockers: "紹介材料の不足",
+  recent_activity: "最近の活動",
+  recent_collection_activity: "最近のレコード活動",
+  recent_repository_activity: "最近のリポジトリ活動",
 };
 
 const promotionValidationLabels = {
-  low_service_status_confidence: "service status has low confidence",
-  usable_surface_unconfirmed: "no usable service screen was confirmed",
+  low_service_status_confidence: "サービス状態の確信度が低い",
+  usable_surface_unconfirmed: "利用できるサービス画面が未確認",
 };
 
 const promotionSignalLabels = {
-  service_surface_confirmed: "Usable service screen confirmed",
-  service_candidate_needs_validation: "Service screen needs validation",
-  lexicon_publisher_confirmed: "Verified Lexicon publisher",
-  technical_insight_candidate: "Technical insight candidate",
+  service_surface_confirmed: "利用できるサービス画面を確認済み",
+  service_candidate_needs_validation: "サービス画面の追加確認が必要",
+  lexicon_publisher_confirmed: "Lexiconの発行者を確認済み",
+  technical_insight_candidate: "技術的な学びのある候補",
 };
 
 const atprotoUsageLabels = {
@@ -565,7 +964,7 @@ const atprotoUsageLabels = {
 function renderAtprotoUsage(usage = {}) {
   return `<p>${pill(promotionLabel(atprotoUsageLabels, usage.role || "unknown"))} · ${usage.source === "operator" ? "手動判断" : "未評価"}</p>
     <p>${esc(usage.reason || "主機能でのatproto利用は未評価です。")}</p>
-    ${list(usage.sources).length ? `<ul>${usage.sources.map((s) => `<li>${esc(s.type)}: ${esc(s.locator)}</li>`).join("")}</ul>` : ""}
+    ${list(usage.sources).length ? `<ul>${usage.sources.map((s) => `<li>${esc(displayLabel(s.type))}: ${esc(s.locator)}</li>`).join("")}</ul>` : ""}
     <details><summary>利用範囲の判断を記録</summary><p class="muted">OAuth宣言と関連記述を参考に、根拠を添えて記録します。自動調査で上書きせず、解除すると未評価へ戻ります。</p>
     <label>主機能での利用<select id="atproto-usage-role">${selectOptions(Object.entries(atprotoUsageLabels), usage.role || "unknown")}</select></label>
     <label>判断根拠<input id="atproto-usage-reason" value="${esc(usage.source === "operator" ? usage.reason : "")}" placeholder="主機能とatprotoが担う部分を記入"></label>
@@ -573,7 +972,7 @@ function renderAtprotoUsage(usage = {}) {
 }
 
 function promotionLabel(labels, value) {
-  return labels[value] || String(value || "Not available").replaceAll("_", " ");
+  return labels[value] || displayLabel(value || "情報なし");
 }
 
 function promotionCardDetails(item) {
@@ -588,14 +987,14 @@ function promotionCardDetails(item) {
   const serviceGroup = item.service_evidence_group || "not_applicable";
   const priorityGroup = item.priority_group || "normal";
   const technicalView = state.promotionView === "technical";
-  return `<span class="meta-row">${pill(promotionLabel(promotionServiceLabels, serviceGroup), serviceGroup === "confirmed" ? "confirmed" : "candidate")}${pill(promotionLabel(promotionPriorityLabels, priorityGroup), priorityGroup === "lowered" ? "candidate" : "confirmed")}${pill(technicalView ? `技術評価 ${item.technical_interest_level} · ${item.technical_interest_score}` : `Ranking score ${breakdown.total ?? item.sort_score ?? 0}`)}</span>
+  return `<span class="meta-row">${pill(promotionLabel(promotionServiceLabels, serviceGroup), serviceGroup === "confirmed" ? "confirmed" : "candidate")}${pill(promotionLabel(promotionPriorityLabels, priorityGroup), priorityGroup === "lowered" ? "candidate" : "confirmed")}${pill(technicalView ? `技術評価 ${displayLabel(item.technical_interest_level)} · ${item.technical_interest_score}` : `紹介順位の点数 ${breakdown.total ?? item.sort_score ?? 0}`)}</span>
     <span class="meta-row">${pill(promotionLabel(atprotoUsageLabels, item.atproto_usage?.role || "unknown"))}${pill(promotionLabel({unreviewed:"確認記録なし", recorded:"判断記録あり", reviewed:"確認済み", changed:"根拠変化・再確認", due:"再確認時期"}, item.attention?.group))}${pill(promotionLabel(promotionVisibilityLabels, item.candidate_visibility?.group))}</span>
     ${item.atproto_usage?.reason ? `<span class="muted">${esc(item.atproto_usage.reason)}</span>` : ""}
     ${list(item.signals).some((s) => s.kind === "technical_insight_candidate") ? `<span>${esc(list(item.signals).find((s) => s.kind === "technical_insight_candidate").details.technical_interest_summary)}</span>` : ""}
     ${item.active_deferral ? `<span class="muted">情報待ち: ${esc(item.active_deferral.reason)} · ${esc(formatTimestamp(item.active_deferral.expires_at))}まで</span>` : ""}
     ${!item.active_deferral && item.last_promotion_deferral_reason ? `<span class="muted">前回の保留理由: ${esc(item.last_promotion_deferral_reason)}</span>` : ""}
-    ${item.priority_reason ? `<span class="muted">Priority note: ${esc(item.priority_reason)}</span>` : ""}
-    ${validationReasons.length ? `<span class="muted">Needs validation: ${esc(validationReasons.join(", "))}</span>` : ""}
+    ${item.priority_reason ? `<span class="muted">優先度のメモ: ${esc(item.priority_reason)}</span>` : ""}
+    ${validationReasons.length ? `<span class="muted">追加確認: ${esc(validationReasons.join(", "))}</span>` : ""}
     ${components.length && !technicalView ? `<span class="muted">${esc(components.join(" · "))}</span>` : ""}`;
 }
 
@@ -609,7 +1008,7 @@ function renderList(data) {
       state.promotionReason = button.dataset.promotionReason; state.promotionOffset = 0; syncUrl(); loadList();
     });
   }
-  $("list").innerHTML = `<div class="meta-row"><strong>${esc(count)}</strong> results</div>` + (items.length ? items.map((item, index) => {
+  $("list").innerHTML = `<div class="meta-row"><strong>${esc(count)}</strong> 件</div>` + (items.length ? items.map((item, index) => {
     const project = normalizeQueueItem(item);
     const key = project.project_key || item.project_key || item.source_project_key || "";
     const name = project.name || item.source_name || key;
@@ -627,7 +1026,7 @@ function renderList(data) {
       ${promotionCardDetails(item)}
       ${mergeTarget ? `<span class="muted">→ ${esc(item.target_name || mergeTarget)}</span>` : ""}
     </button>`;
-  }).join("") : `<div class="empty-state"><p>No matching projects.</p></div>`);
+  }).join("") : `<div class="empty-state"><p>条件に一致する登録プロジェクトはありません。</p></div>`);
   if (isPromotion) {
     $("list").insertAdjacentHTML("beforeend", `<div id="promotion-pages" class="actions"><span>${esc(data.offset + items.length)} / ${esc(data.total)} 件</span><button id="promotion-prev" ${!data.offset ? "disabled" : ""}>前のページ</button><button id="promotion-next" ${!data.has_more ? "disabled" : ""}>次のページ</button></div>`);
     $("promotion-prev").onclick = () => { state.promotionOffset = Math.max(0, state.promotionOffset - state.settings.reviewLimit); syncUrl(); loadList(); };
@@ -648,7 +1047,7 @@ function openListCard(card) {
   return true;
 }
 
-function advanceReviewList(sourceKey, {targetKey = "", statusPrefix = "Skipped for now."} = {}) {
+function advanceReviewList(sourceKey, {targetKey = "", statusPrefix = "今回は先送りしました。"} = {}) {
   if (state.screen !== "review") return false;
   if (!sourceKey) return false;
   const cards = Array.from(document.querySelectorAll("#list [data-project-key]"));
@@ -666,16 +1065,16 @@ function advanceReviewList(sourceKey, {targetKey = "", statusPrefix = "Skipped f
   const meta = $("list")?.querySelector(".meta-row strong");
   if (!isContinuation && meta && Number.isFinite(Number(meta.textContent))) meta.textContent = String(Math.max(0, Number(meta.textContent) - 1));
   if (next || previous) {
-    status(`${statusPrefix} Moved to next item. ${remaining} visible; refresh to recalculate.`);
+    status(`${statusPrefix} 次の項目へ進みました。残り${remaining}件。再読込で一覧を更新します。`);
     openListCard(next || previous);
   } else {
     state.selected = "";
     document.body.classList.remove("detail-open");
     syncUrl();
-    $("detail").innerHTML = `<div class="empty-state"><p>No more visible review items.</p><div class="actions"><button id="refresh-empty-review-list" class="primary">Refresh list</button></div></div>`;
+    $("detail").innerHTML = `<div class="empty-state"><p>表示中の要レビュー項目はすべて確認しました。</p><div class="actions"><button id="refresh-empty-review-list" class="primary">一覧を再読込</button></div></div>`;
     resetDetailScroll();
     $("refresh-empty-review-list")?.addEventListener("click", () => loadList());
-    status(`${statusPrefix} No more visible review items; refresh to recalculate.`);
+    status(`${statusPrefix} 表示中の項目をすべて確認しました。再読込で一覧を更新します。`);
   }
   return true;
 }
@@ -696,7 +1095,7 @@ function insertMergeReviewContinuation(sourceKey, targetKey, anchorIndex) {
 function advanceReviewListAfterMutation(response, path) {
   if (state.screen === "review" && state.reviewView === "promotion") {
     state.promotionOffset = 0;
-    if ($("promotion-pages")) $("promotion-pages").innerHTML = `<span class="muted">保存により候補が変わりました。Refreshで先頭から再取得します。</span>`;
+    if ($("promotion-pages")) $("promotion-pages").innerHTML = `<span class="muted">保存により候補が変わりました。再読込で先頭から再取得します。</span>`;
   }
   if (path === "/api/merge-batch/action" && response.mode === "execute") {
     return advanceMergeReviewAfterMerge(response);
@@ -705,7 +1104,7 @@ function advanceReviewListAfterMutation(response, path) {
     ? String(response.source_project_key || state.selected || "")
     : String(response.project_key || state.selected || "");
   const targetKey = path === "/api/merge-batch/action" ? String(response.target_project_key || "") : "";
-  return advanceReviewList(sourceKey, {targetKey, statusPrefix: "Saved."});
+  return advanceReviewList(sourceKey, {targetKey, statusPrefix: "保存しました。"});
 }
 
 function advanceMergeReviewAfterMerge(response) {
@@ -732,30 +1131,30 @@ function advanceMergeReviewAfterMerge(response) {
   const nextTarget = String(next.target_project_key || "");
   if (nextSource && nextTarget) {
     insertMergeReviewContinuation(nextSource, nextTarget, anchorIndex);
-    status(`Saved. Reviewing another candidate for the merged project (${response.remaining_merge_candidate_count || 0} remaining).`);
+    status(`保存しました。 マージ後のプロジェクトの次候補を確認します（残り${response.remaining_merge_candidate_count || 0}件）。`);
     loadMergeDetail(nextSource, nextTarget);
     return true;
   }
 
   const nextCard = remainingCards[Math.min(Math.max(anchorIndex, 0), Math.max(remainingCards.length - 1, 0))];
   if (nextCard) {
-    status(`Saved. Moved to next item. ${remainingCards.length} visible; refresh to recalculate.`);
+    status(`保存しました。 次の項目へ進みました。残り${remainingCards.length}件。再読込で一覧を更新します。`);
     openListCard(nextCard);
   } else {
     state.selected = "";
     document.body.classList.remove("detail-open");
     syncUrl();
-    $("detail").innerHTML = `<div class="empty-state"><p>No more visible review items.</p><div class="actions"><button id="refresh-empty-review-list" class="primary">Refresh list</button></div></div>`;
+    $("detail").innerHTML = `<div class="empty-state"><p>表示中の要レビュー項目はすべて確認しました。</p><div class="actions"><button id="refresh-empty-review-list" class="primary">一覧を再読込</button></div></div>`;
     resetDetailScroll();
     $("refresh-empty-review-list")?.addEventListener("click", () => loadList());
-    status("Saved. No more visible review items; refresh to recalculate.");
+    status("保存しました。 表示中の項目をすべて確認しました。再読込で一覧を更新します。");
   }
   return true;
 }
 
 function skipReviewItem(sourceKey = state.selected, targetKey = "") {
-  if (!advanceReviewList(String(sourceKey || ""), {targetKey: String(targetKey || ""), statusPrefix: "Skipped for now."})) {
-    status("No visible review item to skip; refresh list.", true);
+  if (!advanceReviewList(String(sourceKey || ""), {targetKey: String(targetKey || ""), statusPrefix: "今回は先送りしました。"})) {
+    status("先送りする項目がありません。一覧を再読込してください。", true);
   }
 }
 
@@ -764,7 +1163,7 @@ async function loadDetail(key, {updateUrl = true, backTarget = null} = {}) {
   state.selected = key; document.body.classList.add("detail-open");
   state.detailBackTarget = backTarget;
   if (updateUrl) syncUrl();
-  $("detail").innerHTML = `<p class="muted">Loading ${esc(key)}...</p>`;
+  $("detail").innerHTML = `<p class="muted">${esc(key)}を読込中…</p>`;
   resetDetailScroll();
   try {
     const data = await api(`/api/projects/${encodeURIComponent(key)}`);
@@ -779,20 +1178,20 @@ async function loadDetail(key, {updateUrl = true, backTarget = null} = {}) {
 function profileValue(profile, key) { return profile?.core?.[key] ?? profile?.[key] ?? ""; }
 function section(title, body) { return `<section class="detail-section"><h3>${esc(title)}</h3>${body}</section>`; }
 function projectTimestampRows(project) {
-  return `<dt>First seen</dt><dd>${esc(formatTimestamp(project.first_seen_at) || "Unknown")}</dd><dt>Last seen</dt><dd>${esc(formatTimestamp(project.last_seen_at) || "Unknown")}</dd><dt>Last enriched</dt><dd>${esc(formatTimestamp(project.last_enriched_at) || "Never")}</dd>`;
+  return `<dt>初回観測</dt><dd>${esc(formatTimestamp(project.first_seen_at) || "不明")}</dd><dt>最終観測</dt><dd>${esc(formatTimestamp(project.last_seen_at) || "不明")}</dd><dt>最終調査</dt><dd>${esc(formatTimestamp(project.last_enriched_at) || "未調査")}</dd>`;
 }
 function mergeIdentifierLabel(item, classification) {
   const entries = list(item.entries).filter((entry) => entry.classification === classification);
   const roleLabels = uniqueValues(entries.map((entry) => entry.role_label || entry.role));
   if (item.family === "identity" && roleLabels.includes("developer")) {
     const parts = uniqueValues(entries.filter((entry) => entry.role !== "developer_account").map((entry) => entry.role_label || entry.kind));
-    return `developer identity${parts.length ? ` (${parts.join(" + ")})` : ""}`;
+    return `開発者の識別情報${parts.length ? ` (${parts.map(displayLabel).join(" + ")})` : ""}`;
   }
-  return roleLabels.join(" + ") || item.role_labels?.join(" + ") || item.roles?.join(" + ") || item.kinds?.join(" + ") || item.family || "";
+  return roleLabels.map(displayLabel).join(" + ") || item.role_labels?.map(displayLabel).join(" + ") || item.roles?.map(displayLabel).join(" + ") || item.kinds?.map(displayLabel).join(" + ") || item.family || "";
 }
 function mergeIdentifierRows(identifiers, classification) {
   const rows = list(identifiers).filter((item) => list(item.classifications).includes(classification) || item.classification === classification);
-  return rows.map((item) => `<div><span class="muted">${esc(mergeIdentifierLabel(item, classification))}</span> ${identifierValueLink(item)}</div>`).join("") || `<span class="muted">None</span>`;
+  return rows.map((item) => `<div><span class="muted">${esc(mergeIdentifierLabel(item, classification))}</span> ${identifierValueLink(item)}</div>`).join("") || `<span class="muted">なし</span>`;
 }
 function actionButton(label, action, data = {}, style = "small") {
   const attrs = Object.entries(data).map(([key, value]) => `data-${key}="${esc(value)}"`).join(" ");
@@ -825,35 +1224,35 @@ function renderDetail(data) {
   const promotionDefer = overview.promotion_defer || {};
   const promotionDeferDays = Number(promotionDefer.suggested_days || 30);
   const promotionDeferAction = actionButton(
-    `Defer promotion ${promotionDeferDays}d`,
+    `${promotionDeferDays}日間、情報待ちにする`,
     "defer-promotion",
     {days: promotionDeferDays, "default-note": promotionDefer.last_reason || ""}
   );
   const priorityGroup = promotionPolicy.priority_group || "normal";
   const promotionPriorityActions = `
     ${priorityGroup === "lowered"
-      ? actionButton("Restore normal priority", "clear-promotion-priority") + actionButton("理由を編集", "lower-promotion-priority", {"default-note":promotionPolicy.priority_reason || ""})
-      : actionButton("Lower priority / 特集候補", "lower-promotion-priority")}`;
-  const reviewSkipAction = state.screen === "review" ? `<button id="skip-review-item" class="secondary">Skip for now</button>` : "";
-  const promotionActions = `<div class="promotion-actions"><strong>Promotionの判断</strong>
+      ? actionButton("通常の優先度へ戻す", "clear-promotion-priority") + actionButton("理由を編集", "lower-promotion-priority", {"default-note":promotionPolicy.priority_reason || ""})
+      : actionButton("優先度を下げる・特集候補", "lower-promotion-priority")}`;
+  const reviewSkipAction = state.screen === "review" ? `<button id="skip-review-item" class="secondary">今回は先送り</button>` : "";
+  const promotionActions = `<div class="promotion-actions"><strong>紹介候補の判断</strong>
     <div class="actions">${promotionPolicy.attention?.group === "reviewed" ? actionButton("確認対象へ戻す", "clear-promotion-review") : actionButton("確認済み・次へ", "review-promotion")}
     ${hasPromotionHold ? actionButton("情報待ちを解除", "clear-promotion-deferral") : promotionDeferAction}${promotionPriorityActions}${reviewSkipAction}</div>
-    <p class="muted">確認済みは30日後または根拠変化で再確認。情報待ちも期限または根拠変化で戻ります。Skipは今回だけ。</p>
+    <p class="muted">確認済みは30日後または根拠変化で再確認。情報待ちも期限または根拠変化で戻ります。「今回は先送り」は今回の表示だけに適用します。</p>
     ${promotionPolicy.priority_reason ? `<p>特集候補・優先度の理由: ${esc(promotionPolicy.priority_reason)}</p>` : ""}
     ${hasPromotionHold ? `<p>情報待ち: ${esc(promotionPolicy.active_deferral.reason)}</p>` : ""}</div>`;
   const tab = (key, label, body) => `<section class="detail-tab-panel" data-detail-panel="${key}" ${state.detailTab === key ? "" : "hidden"}>${body}</section>`;
   const overviewBody = `
-    ${section("Profile", `<dl class="kv"><dt>Website</dt><dd>${project.website_url ? link(project.website_url) : "None"}</dd><dt>Confirmed services</dt><dd>${list(overview.confirmed_services).map(link).join("<br>") || "None"}</dd><dt>Repositories</dt><dd>${list(overview.repositories).map(link).join("<br>") || "None"}</dd><dt>Account</dt><dd>${esc(overview.account || "None")}</dd><dt>Introduced</dt><dd>${project.introduced_url ? link(project.introduced_url) : "None"}</dd><dt>Tagline</dt><dd>${esc(profileValue(profile, "tagline")) || "None"}</dd><dt>Summary</dt><dd>${esc(profileValue(profile, "summary")) || "None"}</dd><dt>Notes</dt><dd>${esc(profileValue(profile, "notes")) || "None"}</dd><dt>System notes</dt><dd>${renderSystemNotes(project)}</dd>${projectTimestampRows(project)}</dl><div class="actions"><button id="edit-profile">Edit</button></div>`)}
-    ${project.features?.length ? section("Features", `<ul>${project.features.map((value) => `<li>${esc(value)}</li>`).join("")}</ul>`) : ""}
-    ${project.editorial?.proposal ? `<p class="notice">根拠付きの説明更新案があります。ProfileのEditから確認できます。</p>` : ""}
+    ${section("紹介情報", `<dl class="kv"><dt>公式サイト</dt><dd>${project.website_url ? link(project.website_url) : "なし"}</dd><dt>採用済みサービス</dt><dd>${list(overview.confirmed_services).map(link).join("<br>") || "なし"}</dd><dt>リポジトリ</dt><dd>${list(overview.repositories).map(link).join("<br>") || "なし"}</dd><dt>アカウント</dt><dd>${esc(overview.account || "なし")}</dd><dt>紹介済み</dt><dd>${project.introduced_url ? link(project.introduced_url) : "なし"}</dd><dt>短い説明</dt><dd>${esc(profileValue(profile, "tagline")) || "なし"}</dd><dt>説明</dt><dd>${esc(profileValue(profile, "summary")) || "なし"}</dd><dt>メモ</dt><dd>${esc(profileValue(profile, "notes")) || "なし"}</dd><dt>システム履歴</dt><dd>${renderSystemNotes(project)}</dd>${projectTimestampRows(project)}</dl><div class="actions"><button id="edit-profile">編集</button></div>`)}
+    ${project.features?.length ? section("特徴", `<ul>${project.features.map((value) => `<li>${esc(value)}</li>`).join("")}</ul>`) : ""}
+    ${project.editorial?.proposal ? `<p class="notice">根拠付きの説明更新案があります。紹介情報の「編集」から確認できます。</p>` : ""}
     ${section("確認時点", renderServiceObservations(project.service_observations))}
     ${section("主機能でのatproto利用", renderAtprotoUsage(promotionPolicy.atproto_usage))}
-    ${section("Links / Resources", renderProjectLinks(overview))}
-    ${section("Evaluation", `<dl class="kv"><dt>atproto contribution</dt><dd>${pill(evaluation.atproto_contribution_level)} score ${esc(evaluation.atproto_contribution_score)}</dd><dt>Technical interest</dt><dd>${pill(evaluation.technical_interest_level)} score ${esc(evaluation.technical_interest_score)}</dd><dt>Service confidence</dt><dd>${esc(evaluation.service_status_confidence)}</dd><dt>Promotion</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "Not ready"}</dd><dt>Candidate-list status</dt><dd>${pill(promotionLabel(promotionVisibilityLabels, promotionPolicy.candidate_visibility?.group || "excluded"))}</dd><dt>Usable service screen</dt><dd>${pill(promotionLabel(promotionServiceLabels, promotionPolicy.service_evidence_group || "not_applicable"))}</dd><dt>Candidate priority</dt><dd>${pill(promotionLabel(promotionPriorityLabels, priorityGroup))} ${esc(promotionPolicy.priority_reason || "")}</dd><dt>Ranking score</dt><dd>${esc(promotionPolicy.score_breakdown?.total ?? 0)}</dd><dt>Technical summary</dt><dd>${esc(evaluation.technical_interest_summary || "None")}</dd></dl>`)}
-    ${section("Active Guards", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">No active guards.</p>`)}
-    ${section("Service / Ownership", renderServiceOwnership(serviceOwnership, browserServiceUrls))}
-    ${section("Merge Candidate", `${renderExplicitMergePairForm({source: project.project_key, sourceFixed: true})}<div id="merge-analysis-content"><p class="muted">Calculating merge candidates...</p></div>`)}
-    ${section("Explain", `<div id="explain-content">${renderExplanations(explanations)}</div>`)}
+    ${section("リンク・資料", renderProjectLinks(overview))}
+    ${section("評価", `<dl class="kv"><dt>atproto寄与度</dt><dd>${pill(evaluation.atproto_contribution_level)} 点数 ${esc(evaluation.atproto_contribution_score)}</dd><dt>技術的な学び</dt><dd>${pill(evaluation.technical_interest_level)} 点数 ${esc(evaluation.technical_interest_score)}</dd><dt>サービス状態の確信度</dt><dd>${esc(displayLabel(evaluation.service_status_confidence))}</dd><dt>紹介候補一覧</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "紹介材料が未充足"}</dd><dt>紹介候補一覧での扱い</dt><dd>${pill(promotionLabel(promotionVisibilityLabels, promotionPolicy.candidate_visibility?.group || "excluded"))}</dd><dt>サービスの利用画面</dt><dd>${pill(promotionLabel(promotionServiceLabels, promotionPolicy.service_evidence_group || "not_applicable"))}</dd><dt>紹介候補の優先度</dt><dd>${pill(promotionLabel(promotionPriorityLabels, priorityGroup))} ${esc(promotionPolicy.priority_reason || "")}</dd><dt>紹介順位の点数</dt><dd>${esc(promotionPolicy.score_breakdown?.total ?? 0)}</dd><dt>技術評価の説明</dt><dd>${esc(evaluation.technical_interest_summary || "なし")}</dd></dl>`)}
+    ${section("有効な手動判断", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">有効な手動判断はありません。</p>`)}
+    ${section("サービス・帰属", renderServiceOwnership(serviceOwnership, browserServiceUrls))}
+    ${section("マージ候補", `${renderExplicitMergePairForm({source: project.project_key, sourceFixed: true})}<div id="merge-analysis-content"><p class="muted">マージ候補を計算中…</p></div>`)}
+    ${section("判定理由", `<div id="explain-content">${renderExplanations(explanations)}</div>`)}
   `;
   $("detail").innerHTML = `
     <div class="detail-header">
@@ -862,22 +1261,22 @@ function renderDetail(data) {
       <p class="eyebrow project-key">${esc(project.project_key)}</p>
       <h2>${esc(project.name || project.project_key)}</h2>
       <div class="meta-row">${pill(project.tracking_state)}${pill(project.service_status)}${project.introduced_url ? pill("introduced", "confirmed") : ""}</div>
-      <div class="actions"><select id="tracking-state">${(state.server?.tracking_states || []).map((value) => `<option ${value === project.tracking_state ? "selected" : ""}>${esc(value)}</option>`).join("")}</select><button id="save-tracking">Set state</button><button id="add-project-seed">Add seed</button><button id="enrich-project" class="primary">Enrich</button><span id="merge-analysis-action"></span></div>
+      <div class="actions"><select id="tracking-state" aria-label="追跡状態">${(state.server?.tracking_states || []).map((value) => `<option value="${esc(value)}" ${value === project.tracking_state ? "selected" : ""}>${esc(displayLabel(value))}</option>`).join("")}</select><button id="save-tracking">追跡状態を変更</button><button id="add-project-seed">シードを追加</button><button id="enrich-project" class="primary">調査</button><span id="merge-analysis-action"></span></div>
       ${promotionActions}
     </div>
-    <nav class="detail-tabs" aria-label="Project detail">
-      ${[["overview","Overview"],["identifiers","Identifiers"],["relations","Relations"],["investigation","Investigation"],["decisions","Decisions"],["raw","Raw"]].map(([key,label]) => `<button class="secondary ${state.detailTab === key ? "active" : ""}" data-detail-tab="${key}">${label}</button>`).join("")}
+    <nav class="detail-tabs" aria-label="プロジェクト詳細">
+      ${[["overview","概要"],["identifiers","識別子"],["relations","関係"],["investigation","調査履歴"],["decisions","手動判断"],["raw","元データ"]].map(([key,label]) => `<button class="secondary ${state.detailTab === key ? "active" : ""}" data-detail-tab="${key}">${label}</button>`).join("")}
     </nav>
-    ${tab("overview", "Overview", overviewBody)}
-    ${tab("identifiers", "Identifiers", section("Identifiers", identifiers.length ? renderIdentifiers(identifiers) : `<p class="muted">No identifiers.</p>`))}
-    ${tab("relations", "Relations", section("Relations", relations.length ? relations.map((item) => `<div class="relation ${esc(item.classification)}"><div>${pill(item.classification, item.classification)} ${esc(item.summary)}</div><div class="muted">${esc(item.evidence_label)}</div><div class="actions">${reviewTargetActions(item.review_target)}</div></div>`).join("") : `<p class="muted">No saved relations.</p>`))}
-    ${tab("investigation", "Investigation", section("Latest Investigation", `${renderInvestigation(investigation)}<div class="actions"><button id="load-investigation-history">Load run history</button></div><div id="investigation-history"></div>`))}
-    ${tab("decisions", "Decisions", section("Decisions / Guards", renderDecisions(decisions)))}
-    ${tab("raw", "Raw", section("Raw Data", `<details open><summary>Project payload</summary>${json(data)}</details>`))}
+    ${tab("overview", "概要", overviewBody)}
+    ${tab("identifiers", "識別子", section("識別子", identifiers.length ? renderIdentifiers(identifiers) : `<p class="muted">識別子はありません。</p>`))}
+    ${tab("relations", "関係", section("関係", relations.length ? relations.map((item) => `<div class="relation ${esc(item.classification)}"><div>${pill(item.classification, item.classification)} ${esc(`${displayLabel(item.subject.type)}: ${item.subject.value} → ${displayLabel(item.predicate)} → ${displayLabel(item.object.type)}: ${item.object.value}`)}</div><div class="muted">${esc([displayLabel(item.source), item.locator, displayLabel(item.method)].filter(Boolean).join(" · "))}</div><div class="actions">${reviewTargetActions(item.review_target)}</div></div>`).join("") : `<p class="muted">保存済みの関係はありません。</p>`))}
+    ${tab("investigation", "調査履歴", section("最新の調査実行記録", `${renderInvestigation(investigation)}<div class="actions"><button id="load-investigation-history">調査履歴を読み込む</button></div><div id="investigation-history"></div>`))}
+    ${tab("decisions", "手動判断", section("手動判断", renderDecisions(decisions)))}
+    ${tab("raw", "元データ", section("元データ（JSON）", `<details open><summary>プロジェクトのJSON</summary>${json(data)}</details>`))}
     <div class="detail-footer">${backToListButton()}${contextualBackButton()}</div>
   `;
   bindBackToListButtons();
-  $("save-tracking")?.addEventListener("click", () => confirmMutation("Set tracking state", `Set ${project.name || project.project_key} to ${$("tracking-state").value}?`, `/api/projects/${encodeURIComponent(project.project_key)}/tracking-state`, {tracking_state: $("tracking-state").value}, false));
+  $("save-tracking")?.addEventListener("click", () => confirmMutation("追跡状態を変更", `${project.name || project.project_key}の追跡状態を「${displayLabel($("tracking-state").value)}」へ変更しますか？`, `/api/projects/${encodeURIComponent(project.project_key)}/tracking-state`, {tracking_state: $("tracking-state").value}, false));
   $("enrich-project")?.addEventListener("click", () => startProjectEnrich(project.project_key));
   $("verify-service-browser")?.addEventListener("click", () => startBrowserServiceVerification(
     project.project_key,
@@ -899,11 +1298,11 @@ function renderDetail(data) {
 }
 
 const identifierFamilies = [
-  {key: "site", label: "Project sites"},
-  {key: "service", label: "Services"},
-  {key: "repository", label: "Repositories"},
-  {key: "schema", label: "NSIDs"},
-  {key: "identity", label: "Identities"},
+  {key: "site", label: "公式サイト"},
+  {key: "service", label: "サービス"},
+  {key: "repository", label: "リポジトリ"},
+  {key: "schema", label: "NSID"},
+  {key: "identity", label: "アカウント・ドメイン"},
 ];
 
 function uniqueValues(values) { return [...new Set(values.filter(Boolean))]; }
@@ -932,15 +1331,15 @@ function identifierValueLink(item) {
 
 function renderSystemNotes(project) {
   const notes = list(project.system_notes).filter((item) => String(item || "").trim());
-  if (!notes.length) return "None";
-  return `<details class="system-notes"><summary>${notes.length} ${notes.length === 1 ? "entry" : "entries"}</summary><ol>${notes.map((item) => `<li>${esc(item)}</li>`).join("")}</ol></details>`;
+  if (!notes.length) return "なし";
+  return `<details class="system-notes"><summary>${notes.length}件（原文）</summary><ol>${notes.map((item) => `<li>${esc(item)}</li>`).join("")}</ol></details>`;
 }
 
 function renderProjectLinks(overview) {
   const groups = [
-    ["Use / install", ["website", "webApp", "distribution", "appStore", "playStore", "fdroid"]],
-    ["Project information", ["repository", "docs", "support"]],
-    ["Supporting information", ["changelog", "status", "privacyPolicy", "termsOfService", "webManifest"]],
+    ["利用・インストール", ["website", "webApp", "distribution", "appStore", "playStore", "fdroid"]],
+    ["プロジェクト情報", ["repository", "docs", "support"]],
+    ["補足情報", ["changelog", "status", "privacyPolicy", "termsOfService", "webManifest"]],
   ];
   const records = [];
   list(overview.app_links).forEach((item) => records.push({url:item.uri, role:item.role, confidence:"confirmed"}));
@@ -948,16 +1347,16 @@ function renderProjectLinks(overview) {
     if (!records.some((existing) => existing.url === item.url && existing.role === item.role)) records.push(item);
   });
   const known = new Set(groups.flatMap(([, roles]) => roles));
-  groups.push(["Other", uniqueValues(records.map((item) => item.role).filter((role) => !known.has(role)))]);
+  groups.push(["その他", uniqueValues(records.map((item) => item.role).filter((role) => !known.has(role)))]);
   const body = groups.map(([label, roles]) => {
     const items = records.filter((item) => roles.includes(item.role)).sort((a, b) => {
       const confidence = (a.confidence === "confirmed" ? 0 : 1) - (b.confidence === "confirmed" ? 0 : 1);
       return confidence || roles.indexOf(a.role) - roles.indexOf(b.role) || String(a.url).localeCompare(String(b.url));
     });
     if (!items.length) return "";
-    return `<div class="identifier-kind"><div class="identifier-kind-header"><h4>${esc(label)}</h4><span>${items.length}</span></div>${items.map((item) => `<div class="identifier ${esc(item.confidence || "candidate")}"><div>${link(item.url)}</div><div class="muted">${esc(item.role)} · ${pill(item.confidence || "candidate", item.confidence || "candidate")}</div></div>`).join("")}</div>`;
+    return `<div class="identifier-kind"><div class="identifier-kind-header"><h4>${esc(label)}</h4><span>${items.length}</span></div>${items.map((item) => `<div class="identifier ${esc(item.confidence || "candidate")}"><div>${link(item.url)}</div><div class="muted">${esc(displayLabel(item.role))} · ${pill(item.confidence || "candidate", item.confidence || "candidate")}</div></div>`).join("")}</div>`;
   }).join("");
-  return body ? `<div class="identifier-groups">${body}</div>` : `<p class="muted">No saved links.</p>`;
+  return body ? `<div class="identifier-groups">${body}</div>` : `<p class="muted">保存済みリンクはありません。</p>`;
 }
 
 function renderIdentifiers(items) {
@@ -975,10 +1374,10 @@ function renderIdentifier(item) {
   const classifications = item.classifications || [item.classification];
   const effectiveClassification = item.classification || classifications[0] || "";
   const actionKind = item.actions?.identifier_type || "";
-  const actions = `${item.actions?.block ? actionButton("Block identifier", "block-identifier", {type:actionKind, value:item.value}, "small danger") : ""}${item.actions?.defer ? actionButton("Defer identifier 30d", "defer-identifier", {type:actionKind, value:item.value}) : ""}${item.actions?.split ? actionButton("Split identifier", "split-project", {type:actionKind, value:item.value}) : ""}`;
+  const actions = `${item.actions?.block ? actionButton("識別子を除外", "block-identifier", {type:actionKind, value:item.value}, "small danger") : ""}${item.actions?.defer ? actionButton("識別子を30日保留", "defer-identifier", {type:actionKind, value:item.value}) : ""}${item.actions?.split ? actionButton("識別子を別プロジェクトへ分割", "split-project", {type:actionKind, value:item.value}) : ""}`;
   const showKinds = item.family === "identity" || item.family.startsWith("other:");
   const entries = list(item.entries);
-  const detail = uniqueValues([showKinds ? item.kinds.join(" + ") : "", item.is_primary ? "primary" : "", ...item.providers]).join(" · ");
+  const detail = uniqueValues([showKinds ? item.kinds.map(displayLabel).join(" + ") : "", item.is_primary ? "primary" : "", ...item.providers]).join(" · ");
   return `<div class="identifier ${esc(effectiveClassification)}">
     <div class="identifier-main">
       <div class="identifier-value">${identifierValueLink(item)}</div>
@@ -986,13 +1385,33 @@ function renderIdentifier(item) {
       <div class="identifier-entry-list">${entries.map((entry) => {
         const entryType = entry.actions?.identifier_type || "";
         const entryValue = entry.value || item.value;
-        const entryActions = `${entry.actions?.confirm ? actionButton("Confirm value", "confirm-candidate", {type:entryType, value:entryValue}, "small primary") : ""}${entry.actions?.reject ? actionButton("Reject value", "reject-candidate", {type:entryType, value:entryValue}, "small danger") : ""}${entry.actions?.block ? actionButton("Block value", "block-identifier", {type:entryType, value:entryValue}, "small danger") : ""}${entry.actions?.defer ? actionButton("Defer value 30d", "defer-identifier", {type:entryType, value:entryValue}, "small") : ""}${entry.actions?.split ? actionButton("Split value", "split-project", {type:entryType, value:entryValue}, "small") : ""}`;
+        const entryActions = `${entry.actions?.confirm ? actionButton("この値を採用", "confirm-candidate", {type:entryType, value:entryValue}, "small primary") : ""}${entry.actions?.reject ? actionButton("この値を除外", "reject-candidate", {type:entryType, value:entryValue}, "small danger") : ""}${entry.actions?.block ? actionButton("この値を除外", "block-identifier", {type:entryType, value:entryValue}, "small danger") : ""}${entry.actions?.defer ? actionButton("この値を30日保留", "defer-identifier", {type:entryType, value:entryValue}, "small") : ""}${entry.actions?.split ? actionButton("この値を別プロジェクトへ分割", "split-project", {type:entryType, value:entryValue}, "small") : ""}`;
         const entryValueLabel = entryValue !== item.value ? entryValue : "";
-        return `<div class="identifier-entry"><div>${pill(entry.classification, entry.classification)} <strong>${esc(entry.role_label || entry.role)}</strong>${entry.is_primary ? ` ${pill("primary")}` : ""}</div><div class="muted">${esc(uniqueValues([entry.kind, entryValueLabel, entry.provider, formatTimestamp(entry.observed_at)]).join(" · "))}</div>${entryActions ? `<div class="actions">${entryActions}</div>` : ""}</div>`;
-      }).join("") || `<div class="identifier-summary">${classifications.map((value) => pill(value, value)).join("")}<span class="identifier-roles">${esc(item.role_labels.join(" · "))}</span></div>`}</div>
+        return `<div class="identifier-entry"><div>${pill(entry.classification, entry.classification)} <strong>${esc(displayLabel(entry.role_label || entry.role))}</strong>${entry.is_primary ? ` ${pill("primary")}` : ""}</div><div class="muted">${esc(uniqueValues([displayLabel(entry.kind), entryValueLabel, entry.provider, formatTimestamp(entry.observed_at)]).join(" · "))}</div>${entryActions ? `<div class="actions">${entryActions}</div>` : ""}</div>`;
+      }).join("") || `<div class="identifier-summary">${classifications.map((value) => pill(value, value)).join("")}<span class="identifier-roles">${esc(item.role_labels.map(displayLabel).join(" · "))}</span></div>`}</div>
     </div>
-    ${actions ? `<details class="identifier-actions"><summary>Identifier actions</summary><div class="actions"><p class="muted">These apply to this identifier value.</p>${actions}</div></details>` : ""}
+    ${actions ? `<details class="identifier-actions"><summary>識別子全体への操作</summary><div class="actions"><p class="muted">この識別子の値全体に適用します。</p>${actions}</div></details>` : ""}
   </div>`;
+}
+
+function decisionNote(item) {
+  // Translate only notes with a known generating action and provenance.
+  if (item.kind === "confirm_identifier") {
+    const labels = {
+      trust_policy: {
+        "service accepted by the configured trust policy": "設定された信頼規則でサービスを採用",
+        "repository accepted by the configured trust policy": "設定された信頼規則でリポジトリを採用",
+      },
+      operator_add_seed: {"identifier added by operator": "利用者がシードとして識別子を追加"},
+      web_ui: {"candidate confirmed by operator": "利用者が候補を採用"},
+      "trust_policy:accepted_lexicon_publisher": {
+        "collection accepted through authority-scoped publication evidence": "同じ管理範囲の公開根拠によりコレクションを採用",
+      },
+    };
+    const source = item.metadata?.source || "";
+    if (Object.hasOwn(labels, source) && Object.hasOwn(labels[source], item.note)) return labels[source][item.note];
+  }
+  return item.note || "メモなし";
 }
 
 function renderDecisions(decisions) {
@@ -1000,34 +1419,34 @@ function renderDecisions(decisions) {
   const history = list(decisions.history);
   const current = active.length ? active.map((item) => {
     const summary = item.kind === "lower_promotion_priority"
-      ? `${pill("Candidate priority", "candidate")} Lower priority`
-      : `${pill(item.kind, "candidate")} ${esc(item.target_type)} ${esc(item.target_value)}`;
-    return `<div class="decision"><div>${summary}</div><div class="muted">${esc(item.note || "No note")} ${item.expires_at ? `· expires ${esc(formatTimestamp(item.expires_at))}` : ""}</div><div class="actions">${item.kind === "block_identifier" ? actionButton("Clear block", "clear-block-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_identifier" ? actionButton("Clear defer", "clear-defer-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_promotion" ? actionButton("Clear defer", "clear-promotion-deferral") : ""}${item.kind === "lower_promotion_priority" ? actionButton("Restore normal priority", "clear-promotion-priority") : ""}${item.kind === "separate_project" ? actionButton("Clear separate", "clear-separate", {other:item.target_value}) : ""}${["dismiss_review_target", "defer_review_target"].includes(item.kind) ? actionButton("Clear", "clear-review-target", {"target-type":item.target_type, "target-value":item.target_value, "review-action":item.kind.startsWith("defer") ? "defer" : "dismiss"}) : ""}</div></div>`;
-  }).join("") : `<p class="muted">No active decisions.</p>`;
-  return current + (history.length ? `<details><summary>Decision history (${history.length})</summary>${json(history)}</details>` : "");
+      ? `${pill("紹介候補の優先度", "candidate")} 低い優先度`
+      : `${pill(item.kind, "candidate")} ${esc(displayLabel(item.target_type))} ${esc(item.target_value)}`;
+    return `<div class="decision"><div>${summary}</div><div class="muted">${esc(decisionNote(item))} ${item.expires_at ? `· 期限 ${esc(formatTimestamp(item.expires_at))}` : ""}</div><div class="actions">${item.kind === "block_identifier" ? actionButton("除外を解除", "clear-block-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_identifier" ? actionButton("保留を解除", "clear-defer-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_promotion" ? actionButton("保留を解除", "clear-promotion-deferral") : ""}${item.kind === "lower_promotion_priority" ? actionButton("通常の優先度へ戻す", "clear-promotion-priority") : ""}${item.kind === "separate_project" ? actionButton("別プロジェクト指定を解除", "clear-separate", {other:item.target_value}) : ""}${["dismiss_review_target", "defer_review_target"].includes(item.kind) ? actionButton("解除", "clear-review-target", {"target-type":item.target_type, "target-value":item.target_value, "review-action":item.kind.startsWith("defer") ? "defer" : "dismiss"}) : ""}</div></div>`;
+  }).join("") : `<p class="muted">有効な手動判断はありません。</p>`;
+  return current + (history.length ? `<details><summary>手動判断の履歴（JSON） (${history.length})</summary>${json(history)}</details>` : "");
 }
 
 function renderInvestigation(run) {
-  if (!run) return `<p class="muted">No saved investigation run.</p>`;
-  return `<dl class="kv"><dt>Run</dt><dd>${esc(run.run_id)}</dd><dt>Completed</dt><dd>${esc(formatTimestamp(run.completed_at))}</dd><dt>Duration</dt><dd>${esc(formatMilliseconds(run.metrics?.total_ms) || "Not recorded")}</dd><dt>Records</dt><dd>${esc(run.record_count)}</dd><dt>Failures</dt><dd>${esc(run.failure_count)}</dd></dl>
-    <div>${list(run.collectors).map((item) => `<div class="collector"><div>${pill(item.status, item.status)} <strong>${esc(item.source)}</strong></div><div class="muted">${esc(item.operation)} · ${esc(item.request_count || 0)} requests · ${esc(item.result_count || 0)} results${item.stop_reason ? ` · ${esc(item.stop_reason)}` : ""}</div></div>`).join("") || `<p class="muted">No collector summaries.</p>`}</div>
-    ${run.failures?.length ? `<details><summary>Failures</summary>${run.failures.map((item) => `<div class="collector"><div>${pill(item.category, "candidate")} ${esc(item.source)} ${esc(item.operation)}</div><div class="muted">${esc(item.message)}</div><div class="actions">${reviewTargetActions(item.review_target)}</div></div>`).join("")}</details>` : ""}`;
+  if (!run) return `<p class="muted">保存済みの調査実行記録はありません。</p>`;
+  return `<dl class="kv"><dt>調査実行記録</dt><dd>${esc(run.run_id)}</dd><dt>完了日時</dt><dd>${esc(formatTimestamp(run.completed_at))}</dd><dt>所要時間</dt><dd>${esc(formatMilliseconds(run.metrics?.total_ms) || "未記録")}</dd><dt>記録件数</dt><dd>${esc(run.record_count)}</dd><dt>失敗</dt><dd>${esc(run.failure_count)}</dd></dl>
+    <div>${list(run.collectors).map((item) => `<div class="collector"><div>${pill(item.status, item.status)} <strong>${esc(displayLabel(item.source))}</strong></div><div class="muted">${esc(displayLabel(item.operation))} · ${esc(item.request_count || 0)} リクエスト · ${esc(item.result_count || 0)} 件${item.stop_reason ? ` · ${esc(displayLabel(item.stop_reason))}` : ""}</div></div>`).join("") || `<p class="muted">収集処理の概要はありません。</p>`}</div>
+    ${run.failures?.length ? `<details><summary>失敗</summary>${run.failures.map((item) => `<div class="collector"><div>${pill(item.category, "candidate")} ${esc(displayLabel(item.source))} ${esc(displayLabel(item.operation))}</div><div class="muted">技術詳細（原文）: ${esc(item.message)}</div><div class="actions">${reviewTargetActions(item.review_target)}</div></div>`).join("")}</details>` : ""}`;
 }
 
 function renderRunMetrics(metrics) {
-  if (!metrics?.version) return `<p class="muted">Timing was not recorded for this run.</p>`;
+  if (!metrics?.version) return `<p class="muted">この調査実行記録には所要時間が記録されていません。</p>`;
   const phaseLabels = {
-    initial_collection_ms: "Initial collection + integration",
-    planning_ms: "Investigation planning",
-    investigation_collection_ms: "Investigation collection + integration",
-    triage_ms: "LLM triage + application",
-    evaluation_ms: "Final evaluation",
-    run_history_save_ms: "Run history serialization + SQL",
-    project_save_ms: "Project serialization + SQL",
+    initial_collection_ms: "初期収集・反映",
+    planning_ms: "調査計画",
+    investigation_collection_ms: "追加収集・反映",
+    triage_ms: "LLMによる評価・反映",
+    evaluation_ms: "最終評価",
+    run_history_save_ms: "調査履歴の変換・SQL保存",
+    project_save_ms: "プロジェクトの変換・SQL保存",
   };
   const phases = Object.entries(phaseLabels).filter(([key]) => metrics.phases?.[key] !== undefined);
   const requests = list(metrics.llm_requests);
-  return `<dl class="kv"><dt>Total</dt><dd>${esc(formatMilliseconds(metrics.total_ms))}</dd>${phases.map(([key, label]) => `<dt>${esc(label)}</dt><dd>${esc(formatMilliseconds(metrics.phases[key]))}</dd>`).join("")}</dl>${requests.length ? `<details><summary>LLM requests (${requests.length})</summary>${requests.map((item) => `<div class="collector"><div>${pill(item.status, item.status)} <strong>${esc(item.purpose)}</strong> · ${esc(formatMilliseconds(item.duration_ms))}</div><div class="muted">${esc(item.prompt_bytes || 0)} prompt bytes · ${esc(item.response_bytes || 0)} response bytes · timeout ${esc(item.timeout_seconds)}s${item.error_category ? ` · ${esc(item.error_category)}` : ""}${item.model ? ` · ${esc(item.model)}` : ""}</div></div>`).join("")}</details>` : `<p class="muted">No LLM request was observed.</p>`}`;
+  return `<dl class="kv"><dt>合計</dt><dd>${esc(formatMilliseconds(metrics.total_ms))}</dd>${phases.map(([key, label]) => `<dt>${esc(label)}</dt><dd>${esc(formatMilliseconds(metrics.phases[key]))}</dd>`).join("")}</dl>${requests.length ? `<details><summary>LLMリクエスト (${requests.length})</summary>${requests.map((item) => `<div class="collector"><div>${pill(item.status, item.status)} <strong>${esc(displayLabel(item.purpose))}</strong> · ${esc(formatMilliseconds(item.duration_ms))}</div><div class="muted">${esc(item.prompt_bytes || 0)} 入力バイト · ${esc(item.response_bytes || 0)} 出力バイト · 制限時間 ${esc(item.timeout_seconds)}秒${item.error_category ? ` · ${esc(displayLabel(item.error_category))}` : ""}${item.model ? ` · ${esc(item.model)}` : ""}</div></div>`).join("")}</details>` : `<p class="muted">LLMリクエストの記録はありません。</p>`}`;
 }
 
 function renderOAuthClient(item) {
@@ -1038,7 +1457,7 @@ function renderOAuthClient(item) {
     ${analysis.atproto_only ? `<p>認証用の atproto scope のみ。公開データの読取りは可能です。</p>` : ""}
     ${list(analysis.permissions).map((p) => {
       const target = list(p.collection || p.lxm || p.accept).join(", ") || p.nsid || p.attr || p.raw;
-      return `<div class="relation"><strong>${esc(p.kind)}: ${esc(target)}</strong>${p.kind === "include" ? pill("権限セット・未解決", "candidate") : ""}<div class="muted">${p.action ? `操作: ${esc(p.action.join(", "))}` : ""}${p.aud ? ` · 宛先: ${esc(p.aud)}` : ""}${p.kind === "transition" ? "移行用の権限。これだけでは用途を特定できません。" : ""}</div></div>`;
+      return `<div class="relation"><strong>${esc(displayLabel(p.kind))}: ${esc(displayLabel(target))}</strong>${p.kind === "include" ? pill("権限セット・未解決", "candidate") : ""}<div class="muted">${p.action ? `操作: ${esc(p.action.map(displayLabel).join("、"))}` : ""}${p.aud ? ` · 宛先: ${esc(p.aud)}` : ""}${p.kind === "transition" ? "移行用の権限。これだけでは用途を特定できません。" : ""}</div></div>`;
     }).join("")}
     ${list(analysis.unrecognized).length ? `<p>未解釈: ${esc(analysis.unrecognized.join(" "))}</p>` : ""}
     ${analysis.error ? `<p>${esc(analysis.error)}</p>` : ""}
@@ -1050,8 +1469,8 @@ function renderUsageMaterial(material = {}) {
   const coverage = {collected_html:"取得時のHTML本文から抽出", saved_html_excerpt:"保存済みHTMLの範囲のみ", saved_excerpt:"保存済み画面本文の範囲のみ", saved_readme_excerpt:"保存済みREADME抜粋の範囲のみ", saved_description:"保存済みページ説明文"};
   return `${renderCollectionMaterial(material.collections)}<details><summary>atproto利用の関連記述 (${sources.length})</summary>
     <p class="muted">用語検索で選んだ原文です。否定・予定・他サービスの説明も含みます。主機能との関係や実利用は未判定です。</p>
-    ${sources.length ? sources.map((source) => `<div class="collector"><strong>${esc(source.kind)}</strong> ${link(source.url || source.locator)}${source.url ? `<div class="muted">${esc(source.locator)}</div>` : ""}<div class="muted">${esc(coverage[source.coverage] || source.coverage)}${source.observed_at ? ` · ${esc(formatTimestamp(source.observed_at))}` : " · 観測時刻不明"}${source.input_truncated || source.matches_omitted ? " · 検索範囲／表示の省略あり" : ""}</div>
-      ${source.literal_collections?.length ? `<p>観測済みcollectionと同じ表記: ${esc(source.literal_collections.join(", "))}（意味上の対応は未判定）</p>` : ""}
+    ${sources.length ? sources.map((source) => `<div class="collector"><strong>${esc(displayLabel(source.kind))}</strong> ${link(source.url || source.locator)}${source.url ? `<div class="muted">${esc(source.locator)}</div>` : ""}<div class="muted">${esc(coverage[source.coverage] || source.coverage)}${source.observed_at ? ` · ${esc(formatTimestamp(source.observed_at))}` : " · 観測時刻不明"}${source.input_truncated || source.matches_omitted ? " · 検索範囲／表示の省略あり" : ""}</div>
+      ${source.literal_collections?.length ? `<p>観測済みコレクションと同じ表記: ${esc(source.literal_collections.join(", "))}（意味上の対応は未判定）</p>` : ""}
       ${list(source.passages).map((p) => `<div class="relation"><div class="muted">本文位置 ${esc(p.start)}–${esc(p.end)} · 検索語: ${esc(list(p.matches).join(", "))}</div>${p.before_omitted ? `<div class="muted">前略</div>` : ""}<pre>${esc(p.text)}</pre>${p.after_omitted ? `<div class="muted">後略</div>` : ""}</div>`).join("")}</div>`).join("") : `<p>${material.status === "no_matches" ? "保存済みの材料に検索語が見つかりませんでした。atprotoを使わないという意味ではありません。" : material.status === "text_unavailable" ? "HTMLの観測はありますが、検索できる本文を取り出せませんでした。" : "検索できる本文の観測がありません。"}</p>`}
     ${material.sources_omitted ? `<p>ほか ${esc(material.sources_omitted)} 件の資料を省略しています。</p>` : ""}
     </details>`;
@@ -1059,17 +1478,17 @@ function renderUsageMaterial(material = {}) {
 
 function renderCollectionMaterial(catalog = {}) {
   const rows = list(catalog.rows);
-  return `<details><summary>collectionごとの材料 (${rows.length})</summary>
-    <p class="muted">同じ名前の観測を並べています。権限は要求の宣言、Lexiconはデータの定義、recordは公開データの観測です。作成アプリ・所有・主機能との関係は未確認です。個別のrepo宣言がなくても公開読取りは可能です。wildcard・権限セット・未解釈scopeは上のOAuth欄を確認してください。</p>
+  return `<details><summary>コレクションごとの材料 (${rows.length})</summary>
+    <p class="muted">同じ名前の観測を並べています。権限は要求の宣言、Lexiconはデータの定義、レコードは公開データの観測です。作成アプリ・所有・主機能との関係は未確認です。個別のリポジトリ権限の宣言がなくても公開読取りは可能です。ワイルドカード・権限セット・未解釈のscopeは上のOAuth欄を確認してください。</p>
     ${rows.map((row) => `<div class="collector"><h4>${esc(row.collection)}</h4>
-      <strong>要求する操作</strong>${row.permissions.length ? row.permissions.map((p) => `<p>${esc(p.actions.join(", "))} · ${link(p.metadata_url)} · ${esc(p.observed_at ? formatTimestamp(p.observed_at) : "観測時刻不明")}</p>`).join("") : "<p>このcollection名の個別repo宣言は未観測</p>"}
-      <strong>Lexiconの定義</strong>${row.schemas.length ? row.schemas.map((s) => `<div class="relation"><p>${esc(s.description || s.record_description || "説明文は未保存")}</p>${s.description && s.record_description ? `<p>${esc(s.record_description)}</p>` : ""}<p>record key: ${esc(s.key || "未保存")}</p>
-        ${s.fields_status === "saved" ? `<ul>${s.fields.map((f) => `<li>${esc(f.name)}${f.type ? ` (${esc(f.type)})` : ""}${f.description ? ` — ${esc(f.description)}` : ""}</li>`).join("")}</ul>${s.fields_omitted || s.fields_compacted ? `<p>field一覧の一部は省略されています。</p>` : ""}` : "<p>field一覧は保存時に省略、または未保存</p>"}
-        <p class="muted">${esc(s.observed_at ? formatTimestamp(s.observed_at) : "観測時刻不明")}</p></div>`).join("") : "<p>record型のschemaは未観測</p>"}
-      <strong>recordの観測</strong>${row.record_observations.map((o) => `<p>観測時の集計: ${esc(o.count ?? "不明")} 件 / recent ${esc(o.recent_count ?? "不明")} 件 · ${esc(o.observed_at ? formatTimestamp(o.observed_at) : "観測時刻不明")}</p>`).join("")}
-      ${row.record_samples.length ? `<p>保存済みサンプル ${row.record_samples.length} 件</p>${row.record_samples.map((r) => `<div class="relation"><p>${esc(r.did || "DID未保存")} / ${esc(r.rkey || "record key未保存")}</p><p>観測field: ${esc(r.fields.join(", ") || "なし／未保存")}${r.fields_omitted ? "（一部省略）" : ""}</p>${r.declared_type && r.declared_type !== row.collection ? `<p>record内の$typeはcollection名と不一致: ${esc(r.declared_type)}</p>` : ""}</div>`).join("")}` : "<p>保存済みrecordサンプルなし（recordが存在しないという意味ではありません）</p>"}
-      </div>`).join("") || "<p>個別のcollectionを照合できる観測がありません。</p>"}
-    ${catalog.omitted ? `<p>ほか ${esc(catalog.omitted)} collectionを省略しています。</p>` : ""}</details>`;
+      <strong>要求する操作</strong>${row.permissions.length ? row.permissions.map((p) => `<p>${esc(p.actions.map(displayLabel).join("、"))} · ${link(p.metadata_url)} · ${esc(p.observed_at ? formatTimestamp(p.observed_at) : "観測時刻不明")}</p>`).join("") : "<p>このコレクション名の個別のリポジトリ権限の宣言は未観測</p>"}
+      <strong>Lexiconの定義</strong>${row.schemas.length ? row.schemas.map((s) => `<div class="relation"><p>${esc(s.description || s.record_description || "説明文は未保存")}</p>${s.description && s.record_description ? `<p>${esc(s.record_description)}</p>` : ""}<p>レコードキー: ${esc(s.key || "未保存")}</p>
+        ${s.fields_status === "saved" ? `<ul>${s.fields.map((f) => `<li>${esc(f.name)}${f.type ? ` (${esc(f.type)})` : ""}${f.description ? ` — ${esc(f.description)}` : ""}</li>`).join("")}</ul>${s.fields_omitted || s.fields_compacted ? `<p>フィールド一覧の一部は省略されています。</p>` : ""}` : "<p>フィールド一覧は保存時に省略、または未保存</p>"}
+        <p class="muted">${esc(s.observed_at ? formatTimestamp(s.observed_at) : "観測時刻不明")}</p></div>`).join("") : "<p>レコード型のスキーマは未観測</p>"}
+      <strong>レコードの観測</strong>${row.record_observations.map((o) => `<p>観測時の集計: ${esc(o.count ?? "不明")} 件 / 直近 ${esc(o.recent_count ?? "不明")} 件 · ${esc(o.observed_at ? formatTimestamp(o.observed_at) : "観測時刻不明")}</p>`).join("")}
+      ${row.record_samples.length ? `<p>保存済みサンプル ${row.record_samples.length} 件</p>${row.record_samples.map((r) => `<div class="relation"><p>${esc(r.did || "DID未保存")} / ${esc(r.rkey || "レコードキー未保存")}</p><p>観測フィールド: ${esc(r.fields.join(", ") || "なし／未保存")}${r.fields_omitted ? "（一部省略）" : ""}</p>${r.declared_type && r.declared_type !== row.collection ? `<p>レコード内の$typeはコレクション名と不一致: ${esc(r.declared_type)}</p>` : ""}</div>`).join("")}` : "<p>保存済みレコードのサンプルなし（レコードが存在しないという意味ではありません）</p>"}
+      </div>`).join("") || "<p>個別のコレクションを照合できる観測がありません。</p>"}
+    ${catalog.omitted ? `<p>ほか ${esc(catalog.omitted)} コレクションを省略しています。</p>` : ""}</details>`;
 }
 
 function renderServiceOwnership(data, serviceUrls = []) {
@@ -1081,24 +1500,24 @@ function renderServiceOwnership(data, serviceUrls = []) {
   const aliases = list(data.url_aliases);
   const targets = uniqueValues(serviceUrls);
   const browserControls = targets.length
-    ? `<div class="controls"><label>Anonymous browser target<select id="browser-service-url">${targets.map((url) => `<option value="${esc(url)}">${esc(url)}</option>`).join("")}</select></label><button id="verify-service-browser" class="primary">Verify in anonymous browser</button></div>`
-    : `<p class="muted">Add a confirmed or candidate service URL before browser verification.</p>`;
-  return `<dl class="kv"><dt>Saved service observation</dt><dd>${pill(data.current_service_status)} ${esc(data.current_service_status_confidence || "none")}</dd><dt>Verification history</dt><dd>${esc(data.service_verification_status || "not_observed")}</dd><dt>Ownership signal</dt><dd>${esc(data.ownership_signal || "unknown")}</dd><dt>OAuth metadata</dt><dd>${esc(data.oauth_status || "not_observed")}</dd><dt>URL aliases</dt><dd>${esc(data.url_alias_status || "not_observed")}</dd></dl>${browserControls}
-    ${service.length ? `<details><summary>Service verification comparison (${service.length})</summary>${service.map((item) => `<div class="collector">${pill(item.status, item.status)} ${item.application_status === "unapplied" ? pill("未反映（競合）", "candidate") : ""} ${esc(formatTimestamp(item.completed_at))} · ${esc(item.source)}</div>`).join("")}</details>` : ""}
-    ${ownership.length ? `<details><summary>NSID ownership (${ownership.length})</summary>${ownership.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.classification, item.classification)}<div class="muted">${esc(item.evidence_status)} · ${esc(item.evidence.map((entry) => `${entry.predicate}:${entry.source}`).join(", ") || "no saved ownership relation")}</div></div>`).join("")}</details>` : ""}
+    ? `<div class="controls"><label>匿名ブラウザーでの確認対象<select id="browser-service-url">${targets.map((url) => `<option value="${esc(url)}">${esc(url)}</option>`).join("")}</select></label><button id="verify-service-browser" class="primary">匿名ブラウザーで確認</button></div>`
+    : `<p class="muted">ブラウザー確認には採用済みまたは候補のサービスURLが必要です。</p>`;
+  return `<dl class="kv"><dt>保存済みサービス観測</dt><dd>${pill(data.current_service_status)} ${esc(displayLabel(data.current_service_status_confidence || "none"))}</dd><dt>確認履歴</dt><dd>${esc(displayLabel(data.service_verification_status || "not_observed"))}</dd><dt>帰属の根拠</dt><dd>${esc(displayLabel(data.ownership_signal || "unknown"))}</dd><dt>OAuthメタデータ</dt><dd>${esc(displayLabel(data.oauth_status || "not_observed"))}</dd><dt>URLの別名</dt><dd>${esc(displayLabel(data.url_alias_status || "not_observed"))}</dd></dl>${browserControls}
+    ${service.length ? `<details><summary>サービス確認の比較 (${service.length})</summary>${service.map((item) => `<div class="collector">${pill(item.status, item.status)} ${item.application_status === "unapplied" ? pill("未反映（競合）", "candidate") : ""} ${esc(formatTimestamp(item.completed_at))} · ${esc(displayLabel(item.source))}</div>`).join("")}</details>` : ""}
+    ${ownership.length ? `<details><summary>NSIDの帰属 (${ownership.length})</summary>${ownership.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.classification, item.classification)}<div class="muted">${esc(displayLabel(item.evidence_status))} · ${esc(item.evidence.map((entry) => `${displayLabel(entry.predicate)}: ${displayLabel(entry.source)}`).join(", ") || "保存済みの帰属関係なし")}</div></div>`).join("")}</details>` : ""}
     ${clients.length ? `<details><summary>OAuth scope の宣言 (${clients.length})</summary><p class="muted">要求できる権限の宣言です。実際に許可された権限や利用状況、サービスの所有を示すものではありません。</p>${clients.map(renderOAuthClient).join("")}</details>` : ""}
     ${renderUsageMaterial(data.atproto_material)}
-    ${historicalPermissions.length ? `<details><summary>OAuth permissions・従来の保存情報 (${historicalPermissions.length})</summary>${historicalPermissions.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.method)}${item.include_unresolved ? pill("include unresolved", "candidate") : ""}<div class="muted">${esc(item.source)}</div></div>`).join("")}</details>` : ""}
-    ${aliases.length ? `<details><summary>URL aliases (${aliases.length})</summary>${aliases.map((item) => `<div class="identifier ${esc(item.confidence || "candidate")}"><div>${link(item.alias)} → ${link(item.canonical)}</div><div class="muted">${esc(item.reason || "observed alias")}</div><div class="actions">${actionButton("Block alias", "block-identifier", {type:"service_url", value:item.alias}, "small danger")}${actionButton("Defer alias", "defer-identifier", {type:"service_url", value:item.alias})}</div></div>`).join("")}</details>` : ""}`;
+    ${historicalPermissions.length ? `<details><summary>OAuth権限・従来の保存情報 (${historicalPermissions.length})</summary>${historicalPermissions.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.method)}${item.include_unresolved ? pill("権限セット・未解決", "candidate") : ""}<div class="muted">${esc(displayLabel(item.source))}</div></div>`).join("")}</details>` : ""}
+    ${aliases.length ? `<details><summary>URLの別名 (${aliases.length})</summary>${aliases.map((item) => `<div class="identifier ${esc(item.confidence || "candidate")}"><div>${link(item.alias)} → ${link(item.canonical)}</div><div class="muted">${esc(item.reason || "観測された別名")}</div><div class="actions">${actionButton("別名URLを除外", "block-identifier", {type:"service_url", value:item.alias}, "small danger")}${actionButton("別名URLを保留", "defer-identifier", {type:"service_url", value:item.alias})}</div></div>`).join("")}</details>` : ""}`;
 }
 
 function renderExplanation(topic, item) {
-  return `<div data-explain-topic="${esc(topic)}"><details><summary>${esc(topic)}: ${esc(item.conclusion)}</summary><dl class="kv"><dt>Rule</dt><dd>${esc(item.rule)}</dd><dt>Supports</dt><dd>${list(item.supporting_signals).map((value) => pill(value, "confirmed")).join(" ") || "None observed"}</dd><dt>Counters</dt><dd>${list(item.counter_signals).map((value) => pill(value, "candidate")).join(" ") || "None observed"}</dd></dl>${item.sources?.length ? json(item.sources) : ""}</details></div>`;
+  return `<div data-explain-topic="${esc(topic)}"><details><summary>${esc(displayLabel(topic))}: ${esc(displayLabel(item.conclusion))}</summary><dl class="kv"><dt>判定規則</dt><dd>${esc(displayLabel(item.rule))}</dd><dt>支持する根拠</dt><dd>${list(item.supporting_signals).map((value) => pill(value, "confirmed")).join(" ") || "観測なし"}</dd><dt>反する根拠</dt><dd>${list(item.counter_signals).map((value) => pill(value, "candidate")).join(" ") || "観測なし"}</dd></dl>${item.sources?.length ? json(item.sources) : ""}</details></div>`;
 }
 
 function renderExplanations(topics) {
   const entries = Object.entries(topics || {});
-  if (!entries.length) return `<p class="muted">No explanation available.</p>`;
+  if (!entries.length) return `<p class="muted">判定理由はありません。</p>`;
   return entries.map(([topic, item]) => renderExplanation(topic, item)).join("");
 }
 
@@ -1108,7 +1527,7 @@ async function loadMergeAnalysis(projectKey, revision, explanations) {
     const data = await api(`/api/projects/${encodeURIComponent(projectKey)}/merge-analysis`);
     if (request !== state.mergeAnalysisRequest || state.selected !== projectKey || state.detailRevision !== revision) return;
     if (data.revision !== revision) {
-      $("merge-analysis-content").innerHTML = `<p class="muted">Project changed. Reload detail to recalculate merge candidates.</p>`;
+      $("merge-analysis-content").innerHTML = `<p class="muted">プロジェクトが変更されました。詳細を再読込してマージ候補を再計算してください。</p>`;
       return;
     }
     const recommendation = data.merge_recommendation || {};
@@ -1117,12 +1536,12 @@ async function loadMergeAnalysis(projectKey, revision, explanations) {
     const otherCandidates = candidates.filter((item) => item.project_key !== recommendation.target_project_key).slice(0, 5);
     state.mergeTargetRevision = data.merge_target_revision || "";
     $("merge-analysis-content").innerHTML = recommendation.target_project_key
-      ? `<dl class="kv"><dt>Candidate</dt><dd>${esc(target?.name || recommendation.target_project_key)} <span class="muted">${esc(recommendation.target_project_key)}</span></dd><dt>Confidence</dt><dd>${pill(recommendation.merge_confidence || "unknown")} score ${esc(recommendation.score || 0)}</dd><dt>Auto merge</dt><dd>${recommendation.auto_merge_ready ? pill("ready", "confirmed") : "Manual review required"}</dd></dl><div class="actions"><button class="small" data-view-project="${esc(recommendation.target_project_key)}">View candidate detail</button><button class="small" data-review-merge="${esc(recommendation.target_project_key)}">Compare before merge</button></div>${otherCandidates.length ? `<details><summary>Other candidates (${candidates.length - 1})</summary>${otherCandidates.map((item) => `<div class="identifier"><div>${esc(item.name || item.project_key)} <span class="muted">${esc(item.project_key)}</span></div><div>${pill(item.merge_confidence || "unknown")} score ${esc(item.score || 0)}</div><div class="actions"><button class="small" data-view-project="${esc(item.project_key)}">View</button><button class="small" data-review-merge="${esc(item.project_key)}">Compare</button></div></div>`).join("")}</details>` : ""}`
-      : `<p class="muted">No merge candidate found.</p>`;
+      ? `<dl class="kv"><dt>候補</dt><dd>${esc(target?.name || recommendation.target_project_key)} <span class="muted">${esc(recommendation.target_project_key)}</span></dd><dt>確信度</dt><dd>${pill(recommendation.merge_confidence || "unknown")} 点数 ${esc(recommendation.score || 0)}</dd><dt>自動マージ</dt><dd>${recommendation.auto_merge_ready ? pill("ready", "confirmed") : "手動レビューが必要"}</dd></dl><div class="actions"><button class="small" data-view-project="${esc(recommendation.target_project_key)}">候補の詳細を見る</button><button class="small" data-review-merge="${esc(recommendation.target_project_key)}">マージ前に比較</button></div>${otherCandidates.length ? `<details><summary>その他の候補 (${candidates.length - 1})</summary>${otherCandidates.map((item) => `<div class="identifier"><div>${esc(item.name || item.project_key)} <span class="muted">${esc(item.project_key)}</span></div><div>${pill(item.merge_confidence || "unknown")} 点数 ${esc(item.score || 0)}</div><div class="actions"><button class="small" data-view-project="${esc(item.project_key)}">表示</button><button class="small" data-review-merge="${esc(item.project_key)}">比較</button></div></div>`).join("")}</details>` : ""}`
+      : `<p class="muted">マージ候補はありません。</p>`;
     document.querySelectorAll("[data-view-project]").forEach((button) => button.onclick = () => loadDetail(button.dataset.viewProject));
     document.querySelectorAll("[data-review-merge]").forEach((button) => button.onclick = () => loadMergeDetail(projectKey, button.dataset.reviewMerge, {backTarget: {type: "project", key: projectKey}}));
     if (recommendation.target_project_key) {
-      $("merge-analysis-action").innerHTML = `<button id="compare-merge-recommendation" class="secondary">Compare merge candidate</button>`;
+      $("merge-analysis-action").innerHTML = `<button id="compare-merge-recommendation" class="secondary">マージ候補を比較</button>`;
       $("compare-merge-recommendation").onclick = () => loadMergeDetail(projectKey, recommendation.target_project_key, {backTarget: {type: "project", key: projectKey}});
     }
     const mergeExplanation = data.explanation || {};
@@ -1138,24 +1557,24 @@ async function loadMergeAnalysis(projectKey, revision, explanations) {
 
 async function loadInvestigationHistory(projectKey) {
   const target = $("investigation-history");
-  target.innerHTML = `<p class="muted">Loading runs...</p>`;
+  target.innerHTML = `<p class="muted">調査履歴を読込中…</p>`;
   try {
     const data = await api(`/api/projects/${encodeURIComponent(projectKey)}/investigation-runs?limit=50`);
-    target.innerHTML = list(data.items).length ? `<div>${data.items.map((run) => `<button class="card" data-investigation-run="${esc(run.run_id)}"><span class="card-title"><strong>${esc(formatTimestamp(run.completed_at))}</strong>${pill(run.application_status === "unapplied" ? "未反映（競合）" : run.problem_count ? "problems" : "complete", run.application_status === "unapplied" || run.problem_count ? "candidate" : "confirmed")}</span><span class="muted">${esc(run.evaluation_version)} · ${esc(run.collector_count)} collectors${run.total_ms ? ` · ${esc(formatMilliseconds(run.total_ms))}` : ""}</span></button>`).join("")}</div><div id="investigation-run-detail"></div>` : `<p class="muted">No saved runs.</p>`;
+    target.innerHTML = list(data.items).length ? `<div>${data.items.map((run) => `<button class="card" data-investigation-run="${esc(run.run_id)}"><span class="card-title"><strong>${esc(formatTimestamp(run.completed_at))}</strong>${pill(run.application_status === "unapplied" ? "未反映（競合）" : run.problem_count ? "problems" : "complete", run.application_status === "unapplied" || run.problem_count ? "candidate" : "confirmed")}</span><span class="muted">${esc(run.evaluation_version)} · ${esc(run.collector_count)} 収集処理${run.total_ms ? ` · ${esc(formatMilliseconds(run.total_ms))}` : ""}</span></button>`).join("")}</div><div id="investigation-run-detail"></div>` : `<p class="muted">保存済みの調査履歴はありません。</p>`;
     target.querySelectorAll("[data-investigation-run]").forEach((button) => button.onclick = () => loadInvestigationRun(button.dataset.investigationRun));
   } catch (error) { status(error.message, true); }
 }
 
 async function loadInvestigationRun(runId) {
   const target = $("investigation-run-detail");
-  target.innerHTML = `<p class="muted">Loading run...</p>`;
+  target.innerHTML = `<p class="muted">調査実行記録を読込中…</p>`;
   try {
     const run = await api(`/api/investigation-runs/${encodeURIComponent(runId)}?evidence_limit=100`);
-    target.innerHTML = section("Run detail", `<dl class="kv"><dt>Run</dt><dd>${esc(run.run_id)}</dd><dt>保存状態</dt><dd>${esc(run.application_status === "unapplied" ? "未反映（競合）" : "反映済み")}</dd>${run.conflict_reason ? `<dt>競合理由</dt><dd>${esc(run.conflict_reason)}</dd>` : ""}<dt>Records</dt><dd>${esc(run.record_count)}${run.records_truncated ? " (first 100 shown)" : ""}</dd><dt>Failures</dt><dd>${esc(run.failure_count)}</dd><dt>Evaluation</dt><dd>${esc(run.evaluation_version)}</dd></dl>${section("Timing", renderRunMetrics(run.metrics))}${section("Collectors", run.collectors.map((item) => `<div class="collector">${pill(item.status, item.status)} ${esc(item.source)} · ${esc(item.record_count)} records · ${esc(item.failure_count)} failures</div>`).join("") || `<p class="muted">No collectors.</p>`)}<details><summary>Evidence</summary>${json(run.records)}</details><details><summary>Failures</summary>${json(run.failures)}</details><details><summary>Input / output / evaluation</summary>${json({input_project:run.input_project, output_project:run.output_project, evaluation:run.evaluation})}</details><div class="actions"><button id="replay-investigation-run">Replay with current rules</button></div><div id="investigation-replay-result"></div>`);
+    target.innerHTML = section("調査実行記録の詳細", `<dl class="kv"><dt>調査実行記録</dt><dd>${esc(run.run_id)}</dd><dt>保存状態</dt><dd>${esc(run.application_status === "unapplied" ? "未反映（競合）" : "反映済み")}</dd>${run.conflict_reason ? `<dt>競合理由</dt><dd>${esc(run.conflict_reason)}</dd>` : ""}<dt>記録件数</dt><dd>${esc(run.record_count)}${run.records_truncated ? "（先頭100件を表示）" : ""}</dd><dt>失敗</dt><dd>${esc(run.failure_count)}</dd><dt>評価</dt><dd>${esc(run.evaluation_version)}</dd></dl>${section("所要時間の内訳", renderRunMetrics(run.metrics))}${section("収集処理", run.collectors.map((item) => `<div class="collector">${pill(item.status, item.status)} ${esc(displayLabel(item.source))} · ${esc(item.record_count)} 件の記録 · ${esc(item.failure_count)} 件の失敗</div>`).join("") || `<p class="muted">収集処理の記録はありません。</p>`)}<details><summary>根拠（JSON）</summary>${json(run.records)}</details><details><summary>失敗</summary>${json(run.failures)}</details><details><summary>入力・出力・評価（JSON）</summary>${json({input_project:run.input_project, output_project:run.output_project, evaluation:run.evaluation})}</details><div class="actions"><button id="replay-investigation-run">現在の規則で再評価</button></div><div id="investigation-replay-result"></div>`);
     $("replay-investigation-run").onclick = async () => {
       try {
         const replay = await api(`/api/investigation-runs/${encodeURIComponent(runId)}/replay`);
-        $("investigation-replay-result").innerHTML = section("Replay diff", json(replay));
+        $("investigation-replay-result").innerHTML = section("再評価の差分（JSON）", json(replay));
       } catch (error) { status(error.message, true); }
     };
   } catch (error) { status(error.message, true); }
@@ -1164,37 +1583,37 @@ async function loadInvestigationRun(runId) {
 function reviewTargetActions(target) {
   if (!target) return "";
   const data = {"target-type":target.target_type, "target-value":target.target_value};
-  return `${actionButton("Dismiss", "dismiss-review-target", data)}${actionButton("Defer 30d", "defer-review-target", data)}`;
+  return `${actionButton("レビュー対象から除外", "dismiss-review-target", data)}${actionButton("30日保留", "defer-review-target", data)}`;
 }
 
 function renderMultiTenantSuffixSuggestions(suggestions) {
   const items = list(suggestions);
   if (!items.length) return "";
-  return section("Multi-Tenant Suffix Candidate", items.map((item) => `
+  return section("共用ホスティングの接尾辞候補", items.map((item) => `
     <div class="suffix-suggestion">
       <div class="suffix-suggestion-main">
         <div>${pill("suggested", "candidate")} <strong>${esc(item.suffix)}</strong></div>
-        <div class="muted">Source tenants: ${esc(list(item.source_tenants).join(", ") || "none")}</div>
-        <div class="muted">Target tenants: ${esc(list(item.target_tenants).join(", ") || "none")}</div>
-        <div class="muted">Hosts: ${esc(list(item.source_hosts).join(", ") || "none")} → ${esc(list(item.target_hosts).join(", ") || "none")}</div>
+        <div class="muted">マージ元の利用者: ${esc(list(item.source_tenants).join(", ") || "none")}</div>
+        <div class="muted">マージ先の利用者: ${esc(list(item.target_tenants).join(", ") || "none")}</div>
+        <div class="muted">ホスト: ${esc(list(item.source_hosts).join(", ") || "none")} → ${esc(list(item.target_hosts).join(", ") || "none")}</div>
       </div>
-      <div class="actions"><button class="small" data-add-multi-tenant-suffix="${esc(item.suffix)}">Add suffix</button></div>
+      <div class="actions"><button class="small" data-add-multi-tenant-suffix="${esc(item.suffix)}">接尾辞を追加</button></div>
     </div>
   `).join(""));
 }
 
 function renderProfileFields(profile) {
-  return `<dl class="kv"><dt>Tagline</dt><dd>${esc(profile.tagline || "None")}</dd><dt>Summary</dt><dd>${esc(profile.summary || "None")}</dd><dt>Features</dt><dd>${list(profile.features).map(esc).join("<br>") || "None"}</dd></dl>`;
+  return `<dl class="kv"><dt>短い説明</dt><dd>${esc(profile.tagline || "なし")}</dd><dt>説明</dt><dd>${esc(profile.summary || "なし")}</dd><dt>特徴</dt><dd>${list(profile.features).map(esc).join("<br>") || "なし"}</dd></dl>`;
 }
 
 function renderProfileChanges(changes) {
-  const value = (item) => Array.isArray(item) ? item.map(esc).join("<br>") : esc(typeof item === "boolean" ? (item ? "自動反映する" : "更新案を確認する") : item || "None");
-  const labels = {tagline:"Tagline", summary:"Summary", features:"Features", name:"Name", notes:"Notes", introduced_url:"Introduced URL", automatic_description:"説明の更新方法"};
+  const value = (item) => Array.isArray(item) ? item.map(esc).join("<br>") : esc(typeof item === "boolean" ? (item ? "自動反映する" : "更新案を確認する") : item || "なし");
+  const labels = {tagline:"短い説明", summary:"説明", features:"特徴", name:"名前", notes:"メモ", introduced_url:"紹介済み投稿のURL", automatic_description:"説明の更新方法"};
   return changes.map((change) => `<h4>${esc(labels[change.field] || change.field)}</h4><dl class="kv"><dt>変更前</dt><dd>${value(change.before)}</dd><dt>変更後</dt><dd>${value(change.after)}</dd></dl>`).join("");
 }
 
 function renderServiceObservations(observations) {
-  return `<p class="muted">稼働状態は保存済み観測に基づきます。現在の利用や認証後の機能を保証しません。取得失敗だけで提供終了とは判断しません。</p>${list(observations).map((item) => `<div class="collector"><strong>${link(item.requested_url)}</strong> · ${esc(item.lane)}<dl class="kv"><dt>最新の試行</dt><dd>${esc(formatTimestamp(item.observed_at) || "時点未記録")} · ${esc(item.fetch_error ? "取得失敗" : item.surface_confirmed ? "利用面を確認" : "利用面は未確認")}${item.status_code ? ` (HTTP ${esc(item.status_code)})` : ""}</dd><dt>最後に利用面を確認</dt><dd>${esc(item.last_success?.observed_at ? formatTimestamp(item.last_success.observed_at) : "時点未記録／成功記録なし")}</dd>${item.content_changed ? `<dt>ページの変化</dt><dd>保存範囲の内容が変化しました。説明への影響は未確認です。</dd>` : ""}${item.surface_change ? `<dt>観測の変化</dt><dd>${esc(item.surface_change === "surface_reached" ? "利用面へ到達。説明や追跡方針の見直し材料です。" : "以前の利用面を今回確認できませんでした。")}</dd>` : ""}</dl></div>`).join("") || `<p class="muted">保存済みの確認記録はありません。</p>`}`;
+  return `<p class="muted">稼働状態は保存済み観測に基づきます。現在の利用や認証後の機能を保証しません。取得失敗だけで提供終了とは判断しません。</p>${list(observations).map((item) => `<div class="collector"><strong>${link(item.requested_url)}</strong> · ${esc(displayLabel(item.lane))}<dl class="kv"><dt>最新の試行</dt><dd>${esc(formatTimestamp(item.observed_at) || "時点未記録")} · ${esc(item.fetch_error ? "取得失敗" : item.surface_confirmed ? "利用面を確認" : "利用面は未確認")}${item.status_code ? ` (HTTP ${esc(item.status_code)})` : ""}</dd><dt>最後に利用面を確認</dt><dd>${esc(item.last_success?.observed_at ? formatTimestamp(item.last_success.observed_at) : "時点未記録／成功記録なし")}</dd>${item.content_changed ? `<dt>ページの変化</dt><dd>保存範囲の内容が変化しました。説明への影響は未確認です。</dd>` : ""}${item.surface_change ? `<dt>観測の変化</dt><dd>${esc(item.surface_change === "surface_reached" ? "利用面へ到達。説明や追跡方針の見直し材料です。" : "以前の利用面を今回確認できませんでした。")}</dd>` : ""}</dl></div>`).join("") || `<p class="muted">保存済みの確認記録はありません。</p>`}`;
 }
 
 function editProfile(project, profile) {
@@ -1249,7 +1668,7 @@ function editProfile(project, profile) {
     try {
       const response = await api(`/api/projects/${encodeURIComponent(project.project_key)}/profile-preview`, {method:"POST", body:JSON.stringify(values())});
       preview = response.result;
-      $("profile-diff").innerHTML = preview.changed ? section("Changes", renderProfileChanges(preview.changes)) : `<p class="muted">No changes.</p>`;
+      $("profile-diff").innerHTML = preview.changed ? section("変更内容", renderProfileChanges(preview.changes)) : `<p class="muted">変更はありません。</p>`;
       $("profile-apply").disabled = !preview.changed;
     } catch (error) { status(error.message, true); }
   };
@@ -1260,7 +1679,7 @@ function editProfile(project, profile) {
       dialog.close();
       renderDetail(response.detail);
       await loadList();
-      status("Profile saved.");
+      status("紹介情報を保存しました。");
     } catch (error) {
       if (error.code === "stale_project") {
         dialog.close();
@@ -1280,15 +1699,15 @@ function parseSeedInput(value) {
 }
 
 async function addProjectSeed(projectKey) {
-  const input = prompt("NSID, repository URL, or service URL. Use repo_url: https://... to override.");
+  const input = prompt("NSID・リポジトリURL・サービスURLを入力してください。種類を指定するには repo_url: https://... のように入力します。");
   const parsed = parseSeedInput(input);
   if (!parsed.seed) return;
   try {
     const typeQuery = parsed.type ? `&type=${encodeURIComponent(parsed.type)}` : "";
     const preview = await api(`/api/seeds/preview?seed=${encodeURIComponent(parsed.seed)}${typeQuery}`);
-    if (preview.exact_project_key && preview.exact_project_key !== projectKey) throw new Error(`Seed belongs to ${preview.exact_project_key}`);
-    const action = preview.exact_project_key === projectKey ? "Reapply" : "Add";
-    confirmMutation("Add identifier", `${action} ${preview.seed_type}: ${preview.seed_value} to ${projectKey}?`, "/api/seeds", {seed:parsed.seed, type:parsed.type, project_key:projectKey, expected_revision:state.detailRevision}, false);
+    if (preview.exact_project_key && preview.exact_project_key !== projectKey) throw new Error(`このシードは${preview.exact_project_key}に登録済みです。`);
+    const action = preview.exact_project_key === projectKey ? "再適用" : "追加";
+    confirmMutation("識別子を追加", `${projectKey}へ${displayLabel(preview.seed_type)}「${preview.seed_value}」を${action}しますか？`, "/api/seeds", {seed:parsed.seed, type:parsed.type, project_key:projectKey, expected_revision:state.detailRevision}, false);
   } catch (error) { status(error.message, true); }
 }
 
@@ -1296,7 +1715,7 @@ function bindDetailActions(projectKey) {
   $("save-atproto-usage")?.addEventListener("click", () => {
     const reason = $("atproto-usage-reason").value.trim();
     if (!reason) { status("判断根拠を入力してください。", true); return; }
-    confirmMutation("利用範囲の判断を保存", "この判断を推薦に反映します。サービスの稼働状態、技術的価値、Lower priorityは変えません。",
+    confirmMutation("利用範囲の判断を保存", "この判断を推薦に反映します。サービスの稼働状態、技術的価値、候補の優先度は変えません。",
       `/api/projects/${encodeURIComponent(projectKey)}/atproto-usage`, {role:$("atproto-usage-role").value, reason}, false);
   });
   $("clear-atproto-usage")?.addEventListener("click", () => confirmMutation(
@@ -1306,14 +1725,14 @@ function bindDetailActions(projectKey) {
     const action = button.dataset.action;
     const payload = {identifier_type: button.dataset.type || "", value: button.dataset.value || "", other_project_key: button.dataset.other || "", target_type: button.dataset.targetType || "", target_value: button.dataset.targetValue || "", review_action: button.dataset.reviewAction || "", days: button.dataset.days || ""};
     const needsNote = ["reject-candidate", "block-identifier", "defer-identifier", "split-project", "defer-promotion", "dismiss-review-target", "defer-review-target", "lower-promotion-priority"].includes(action);
-    const title = action === "review-promotion" ? "確認済み・次へ" : action === "clear-promotion-review" ? "確認対象へ戻す" : action === "lower-promotion-priority"
-      ? "Lower candidate priority"
+    const title = action === "defer-promotion" ? `紹介候補を${payload.days}日間、情報待ちにする` : action === "review-promotion" ? "確認済み・次へ" : action === "clear-promotion-review" ? "確認対象へ戻す" : action === "lower-promotion-priority"
+      ? "紹介候補の優先度を下げる"
       : action === "clear-promotion-priority"
-        ? "Restore normal candidate priority"
-        : action.replaceAll("-", " ");
+        ? "紹介候補の優先度を通常へ戻す"
+        : displayLabel(action);
     const message = action === "review-promotion" ? "この候補を確認済みにします。30日間は確認対象から外し、根拠が変われば再表示します。確認済み一覧からいつでも戻せます。" : ["lower-promotion-priority", "clear-promotion-priority"].includes(action)
-      ? `${title} for ${projectKey}?`
-      : `${title} ${payload.value || payload.other_project_key || projectKey}?`;
+      ? `${projectKey}: ${title}。よろしいですか？`
+      : `${payload.value || payload.other_project_key || projectKey}: ${title}。よろしいですか？`;
     confirmMutation(
       title,
       message,
@@ -1321,13 +1740,16 @@ function bindDetailActions(projectKey) {
       payload,
       needsNote,
       button.dataset.defaultNote || "",
-      action === "lower-promotion-priority" ? "特集の共通理由・優先度のメモ（任意・あとで検索できます）" : "Reason or note",
+      action === "lower-promotion-priority" ? "特集の共通理由・優先度のメモ（任意・あとで検索できます）" : "理由・メモ",
     );
   });
 }
 
-function confirmMutation(title, message, path, payload, note, defaultNote = "", noteLabel = "Reason or note") {
+function confirmMutation(title, message, path, payload, note, defaultNote = "", noteLabel = "理由・メモ") {
   const dialog = $("confirm-dialog");
+  $("confirm-context").textContent = "データベースへの変更を確認";
+  $("confirm-submit").textContent = "変更を適用";
+  $("confirm-submit").className = "danger";
   if (path.startsWith("/api/projects/")) payload.expected_revision = state.detailRevision;
   if (path.endsWith("/merge-recommendation")) payload.expected_target_revision = state.mergeTargetRevision;
   $("confirm-title").textContent = title;
@@ -1341,12 +1763,12 @@ function confirmMutation(title, message, path, payload, note, defaultNote = "", 
     if (note) payload.note = $("confirm-note").value.trim();
     mutationQueue = mutationQueue.then(async () => {
       try {
-        status("Saving...");
+        status("保存中…");
         const response = await api(path, {method:"POST", body:JSON.stringify(payload)});
         if (advanceReviewListAfterMutation(response, path)) {
           return;
         }
-        status("Saved.");
+        status("保存しました。");
         if (response.detail) {
           renderDetail(response.detail);
         } else if (response.project_key || response.target_project_key) {
@@ -1358,7 +1780,7 @@ function confirmMutation(title, message, path, payload, note, defaultNote = "", 
       } catch (error) {
         if (error.code === "stale_project" && state.selected) {
           await loadDetail(state.selected, {updateUrl: false});
-          status("Project changed in another operation. Detail was reloaded; review the change before retrying.", true);
+          status("別の操作でプロジェクトが変更されました。詳細を再読込したので、変更を確認してから再操作してください。", true);
         } else {
           status(error.message, true);
         }
@@ -1383,13 +1805,13 @@ async function loadMergeDetail(source, target, options = {}) {
     state.mergeTargetRevision = data.target_revision || "";
     const snapshot = (project, side) => {
       const identifiers = list(project.identifiers);
-      return `<article class="merge-project"><div class="card-title"><strong>${esc(project.name || project.project_key)}</strong>${pill(project.tracking_state)}</div><div class="muted">${esc(project.project_key)}</div><dl class="kv"><dt>Website</dt><dd>${project.website_url ? link(project.website_url) : "None"}</dd><dt>Status</dt><dd>${pill(project.service_status)} ${pill(project.atproto_contribution_level)}</dd><dt>Seed</dt><dd>${esc(`${project.seed?.type || ""}: ${project.seed?.value || ""}`)}</dd>${projectTimestampRows(project)}</dl><div class="merge-identifiers"><strong>Confirmed identifiers</strong>${mergeIdentifierRows(identifiers, "confirmed")}<strong>Candidates</strong>${mergeIdentifierRows(identifiers, "candidate")}</div><button class="small" data-merge-view="${esc(side)}">Open full detail</button></article>`;
+      return `<article class="merge-project"><div class="card-title"><strong>${esc(project.name || project.project_key)}</strong>${pill(project.tracking_state)}</div><div class="muted">${esc(project.project_key)}</div><dl class="kv"><dt>公式サイト</dt><dd>${project.website_url ? link(project.website_url) : "なし"}</dd><dt>状態</dt><dd>${pill(project.service_status)} ${pill(project.atproto_contribution_level)}</dd><dt>シード</dt><dd>${esc(`${displayLabel(project.seed?.type || "")}: ${project.seed?.value || ""}`)}</dd>${projectTimestampRows(project)}</dl><div class="merge-identifiers"><strong>採用済み識別子</strong>${mergeIdentifierRows(identifiers, "confirmed")}<strong>候補</strong>${mergeIdentifierRows(identifiers, "candidate")}</div><button class="small" data-merge-view="${esc(side)}">詳細を開く</button></article>`;
     };
     const firstCreatorBody = data.first_creator_details_included
-      ? `<dl class="kv"><dt>Overlap</dt><dd>${json(data.first_creator_overlap || {})}</dd><dt>Source first DIDs</dt><dd>${json(data.source_collection_first_creator_dids || {})}</dd><dt>Target first DIDs</dt><dd>${json(data.target_collection_first_creator_dids || {})}</dd><dt>Source lookup details</dt><dd>${json(data.source_collection_first_creator_details || {})}</dd><dt>Target lookup details</dt><dd>${json(data.target_collection_first_creator_details || {})}</dd></dl><p class="muted">Supplemental only. This is not mixed into the primary pair signal in this view. Lookup details show not_found/error when listReposByCollection does not return a first creator for a collection.</p>`
-      : `<p class="muted">Not loaded. This calls listReposByCollection and may take a moment.</p><div class="actions"><button id="load-first-creator-heuristic" class="secondary">Load first-creator details</button></div>`;
-    const mergeActions = `<div class="actions"><button id="skip-review-item" class="secondary">Skip for now</button><button id="mark-separate">Keep separate</button><button id="execute-merge" class="danger">Merge projects</button></div>`;
-    $("detail").innerHTML = `${backToListButton()}${contextualBackButton()}<p class="eyebrow">Merge review</p><h2>${esc(data.source?.name || source)} → ${esc(data.target?.name || target)}</h2><div class="actions"><button id="reverse-merge-direction" class="secondary">Reverse source and target</button></div><div class="merge-comparison">${snapshot(data.source, "source")}${snapshot(data.target, "target")}</div>${section("Why these match", `<dl class="kv"><dt>Blocked</dt><dd>${data.merge_blocked ? pill("blocked", "failed") : "No manual separation guard"}</dd><dt>Strict overlap</dt><dd>${json(data.strict_overlap || {})}</dd><dt>Moderate overlap</dt><dd>${json(data.moderate_overlap || {})}</dd><dt>Source signal</dt><dd>${json(data.source_pair_candidate || {})}</dd><dt>Target signal</dt><dd>${json(data.target_pair_candidate || {})}</dd></dl>`)}${renderMultiTenantSuffixSuggestions(data.suggested_multi_tenant_suffixes)}${section("First-creator heuristic", firstCreatorBody)}${section("Merged result preview", `<dl class="kv"><dt>Name</dt><dd>${esc(data.merged_preview?.merged_name || "")}</dd><dt>Website</dt><dd>${link(data.merged_preview?.merged_website_url || "")}</dd><dt>Service status</dt><dd>${pill(data.merged_preview?.merged_service_status || "unknown")}</dd><dt>Repositories</dt><dd>${list(data.merged_preview?.merged_project_repository_urls).map(link).join("<br>") || "None"}</dd><dt>Services</dt><dd>${list(data.merged_preview?.merged_service_urls).map(link).join("<br>") || "None"}</dd></dl>`)}${mergeActions}<div class="detail-footer">${backToListButton()}${contextualBackButton()}</div>`;
+      ? `<dl class="kv"><dt>一致</dt><dd>${json(data.first_creator_overlap || {})}</dd><dt>マージ元の初回作成者DID</dt><dd>${json(data.source_collection_first_creator_dids || {})}</dd><dt>マージ先の初回作成者DID</dt><dd>${json(data.target_collection_first_creator_dids || {})}</dd><dt>マージ元の照会結果</dt><dd>${json(data.source_collection_first_creator_details || {})}</dd><dt>マージ先の照会結果</dt><dd>${json(data.target_collection_first_creator_details || {})}</dd></dl><p class="muted">補足情報です。この比較画面の主要な候補判定には混ぜません。listReposByCollectionから初回作成者が得られない場合、照会結果にnot_foundまたはerrorを表示します。</p>`
+      : `<p class="muted">未取得です。listReposByCollectionへ照会するため、時間がかかる場合があります。</p><div class="actions"><button id="load-first-creator-heuristic" class="secondary">初回作成者の情報を取得</button></div>`;
+    const mergeActions = `<div class="actions"><button id="skip-review-item" class="secondary">今回は先送り</button><button id="mark-separate">別プロジェクトとして保持</button><button id="execute-merge" class="danger">プロジェクトをマージ</button></div>`;
+    $("detail").innerHTML = `${backToListButton()}${contextualBackButton()}<p class="eyebrow">マージ候補の比較</p><h2>${esc(data.source?.name || source)} → ${esc(data.target?.name || target)}</h2><div class="actions"><button id="reverse-merge-direction" class="secondary">マージ元とマージ先を入れ替える</button></div><div class="merge-comparison">${snapshot(data.source, "source")}${snapshot(data.target, "target")}</div>${section("候補と判断された理由", `<dl class="kv"><dt>マージの制限</dt><dd>${data.merge_blocked ? pill("blocked", "failed") : "別プロジェクト指定なし"}</dd><dt>厳密な一致</dt><dd>${json(data.strict_overlap || {})}</dd><dt>標準条件での一致</dt><dd>${json(data.moderate_overlap || {})}</dd><dt>マージ元の判定材料</dt><dd>${json(data.source_pair_candidate || {})}</dd><dt>マージ先の判定材料</dt><dd>${json(data.target_pair_candidate || {})}</dd></dl>`)}${renderMultiTenantSuffixSuggestions(data.suggested_multi_tenant_suffixes)}${section("初回作成者による推測", firstCreatorBody)}${section("マージ結果のプレビュー", `<dl class="kv"><dt>名前</dt><dd>${esc(data.merged_preview?.merged_name || "")}</dd><dt>公式サイト</dt><dd>${link(data.merged_preview?.merged_website_url || "")}</dd><dt>サービス状態</dt><dd>${pill(data.merged_preview?.merged_service_status || "unknown")}</dd><dt>リポジトリ</dt><dd>${list(data.merged_preview?.merged_project_repository_urls).map(link).join("<br>") || "なし"}</dd><dt>サービス</dt><dd>${list(data.merged_preview?.merged_service_urls).map(link).join("<br>") || "なし"}</dd></dl>`)}${mergeActions}<div class="detail-footer">${backToListButton()}${contextualBackButton()}</div>`;
     bindBackToListButtons();
     document.querySelectorAll("[data-merge-view]").forEach((button) => button.onclick = () => loadDetail(button.dataset.mergeView === "source" ? source : target, {backTarget: {type: "merge", source, target, previous: state.detailBackTarget}}));
     document.querySelectorAll("[data-add-multi-tenant-suffix]").forEach((button) => button.onclick = () => addMultiTenantSuffix(button.dataset.addMultiTenantSuffix, source, target));
@@ -1399,25 +1821,25 @@ async function loadMergeDetail(source, target, options = {}) {
     }));
     $("load-first-creator-heuristic")?.addEventListener("click", () => loadMergeDetail(source, target, {includeFirstCreator: true}));
     $("skip-review-item")?.addEventListener("click", () => skipReviewItem(source, target));
-    $("mark-separate")?.addEventListener("click", () => confirmMerge("Keep projects separate", "separate", source, target));
-    $("execute-merge")?.addEventListener("click", () => confirmMerge("Merge projects", "merge", source, target));
+    $("mark-separate")?.addEventListener("click", () => confirmMerge("別プロジェクトとして保持", "separate", source, target));
+    $("execute-merge")?.addEventListener("click", () => confirmMerge("プロジェクトをマージ", "merge", source, target));
   } catch (error) {
     if (request === state.detailRequest && state.selected === source) status(error.message, true);
   }
 }
 
 function addMultiTenantSuffix(suffix, source, target) {
-  confirmOperation("Add multi-tenant suffix", `Add ${suffix} to custom_multi_tenant_suffixes? This changes domain family matching for future merge calculations.`, async () => {
+  confirmOperation("共用ホスティングの接尾辞を追加", `共用ホスティングの接尾辞として${suffix}を追加しますか？ 今後のマージ候補計算で、ドメインの一致判定が変わります。`, async () => {
     const response = await api("/api/domain-overrides/multi-tenant-suffixes", {method:"POST", body:JSON.stringify({suffix})});
-    const prefix = response.added ? `Added multi-tenant suffix ${response.suffix}.` : `Multi-tenant suffix ${response.suffix} was already configured.`;
+    const prefix = response.added ? `共用ホスティングの接尾辞${response.suffix}を追加しました。` : `共用ホスティングの接尾辞${response.suffix}は登録済みです。`;
     if (advanceReviewList(source, {targetKey: target, statusPrefix: prefix})) return;
-    status(`${prefix} Refreshing list.`);
+    status(`${prefix} 一覧を再読込します。`);
     await loadList();
   });
 }
 
 function confirmMerge(title, action, source, target) {
-  confirmMutation(title, `${title}: ${source} → ${target}?`, "/api/merge-batch/action", {
+  confirmMutation(title, `${title}: ${source} → ${target}。よろしいですか？`, "/api/merge-batch/action", {
     action,
     source_project_key: source,
     target_project_key: target,
@@ -1429,55 +1851,55 @@ function confirmMerge(title, action, source, target) {
 function renderNewSeed() {
   state.detailRequest += 1;
   state.selected = "";
-  $("detail").innerHTML = `${backToListButton()}<p class="eyebrow">Projects</p><h2>New Seed</h2><div class="controls"><label>NSID, repository URL, or service URL<input id="seed-value" type="text"></label><div class="actions"><button id="preview-seed" class="primary">Preview</button></div></div><div id="seed-preview"></div><div class="detail-footer">${backToListButton()}</div>`;
+  $("detail").innerHTML = `${backToListButton()}<p class="eyebrow">登録プロジェクト</p><h2>シードを登録</h2><div class="controls"><label>NSID・リポジトリURL・サービスURL<input id="seed-value" type="text"></label><div class="actions"><button id="preview-seed" class="primary">プレビュー</button></div></div><div id="seed-preview"></div><div class="detail-footer">${backToListButton()}</div>`;
   document.body.classList.add("detail-open");
   bindBackToListButtons();
   $("preview-seed").onclick = async () => {
     const value = $("seed-value").value.trim();
     try {
       const data = await api(`/api/seeds/preview?seed=${encodeURIComponent(value)}`);
-      $("seed-preview").innerHTML = section("Preview", json(data)) + (data.can_create ? `<button id="create-seed" class="primary">Create project</button>` : `<p class="notice">This seed already belongs to ${esc(data.exact_project_key)}.</p>`);
-      $("create-seed")?.addEventListener("click", () => confirmMutation("Create project", `Create a project for ${value}?`, "/api/seeds", {seed:value}, false));
+      $("seed-preview").innerHTML = section("プレビュー", json(data)) + (data.can_create ? `<button id="create-seed" class="primary">プロジェクトを登録</button>` : `<p class="notice">このシードは${esc(data.exact_project_key)}に登録済みです。</p>`);
+      $("create-seed")?.addEventListener("click", () => confirmMutation("プロジェクトを登録", `${value}をシードとしてプロジェクトを登録しますか？`, "/api/seeds", {seed:value}, false));
     } catch (error) { status(error.message, true); }
   };
 }
 
 function renderOperations() {
-  $("single-pane").innerHTML = `<p class="eyebrow">Background jobs</p><h2>Operations</h2><p class="notice">Operations run in a separate process. Only one job runs at a time. Enrich stops between projects, sync at source page/item boundaries, and review between candidates.</p><div class="operation-grid">
-    <article class="operation-card operation-enrich"><h3>Enrich</h3><div class="controls">
-      <label>Target<select id="enrich-target"><option value="all">Active projects</option><option value="project">One project</option></select></label>
-      <label id="enrich-project-label" hidden>Project key<input id="enrich-project-key" placeholder="proj:..."></label>
-      <label><span><input id="enrich-deep" type="checkbox"> Deep investigation</span></label>
-      <label><span><input id="enrich-new-only" type="checkbox"> Never enriched only</span></label>
-      <label><span><input id="enrich-retry" type="checkbox"> Previous failures only</span></label>
-      <details class="tracking-state-options"><summary>Additional tracking states</summary><div class="checkbox-grid">
-        <label><span><input id="enrich-stable" type="checkbox"> stable</span></label>
-        <label><span><input id="enrich-stalled" type="checkbox"> stalled</span></label>
-        <label><span><input id="enrich-out-of-scope" type="checkbox"> out_of_scope</span></label>
-        <label><span><input id="enrich-archived" type="checkbox"> archived</span></label>
-        <label><span><input id="enrich-ignore" type="checkbox"> ignore</span></label>
+  $("single-pane").innerHTML = `<p class="eyebrow">バックグラウンドジョブ</p><h2>処理・定期実行</h2><p class="notice">処理は別プロセスで1件ずつ実行します。停止要求は、調査ではプロジェクト間、取り込みでは情報源のページ・項目間、追跡状態の見直しでは候補間で反映します。</p><div class="operation-grid">
+    <article class="operation-card operation-enrich"><h3>調査</h3><div class="controls">
+      <label>対象<select id="enrich-target"><option value="all">通常追跡中のプロジェクト</option><option value="project">1件のプロジェクト</option></select></label>
+      <label id="enrich-project-label" hidden>プロジェクトキー<input id="enrich-project-key" placeholder="proj:..."></label>
+      <label><span><input id="enrich-deep" type="checkbox"> 詳細調査</span></label>
+      <label><span><input id="enrich-new-only" type="checkbox"> 未調査のみ</span></label>
+      <label><span><input id="enrich-retry" type="checkbox"> 前回失敗分のみ</span></label>
+      <details class="tracking-state-options"><summary>追加する追跡状態</summary><div class="checkbox-grid">
+        <label><span><input id="enrich-stable" type="checkbox"> 安定稼働</span></label>
+        <label><span><input id="enrich-stalled" type="checkbox"> 活動停滞</span></label>
+        <label><span><input id="enrich-out-of-scope" type="checkbox"> 調査範囲外</span></label>
+        <label><span><input id="enrich-archived" type="checkbox"> アーカイブ</span></label>
+        <label><span><input id="enrich-ignore" type="checkbox"> 追跡対象外</span></label>
       </div></details>
-      <button id="start-enrich" class="primary">Start enrich job</button>
+      <button id="start-enrich" class="primary">調査を開始</button>
     </div><code>project-registry enrich --all</code></article>
-    <article class="operation-card"><h3>Sync</h3><p>Fetch configured external sources. Dry-run still uses the network but does not update SQLite.</p><div class="controls">
-      <label>Source<select id="sync-source"><option value="introduced">Introduced posts</option><option value="github">GitHub repository search</option><option value="collections">Collection inventory</option><option value="semble">Semble collections</option><option value="tangled">Tangled repositories</option></select></label>
-      <label>Initial lookback days<input id="sync-lookback" type="number" min="1" max="3650" value="10"></label>
-      <label><span><input id="sync-create" type="checkbox"> Create unmatched projects</span></label>
-      <label><span><input id="sync-screen" type="checkbox"> Screen unmatched GitHub repos</span></label>
-      <label><span><input id="sync-all-history" type="checkbox"> Ignore saved watermark</span></label>
-      <label><span><input id="sync-execute" type="checkbox"> Apply changes to SQLite</span></label>
-      <button id="start-sync" class="primary">Start sync job</button>
+    <article class="operation-card"><h3>外部情報の取り込み</h3><p>設定済みの外部情報を取得します。取り込み候補の確認だけでも通信しますが、SQLiteは更新しません。</p><div class="controls">
+      <label>情報源<select id="sync-source"><option value="introduced">紹介済み投稿</option><option value="github">GitHubのリポジトリ検索</option><option value="collections">コレクション一覧</option><option value="semble">Sembleのコレクション</option><option value="tangled">Tangledのリポジトリ</option></select></label>
+      <label>初回に遡る日数<input id="sync-lookback" type="number" min="1" max="3650" value="10"></label>
+      <label><span><input id="sync-create" type="checkbox"> 未登録のプロジェクトを新規登録</span></label>
+      <label><span><input id="sync-screen" type="checkbox"> 未登録のGitHubリポジトリを選別</span></label>
+      <label><span><input id="sync-all-history" type="checkbox"> 保存済みの取得位置を使わずに取得</span></label>
+      <label><span><input id="sync-execute" type="checkbox"> 変更をSQLiteへ保存</span></label>
+      <button id="start-sync" class="primary">取り込みを開始</button>
     </div><code>project-registry sync-&lt;source&gt; [--execute]</code></article>
-    <article class="operation-card"><h3>Review Ops</h3><p>Recalculate tracking-state candidates from saved project data. Dry-run is network-free.</p><div class="controls">
-      <label>Review<select id="review-kind"><option value="stalled">Stalled / stable activity</option><option value="out_of_scope">Out of survey scope</option><option value="ignore">Unrelated or identity-less noise</option></select></label>
-      <label>Candidate limit<input id="review-limit" type="number" min="1" max="500" value="50"></label>
-      <label id="review-inactivity-label">Inactivity days<input id="review-inactivity" type="number" min="1" max="3650" value="45"></label>
-      <label id="review-freshness-label">Max enrich age days<input id="review-freshness" type="number" min="1" max="3650" value="30"></label>
-      <label>Tracking note<input id="review-note" placeholder="Optional note for applied updates"></label>
-      <button id="start-review" class="primary">Build review plan</button>
+    <article class="operation-card"><h3>追跡状態の見直し</h3><p>保存済みの情報から追跡状態の変更候補を計算します。候補の確認には通信しません。</p><div class="controls">
+      <label>レビュー<select id="review-kind"><option value="stalled">活動停滞・安定稼働</option><option value="out_of_scope">調査範囲外</option><option value="ignore">無関係・対象を特定できないもの</option></select></label>
+      <label>候補の件数上限<input id="review-limit" type="number" min="1" max="500" value="50"></label>
+      <label id="review-inactivity-label">活動なしとする日数<input id="review-inactivity" type="number" min="1" max="3650" value="45"></label>
+      <label id="review-freshness-label">調査結果の有効日数<input id="review-freshness" type="number" min="1" max="3650" value="30"></label>
+      <label>追跡状態のメモ<input id="review-note" placeholder="変更時のメモ（任意）"></label>
+      <button id="start-review" class="primary">変更候補を確認</button>
     </div><code>project-registry review-&lt;kind&gt; [--execute]</code></article>
-    <article class="operation-card"><h3>Investigation Replay</h3><p>Replay and benchmark saved evidence without network access.</p><code>project-registry replay-investigation -p proj:...</code><code>project-registry benchmark-investigation</code></article>
-  </div>${section("Scheduled Presets", `<div id="schedule-list"><p class="muted">Loading...</p></div>`)}${section("Discovered Checkpoints", `<div id="checkpoint-list"><p class="muted">Loading...</p></div>`)}${section("Recent Jobs", `<div id="job-list"><p class="muted">Loading...</p></div>`)}`;
+    <article class="operation-card"><h3>調査の再評価</h3><p>保存済みの根拠を使い、通信せず再評価・比較できます。</p><code>project-registry replay-investigation -p proj:...</code><code>project-registry benchmark-investigation</code></article>
+  </div>${section("定期実行", `<div id="schedule-list"><p class="muted">読込中…</p></div>`)}${section("保存済みの再開地点", `<div id="checkpoint-list"><p class="muted">読込中…</p></div>`)}${section("最近のジョブ", `<div id="job-list"><p class="muted">読込中…</p></div>`)}`;
   $("enrich-target").onchange = () => { $("enrich-project-label").hidden = $("enrich-target").value !== "project"; };
   $("sync-source").onchange = updateSyncControls;
   $("review-kind").onchange = updateReviewControls;
@@ -1491,8 +1913,8 @@ function renderOperations() {
 
 function confirmOperation(title, message, callback, {write = true} = {}) {
   const dialog = $("confirm-dialog");
-  $("confirm-context").textContent = write ? "Confirm database change" : "Confirm operation";
-  $("confirm-submit").textContent = write ? "Apply change" : "Start job";
+  $("confirm-context").textContent = write ? "データベースへの変更を確認" : "操作を確認";
+  $("confirm-submit").textContent = write ? "変更を適用" : "ジョブを開始";
   $("confirm-submit").className = write ? "danger" : "primary";
   $("confirm-title").textContent = title;
   $("confirm-message").textContent = message;
@@ -1508,7 +1930,7 @@ function confirmOperation(title, message, callback, {write = true} = {}) {
 function startEnrichJob() {
   const oneProject = $("enrich-target").value === "project";
   const projectKey = $("enrich-project-key").value.trim();
-  if (oneProject && !projectKey) { status("Project key is required.", true); return; }
+  if (oneProject && !projectKey) { status("プロジェクトキーを入力してください。", true); return; }
   startEnrich({
     project_key: oneProject ? projectKey : "",
     all_projects: !oneProject,
@@ -1520,7 +1942,7 @@ function startEnrichJob() {
     include_out_of_scope: !oneProject && $("enrich-out-of-scope").checked,
     include_archived: !oneProject && $("enrich-archived").checked,
     include_ignore: !oneProject && $("enrich-ignore").checked,
-  }, oneProject ? projectKey : "the selected project set");
+  }, oneProject ? projectKey : "選択したプロジェクト群");
 }
 
 function startProjectEnrich(projectKey) {
@@ -1528,19 +1950,19 @@ function startProjectEnrich(projectKey) {
 }
 
 function startBrowserServiceVerification(projectKey, serviceUrl) {
-  if (!serviceUrl) { status("A saved service URL is required.", true); return; }
-  confirmOperation("Verify service in anonymous browser", `Open ${serviceUrl} without signing in and save the rendered service evidence to SQLite?`, async () => {
-    status("Starting anonymous browser verification...");
+  if (!serviceUrl) { status("保存済みのサービスURLを指定してください。", true); return; }
+  confirmOperation("匿名ブラウザーでサービスを確認", `${serviceUrl}をログインせずに開き、画面から得た根拠をSQLiteへ保存しますか？`, async () => {
+    status("匿名ブラウザー確認を開始中…");
     await api("/api/jobs/verify-service", {method:"POST", body:JSON.stringify({project_key:projectKey, service_url:serviceUrl})});
-    status("Browser verification started. Progress is available in Operations.");
+    status("ブラウザー確認を開始しました。「処理・定期実行」で進捗を確認できます。");
   });
 }
 
 function startEnrich(payload, target) {
-  confirmOperation("Start enrich job", `Start enrich for ${target}? This writes investigation results to SQLite.`, async () => {
-    status("Starting enrich job...");
+  confirmOperation("調査を開始", `${target}の調査を開始しますか？ 調査結果をSQLiteへ保存します。`, async () => {
+    status("調査を開始中…");
     await api("/api/jobs/enrich", {method:"POST", body:JSON.stringify(payload)});
-    status("Enrich job started.");
+    status("調査を開始しました。");
     if (state.screen === "operations") await loadJobs();
   });
 }
@@ -1566,11 +1988,11 @@ function startSyncJob() {
     all_history: $("sync-all-history").checked,
     lookback_days: Number($("sync-lookback").value || 10),
   };
-  const effect = execute ? "This fetches external data and writes accepted changes to SQLite." : "This fetches external data and reports a dry-run without updating SQLite.";
-  confirmOperation("Start sync job", `Start ${source} sync? ${effect}`, async () => {
-    status("Starting sync job...");
+  const effect = execute ? "外部情報を取得し、採用された変更をSQLiteへ保存します。" : "外部情報を取得し、取り込み候補を表示します。SQLiteは更新しません。";
+  confirmOperation("取り込みを開始", `${source === "introduced" ? "紹介済み投稿" : displayLabel(source)}からの取り込みを開始しますか？ ${effect}`, async () => {
+    status("取り込みを開始中…");
     await api("/api/jobs/sync", {method:"POST", body:JSON.stringify(payload)});
-    status("Sync job started.");
+    status("取り込みを開始しました。");
     await loadJobs();
   }, {write: execute});
 }
@@ -1591,16 +2013,16 @@ function startReviewJob() {
     max_enrich_age_days: Number($("review-freshness").value || 30),
     note: $("review-note").value.trim(),
   };
-  confirmOperation("Build review plan", `Calculate ${kind} candidates from saved data? This does not update SQLite.`, async () => {
-    status("Starting review job...");
+  confirmOperation("変更候補を確認", `保存済み情報から「${displayLabel(kind)}」への変更候補を計算しますか？ SQLiteは更新しません。`, async () => {
+    status("追跡状態の見直しを開始中…");
     await api("/api/jobs/review", {method:"POST", body:JSON.stringify(payload)});
-    status("Review job started.");
+    status("追跡状態の見直しを開始しました。");
     await loadJobs();
   }, {write: false});
 }
 
 function renderJobs(items) {
-  if (!items.length) return `<p class="muted">No jobs have run in this server process.</p>`;
+  if (!items.length) return `<p class="muted">このサーバープロセスで実行したジョブはありません。</p>`;
   return items.map((job) => {
     const progress = job.progress || {};
     const current = Number(progress.current || 0);
@@ -1609,89 +2031,89 @@ function renderJobs(items) {
     const count = total > 0
       ? `${current} / ${total}`
       : current > 0 && unit
-        ? `${current} ${unit}${current === 1 ? "" : "s"}`
+        ? `${current} ${displayLabel(unit)}`
         : "";
     const target = job.request?.parameters?.project_key || (job.request?.parameters?.all_projects ? "bulk" : job.request?.parameters?.source || job.request?.parameters?.kind || "operation");
     const plan = job.operation === "review" && job.status === "completed" && !job.request?.execute ? job.result?.data?.summary : null;
-    return `<article class="job-card ${esc(job.status)}"><div class="card-title"><strong>${esc(job.operation)} · ${esc(target)}</strong>${pill(job.status, job.status)}</div>
-      <div class="meta-row"><span>${esc(job.job_id)}</span><span>${esc(count)}</span><span>${job.elapsed_seconds === null || job.elapsed_seconds === undefined ? "" : `Elapsed ${esc(formatDuration(job.elapsed_seconds))}`}</span><span>${job.eta_seconds === null || job.eta_seconds === undefined ? "" : `ETA ${esc(formatDuration(job.eta_seconds))}`}</span></div>
-      ${job.last_item ? `<p class="muted">Last: ${esc(job.last_item.project_key)} ${esc(job.last_item.name || "")}</p>` : ""}
-      ${job.error ? `<p class="job-error">${esc(job.error.message || JSON.stringify(job.error))}</p>` : ""}
+    return `<article class="job-card ${esc(job.status)}"><div class="card-title"><strong>${esc(displayLabel(job.operation))} · ${esc(displayLabel(target))}</strong>${pill(job.status, job.status)}</div>
+      <div class="meta-row"><span>${esc(job.job_id)}</span><span>${esc(count)}</span><span>${job.elapsed_seconds === null || job.elapsed_seconds === undefined ? "" : `経過 ${esc(formatDuration(job.elapsed_seconds))}`}</span><span>${job.eta_seconds === null || job.eta_seconds === undefined ? "" : `残り時間（推定） ${esc(formatDuration(job.eta_seconds))}`}</span></div>
+      ${job.last_item ? `<p class="muted">直近: ${esc(job.last_item.project_key)} ${esc(job.last_item.name || "")}</p>` : ""}
+      ${job.error ? `<p class="job-error">${esc(apiErrorMessage(job.error))}</p>` : ""}
       <div class="actions">
-        ${job.can_cancel ? `<button class="danger small" data-job-cancel="${esc(job.job_id)}">Request stop</button>` : ""}
-        ${job.can_resume ? `<button class="small" data-job-resume="${esc(job.job_id)}">Resume</button>` : ""}
-        ${plan?.candidates?.length ? `<button class="small primary" data-review-plan="${esc(job.job_id)}">Review ${esc(plan.candidates.length)} candidates</button>` : ""}
+        ${job.can_cancel ? `<button class="danger small" data-job-cancel="${esc(job.job_id)}">停止を要求</button>` : ""}
+        ${job.can_resume ? `<button class="small" data-job-resume="${esc(job.job_id)}">再開</button>` : ""}
+        ${plan?.candidates?.length ? `<button class="small primary" data-review-plan="${esc(job.job_id)}">${esc(plan.candidates.length)}件の変更候補を確認</button>` : ""}
       </div><details class="job-details" data-job-details="${esc(job.job_id)}" ${state.openJobDetails.has(job.job_id) ? "open" : ""}>
-        <summary>Details</summary>${plan?.candidates?.length ? "" : `<div class="actions"><button class="small" data-job-detail-refresh="${esc(job.job_id)}">Refresh details</button></div>`}<div id="job-detail-${esc(job.job_id.replaceAll(":", "-"))}">${plan?.candidates?.length ? renderReviewPlan(job) : state.jobDetailCache.has(job.job_id) ? json(state.jobDetailCache.get(job.job_id)) : `<p class="muted">Open to load details.</p>`}</div>
+        <summary>詳細（JSON）</summary>${plan?.candidates?.length ? "" : `<div class="actions"><button class="small" data-job-detail-refresh="${esc(job.job_id)}">詳細を再読込</button></div>`}<div id="job-detail-${esc(job.job_id.replaceAll(":", "-"))}">${plan?.candidates?.length ? renderReviewPlan(job) : state.jobDetailCache.has(job.job_id) ? json(state.jobDetailCache.get(job.job_id)) : `<p class="muted">開くと詳細を読み込みます。</p>`}</div>
       </details></article>`;
   }).join("");
 }
 
 function renderReviewPlan(job) {
   const summary = job.result?.data?.summary || {};
-  return `<div class="review-plan">${list(summary.candidates).map((item) => `<label><span><input type="checkbox" data-plan-candidate="${esc(job.job_id)}" value="${esc(item.candidate_id)}" checked> ${esc(item.project_key)} ${esc(item.kind || item.suggested_tracking_state || "")}</span></label>`).join("")}<div class="actions"><button class="danger" data-review-execute="${esc(job.job_id)}">Apply selected</button></div></div>`;
+  return `<div class="review-plan">${list(summary.candidates).map((item) => `<label><span><input type="checkbox" data-plan-candidate="${esc(job.job_id)}" value="${esc(item.candidate_id)}" checked> ${esc(item.project_key)} ${esc(displayLabel(item.kind || item.suggested_tracking_state || ""))}</span></label>`).join("")}<div class="actions"><button class="danger" data-review-execute="${esc(job.job_id)}">選択した候補を適用</button></div></div>`;
 }
 
 function renderCheckpoints(items) {
-  if (!items.length) return `<p class="muted">No enrich checkpoints found.</p>`;
-  return items.map((item) => `<article class="job-card"><div class="card-title"><strong>${esc(item.run_id)}</strong>${pill(item.status, item.status)}</div><div class="meta-row"><span>${esc(item.completed_project_count)} / ${esc(item.selected_project_count)} · 競合 ${esc(item.conflicted_project_count || 0)} · 対象外 ${esc(item.skipped_project_count || 0)}</span><span>${esc(formatTimestamp(item.updated_at))}</span></div>${item.can_resume ? `<button class="small" data-checkpoint-resume="${esc(item.run_id)}">Resume</button>` : ""}</article>`).join("");
+  if (!items.length) return `<p class="muted">調査の再開地点はありません。</p>`;
+  return items.map((item) => `<article class="job-card"><div class="card-title"><strong>${esc(item.run_id)}</strong>${pill(item.status, item.status)}</div><div class="meta-row"><span>${esc(item.completed_project_count)} / ${esc(item.selected_project_count)} · 競合 ${esc(item.conflicted_project_count || 0)} · 対象外 ${esc(item.skipped_project_count || 0)}</span><span>${esc(formatTimestamp(item.updated_at))}</span></div>${item.can_resume ? `<button class="small" data-checkpoint-resume="${esc(item.run_id)}">再開</button>` : ""}</article>`).join("");
 }
 
 function scheduleWeekdayOptions(selected) {
-  return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label, index) => `<option value="${index}" ${Number(selected) === index ? "selected" : ""}>${label}</option>`).join("");
+  return ["月", "火", "水", "木", "金", "土", "日"].map((label, index) => `<option value="${index}" ${Number(selected) === index ? "selected" : ""}>${label}</option>`).join("");
 }
 
 function scheduleWeekOptions(selected) {
   return [
-    [0, "Every week"],
-    [1, "1st week"],
-    [2, "2nd week"],
-    [3, "3rd week"],
-    [4, "4th week"],
-    [5, "5th week"],
+    [0, "毎週"],
+    [1, "第1週"],
+    [2, "第2週"],
+    [3, "第3週"],
+    [4, "第4週"],
+    [5, "第5週"],
   ].map(([value, label]) => `<option value="${value}" ${Number(selected) === value ? "selected" : ""}>${label}</option>`).join("");
 }
 
 function renderSchedules(data) {
   const items = list(data.items);
-  if (!items.length) return `<p class="muted">No schedule presets are available.</p>`;
+  if (!items.length) return `<p class="muted">定期実行の設定はありません。</p>`;
   const queue = list(data.queue);
-  const queueHtml = queue.length ? `<p class="notice">Queued scheduled work: ${esc(queue.map((item) => `${item.preset_id}:${item.current_job_id || "waiting"}`).join(", "))}</p>` : "";
+  const queueHtml = queue.length ? `<p class="notice">実行待ち: ${esc(queue.map((item) => `${displayLabel(item.preset_id)}: ${item.current_job_id || "待機中"}`).join(", "))}</p>` : "";
   const observation = data.lexicon_publication_observation || {};
   const observationRuns = list(observation.items);
   const observationHtml = `<article class="operation-card">
-    <div class="card-title"><strong>Lexicon post-sync evaluation</strong>${observation.review_due ? pill("review due", "warning") : pill("monitoring")}</div>
-    <p class="muted">${esc(observation.valid_period_count || 0)} / 4 comparable weekly periods · baseline ${esc(formatTimestamp(observation.evaluation_baseline_at))} · retains ${esc(observation.history_limit || 16)} runs</p>
-    ${list(observation.review_reasons).length ? `<p class="notice">${esc(list(observation.review_reasons).join(", "))}</p>` : ""}
-    ${observation.error ? `<p class="job-error">${esc(observation.error)}</p>` : ""}
-    ${observationRuns.length ? `<details><summary>Recent observation history</summary>${observationRuns.map((run) => {
-      const categories = Object.entries(run.categories || {}).filter(([, value]) => Number(value) > 0).map(([key, value]) => `${key} ${value}`).join(", ");
-      const deltas = Object.entries(run.category_deltas || {}).filter(([, value]) => Number(value) !== 0).map(([key, value]) => `${key} ${Number(value) > 0 ? "+" : ""}${value}`).join(", ");
-      const comparison = run.comparison_status === "available" ? `comparable${run.valid_period_counted ? " · period counted" : " · duplicate period"}` : `not comparable: ${run.comparison_reason || "unknown"}`;
-      return `<p class="muted"><strong>${esc(run.status)}</strong> ${esc(formatTimestamp(run.completed_at))} · ${esc(run.evaluation_period || "no period")} · ${esc(comparison)} · sync ${esc(formatTimestamp(run.sync_completed_at))}${run.sync_age_seconds === null || run.sync_age_seconds === undefined ? "" : ` (${esc(formatDuration(run.sync_age_seconds))} before)`} · watermark ${esc(run.starting_watermark_seq)} → ${esc(run.ending_watermark_seq)} · changes +${esc(run.new_count)}/~${esc(run.updated_count)}/-${esc(run.deleted_count)} · inventory ${esc(run.inventory_status)} (${esc(run.inventory_collection_count)}) · verification ${esc(run.verification_success_count)}/${esc(run.verification_target_count)}${categories ? ` · categories ${esc(categories)}` : ""}${deltas ? ` · Δ ${esc(deltas)}` : ""}${run.review_due ? ` · review: ${esc(list(run.review_reasons).join(", "))}` : ""}</p>`;
-    }).join("")}</details>` : `<p class="muted">No durable observation runs yet.</p>`}
+    <div class="card-title"><strong>Lexicon取得後の評価</strong>${observation.review_due ? pill("review due", "warning") : pill("monitoring")}</div>
+    <p class="muted">${esc(observation.valid_period_count || 0)} / 4 比較可能な週 · 比較開始点 ${esc(formatTimestamp(observation.evaluation_baseline_at))} · ${esc(observation.history_limit || 16)}件の履歴を保持</p>
+    ${list(observation.review_reasons).length ? `<p class="notice">${esc(list(observation.review_reasons).map(displayLabel).join("、"))}</p>` : ""}
+    ${observation.error ? `<p class="job-error">${esc(apiErrorMessage({message: observation.error}))}</p>` : ""}
+    ${observationRuns.length ? `<details><summary>最近の観測履歴</summary>${observationRuns.map((run) => {
+      const categories = Object.entries(run.categories || {}).filter(([, value]) => Number(value) > 0).map(([key, value]) => `${displayLabel(key)} ${value}`).join(", ");
+      const deltas = Object.entries(run.category_deltas || {}).filter(([, value]) => Number(value) !== 0).map(([key, value]) => `${displayLabel(key)} ${Number(value) > 0 ? "+" : ""}${value}`).join(", ");
+      const comparison = run.comparison_status === "available" ? `比較可能${run.valid_period_counted ? " · 週数に加算済み" : " · 同じ週の再実行"}` : `比較不可: ${displayLabel(run.comparison_reason || "unknown")}`;
+      return `<p class="muted"><strong>${esc(displayLabel(run.status))}</strong> ${esc(formatTimestamp(run.completed_at))} · ${esc(run.evaluation_period || "期間なし")} · ${esc(comparison)} · 取得 ${esc(formatTimestamp(run.sync_completed_at))}${run.sync_age_seconds === null || run.sync_age_seconds === undefined ? "" : ` (${esc(formatDuration(run.sync_age_seconds))}前)`} · 取得位置 ${esc(run.starting_watermark_seq)} → ${esc(run.ending_watermark_seq)} · 変更 +${esc(run.new_count)}/~${esc(run.updated_count)}/-${esc(run.deleted_count)} · コレクション一覧 ${esc(displayLabel(run.inventory_status))} (${esc(run.inventory_collection_count)}) · 検証 ${esc(run.verification_success_count)}/${esc(run.verification_target_count)}${categories ? ` · 分類 ${esc(categories)}` : ""}${deltas ? ` · Δ ${esc(deltas)}` : ""}${run.review_due ? ` · レビュー: ${esc(list(run.review_reasons).map(displayLabel).join("、"))}` : ""}</p>`;
+    }).join("")}</details>` : `<p class="muted">保存済みの観測履歴はありません。</p>`}
   </article>`;
   return `${queueHtml}${observationHtml}<div class="operation-grid">${items.map((item) => {
     const schedule = item.schedule || {};
-    const steps = list(item.steps).map((step) => esc(step.label || step.operation)).join(" → ");
-    const statusLine = [item.last_status, item.last_message, item.last_started_at ? `started ${formatTimestamp(item.last_started_at)}` : "", item.last_completed_at ? `completed ${formatTimestamp(item.last_completed_at)}` : ""].filter(Boolean).join(" · ");
+    const steps = list(item.steps).map((step) => esc(displayLabel(step.label || step.operation))).join(" → ");
+    const statusLine = [displayLabel(item.last_status), scheduleMessage(item.last_message), item.last_started_at ? `開始 ${formatTimestamp(item.last_started_at)}` : "", item.last_completed_at ? `完了 ${formatTimestamp(item.last_completed_at)}` : ""].filter(Boolean).join(" · ");
     return `<article class="operation-card schedule-card" data-schedule-card="${esc(item.preset_id)}">
-      <div class="card-title"><strong>${esc(item.label)}</strong>${schedule.enabled ? pill("enabled", "confirmed") : pill("disabled")}</div>
-      <p class="muted">${esc(item.description)}</p>
+      <div class="card-title"><strong>${esc(displayLabel(item.label))}</strong>${schedule.enabled ? pill("enabled", "confirmed") : pill("disabled")}</div>
+      <p class="muted">${esc(displayLabel(item.description))}</p>
       <p class="muted">${steps}</p>
       <div class="controls">
-        <label><span><input type="checkbox" data-schedule-field="enabled" data-preset-id="${esc(item.preset_id)}" ${schedule.enabled ? "checked" : ""}> Enabled</span></label>
-        <label>Week<select data-schedule-field="week_of_month" data-preset-id="${esc(item.preset_id)}">${scheduleWeekOptions(schedule.week_of_month)}</select></label>
-        <label>Weekday<select data-schedule-field="weekday" data-preset-id="${esc(item.preset_id)}">${scheduleWeekdayOptions(schedule.weekday)}</select></label>
-        <label>Time<input type="time" data-schedule-field="time" data-preset-id="${esc(item.preset_id)}" value="${esc(schedule.time || "03:00")}"></label>
-        <label>Time zone<input data-schedule-field="timezone" data-preset-id="${esc(item.preset_id)}" value="${esc(schedule.timezone || "Asia/Tokyo")}"></label>
+        <label><span><input type="checkbox" data-schedule-field="enabled" data-preset-id="${esc(item.preset_id)}" ${schedule.enabled ? "checked" : ""}> 有効</span></label>
+        <label>週<select data-schedule-field="week_of_month" data-preset-id="${esc(item.preset_id)}">${scheduleWeekOptions(schedule.week_of_month)}</select></label>
+        <label>曜日<select data-schedule-field="weekday" data-preset-id="${esc(item.preset_id)}">${scheduleWeekdayOptions(schedule.weekday)}</select></label>
+        <label>時刻<input type="time" data-schedule-field="time" data-preset-id="${esc(item.preset_id)}" value="${esc(schedule.time || "03:00")}"></label>
+        <label>タイムゾーン<input data-schedule-field="timezone" data-preset-id="${esc(item.preset_id)}" value="${esc(schedule.timezone || "Asia/Tokyo")}"></label>
       </div>
-      <p class="muted">Next: ${esc(formatTimestamp(item.next_due_at))}</p>
+      <p class="muted">次回: ${esc(formatTimestamp(item.next_due_at))}</p>
       ${statusLine ? `<p class="muted">${esc(statusLine)}</p>` : ""}
-      ${list(item.pending_steps).length ? `<p>保留: ${list(item.pending_steps).map(step => esc(step.label)).join(" → ")}</p>` : ""}
-      <div class="actions"><button class="small primary" data-schedule-run="${esc(item.preset_id)}">${list(item.pending_steps).length ? "Resume pending steps" : "Run now"}</button></div>
+      ${list(item.pending_steps).length ? `<p>保留: ${list(item.pending_steps).map(step => esc(displayLabel(step.label))).join(" → ")}</p>` : ""}
+      <div class="actions"><button class="small primary" data-schedule-run="${esc(item.preset_id)}">${list(item.pending_steps).length ? "保留中の処理を再開" : "今すぐ実行"}</button></div>
     </article>`;
-  }).join("")}</div><div class="actions"><button id="save-schedules" class="primary">Save schedules</button></div>`;
+  }).join("")}</div><div class="actions"><button id="save-schedules" class="primary">定期実行の設定を保存</button></div>`;
 }
 
 function collectScheduleUpdates() {
@@ -1757,22 +2179,22 @@ function bindJobActions() {
   $("save-schedules")?.addEventListener("click", async () => {
     try {
       await api("/api/job-schedules", {method:"POST", body:JSON.stringify({items: collectScheduleUpdates()})});
-      status("Schedules saved.");
+      status("定期実行の設定を保存しました。");
       await loadJobs();
     } catch (error) { status(error.message, true); }
   });
   document.querySelectorAll("[data-schedule-run]").forEach((button) => button.onclick = () => {
     const presetId = button.dataset.scheduleRun;
-    confirmOperation("Run scheduled preset", `Queue ${presetId} now? This may write to SQLite.`, async () => {
+    confirmOperation("定期実行の処理を開始", `「${displayLabel(presetId)}」を実行待ちへ追加しますか？ SQLiteへ保存する処理を含む場合があります。`, async () => {
       await api(`/api/job-schedules/${encodeURIComponent(presetId)}/run`, {method:"POST", body:"{}"});
-      status("Scheduled preset queued.");
+      status("処理を実行待ちへ追加しました。");
       await loadJobs();
     });
   });
   document.querySelectorAll("[data-job-detail-refresh]").forEach((button) => button.onclick = () => refreshJobDetail(button.dataset.jobDetailRefresh));
-  document.querySelectorAll("[data-checkpoint-resume]").forEach((button) => button.onclick = () => confirmOperation("Resume discovered checkpoint", `Resume ${button.dataset.checkpointResume}?`, async () => {
+  document.querySelectorAll("[data-checkpoint-resume]").forEach((button) => button.onclick = () => confirmOperation("保存済みの再開地点から再開", `${button.dataset.checkpointResume}から再開しますか？`, async () => {
     await api(`/api/checkpoints/${encodeURIComponent(button.dataset.checkpointResume)}/resume`, {method:"POST", body:"{}"});
-    status("Resume job started."); await loadJobs();
+    status("再開処理を開始しました。"); await loadJobs();
   }));
   document.querySelectorAll("[data-review-plan]").forEach((button) => button.onclick = () => {
     const details = button.closest("article").querySelector("details"); details.open = true;
@@ -1782,25 +2204,25 @@ function bindJobActions() {
     const card = button.closest("article");
     const selected = [...card.querySelectorAll(`[data-plan-candidate="${jobId}"]:checked`)].map((item) => item.value);
     const sourceJob = state.jobsById.get(jobId);
-    if (!sourceJob || !selected.length) { status("Select at least one review candidate.", true); return; }
-    confirmOperation("Apply review plan", `Apply ${selected.length} selected candidates?`, async () => {
+    if (!sourceJob || !selected.length) { status("変更候補を1件以上選択してください。", true); return; }
+    confirmOperation("追跡状態の変更を適用", `選択した${selected.length}件の変更候補を適用しますか？`, async () => {
       const summary = sourceJob.result.data.summary;
       await api("/api/jobs/review", {method:"POST", body:JSON.stringify({...sourceJob.request.parameters, execute:true, selected_candidate_ids:selected, plan_fingerprint:summary.plan_fingerprint})});
-      status("Review execution started."); await loadJobs();
+      status("追跡状態の変更を開始しました。"); await loadJobs();
     });
   });
   document.querySelectorAll("[data-job-cancel]").forEach((button) => button.onclick = () => {
     const jobId = button.dataset.jobCancel;
-    confirmOperation("Stop background job", `Request cancellation for ${jobId}? The current operation may finish first.`, async () => {
+    confirmOperation("バックグラウンドジョブを停止", `${jobId}の停止を要求しますか？ 処理の区切りまで実行してから停止する場合があります。`, async () => {
       await api(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, {method:"POST", body:"{}"});
-      status("Stop requested."); await loadJobs();
+      status("停止を要求しました。"); await loadJobs();
     });
   });
   document.querySelectorAll("[data-job-resume]").forEach((button) => button.onclick = () => {
     const jobId = button.dataset.jobResume;
-    confirmOperation("Resume enrich job", `Resume the checkpoint used by ${jobId}?`, async () => {
+    confirmOperation("調査を再開", `${jobId}の再開地点から調査を再開しますか？`, async () => {
       await api(`/api/jobs/${encodeURIComponent(jobId)}/resume`, {method:"POST", body:"{}"});
-      status("Resume job started."); await loadJobs();
+      status("再開処理を開始しました。"); await loadJobs();
     });
   });
   document.querySelectorAll("[data-job-details]").forEach((details) => details.ontoggle = async () => {
@@ -1820,41 +2242,44 @@ function bindJobActions() {
 
 async function renderSettings() {
   try { state.server = state.server || await api("/api/settings"); } catch (error) { status(error.message, true); }
-  $("single-pane").innerHTML = `<p class="eyebrow">Local Web UI</p><h2>Settings</h2><div class="controls filter-grid">
-    <label>Review limit<input id="setting-review" type="number" min="1" max="500" value="${esc(state.settings.reviewLimit)}"></label>
-    <label>Project limit<input id="setting-project" type="number" min="1" max="500" value="${esc(state.settings.projectLimit)}"></label>
-    <label>Merge limit<input id="setting-merge-limit" type="number" min="1" max="500" value="${esc(state.settings.mergeLimit)}"></label>
-    <label>Merge mode<select id="setting-merge-mode"><option>strict</option><option>moderate</option><option>broad</option></select></label>
-    <label>Time zone<input id="setting-time-zone" value="${esc(state.settings.timeZone || defaults.timeZone)}" placeholder="Asia/Tokyo or +09:00"></label>
-    <label class="settings-toggle"><span>Promotion queue</span><span><input id="setting-personal" type="checkbox" ${state.settings.includePersonalTools ? "checked" : ""}> Include personal tools</span></label>
-  </div><div class="actions"><button id="save-settings" class="primary">Save settings</button><button id="clear-token" class="danger">Clear API token</button><button id="reload-server" class="danger">Reload server</button></div>
-  ${section("Server", `<dl class="kv"><dt>API</dt><dd>v${esc(state.server?.api_version || "?")}</dd><dt>Schema</dt><dd>v${esc(state.server?.schema_version || "?")}</dd><dt>Commit</dt><dd>${state.server?.build?.commit ? `<code>${esc(state.server.build.commit)}${state.server.build.dirty ? " (dirty)" : ""}</code>` : "Unavailable outside a Git checkout"}</dd><dt>Python</dt><dd>${esc(state.server?.build?.python || "?")}</dd><dt>Database</dt><dd>${esc(state.server?.db_path || "Unavailable")}</dd><dt>Background jobs</dt><dd>${state.server?.operations_connected ? "Connected: enrich, sync, and review subprocess worker" : "Not connected"}</dd></dl>`)}
+  $("single-pane").innerHTML = `<p class="eyebrow">ローカルWeb UI</p><h2>設定</h2><div class="controls filter-grid">
+    <label>要レビュー・紹介候補の件数上限<input id="setting-review" type="number" min="1" max="500" value="${esc(state.settings.reviewLimit)}"></label>
+    <label>登録プロジェクトの件数上限<input id="setting-project" type="number" min="1" max="500" value="${esc(state.settings.projectLimit)}"></label>
+    <label>マージ候補の件数上限<input id="setting-merge-limit" type="number" min="1" max="500" value="${esc(state.settings.mergeLimit)}"></label>
+    <label>マージ候補の条件<select id="setting-merge-mode">${selectOptions([["strict", "厳密"], ["moderate", "標準"], ["broad", "広範"]], state.settings.mergeMode)}</select></label>
+    <label>タイムゾーン<input id="setting-time-zone" value="${esc(state.settings.timeZone || defaults.timeZone)}" placeholder="Asia/Tokyo または +09:00"></label>
+    <label class="settings-toggle"><span>紹介候補一覧</span><span><input id="setting-personal" type="checkbox" ${state.settings.includePersonalTools ? "checked" : ""}> 個人用ツールを含める</span></label>
+  </div><div class="actions"><button id="save-settings" class="primary">設定を保存</button><button id="clear-token" class="danger">APIトークンを削除</button><button id="reload-server" class="danger">サーバーを再起動</button></div>
+  ${section("サーバー", `<dl class="kv"><dt>API</dt><dd>v${esc(state.server?.api_version || "?")}</dd><dt>DBスキーマ</dt><dd>v${esc(state.server?.schema_version || "?")}</dd><dt>起動時コミット</dt><dd>${state.server?.build?.commit ? `<code>${esc(state.server.build.commit)}${state.server.build.dirty ? "（未コミット変更あり）" : ""}</code>` : "Git管理外のため取得できません"}</dd><dt>Python</dt><dd>${esc(state.server?.build?.python || "?")}</dd><dt>データベース</dt><dd>${esc(state.server?.db_path || "取得できません")}</dd><dt>バックグラウンドジョブ</dt><dd>${state.server?.operations_connected ? "接続済み（調査・取り込み・追跡状態の見直し）" : "未接続"}</dd></dl>`)}
   `;
   $("setting-merge-mode").value = state.settings.mergeMode;
   $("save-settings").onclick = () => {
     const timeZone = normalizeTimeZone($("setting-time-zone").value);
-    if (!timeZone) { status("Invalid time zone. Use an IANA name like Asia/Tokyo or an offset like +09:00.", true); return; }
+    if (!timeZone) { status("タイムゾーンが不正です。Asia/TokyoのようなIANA名、または+09:00のような時差を指定してください。", true); return; }
     state.settings = {reviewLimit:Number($("setting-review").value), projectLimit:Number($("setting-project").value), mergeLimit:Number($("setting-merge-limit").value), mergeMode:$("setting-merge-mode").value, includePersonalTools:$("setting-personal").checked, timeZone};
-    saveSettings(); status("Settings saved.");
+    saveSettings(); status("設定を保存しました。");
     renderSettings();
   };
-  $("clear-token").onclick = () => { localStorage.removeItem("projectRegistryToken"); token = ""; status("Token cleared. Reload to sign in again."); };
+  $("clear-token").onclick = () => { localStorage.removeItem("projectRegistryToken"); token = ""; status("APIトークンを削除しました。再読込すると再入力できます。"); };
   $("reload-server")?.addEventListener("click", confirmServerReload);
 }
 
 function confirmServerReload() {
   const dialog = $("confirm-dialog");
-  $("confirm-title").textContent = "Reload server";
-  $("confirm-message").textContent = "Restart the Web server with the same command-line arguments? Active background jobs receive a stop request; jobs that exceed the shutdown timeout are terminated.";
+  $("confirm-context").textContent = "操作を確認";
+  $("confirm-submit").textContent = "再起動";
+  $("confirm-submit").className = "danger";
+  $("confirm-title").textContent = "サーバーを再起動";
+  $("confirm-message").textContent = "同じ起動設定でWebサーバーを再起動しますか？ 実行中のジョブには停止を要求し、制限時間を超えた処理は終了します。";
   $("confirm-note-label").hidden = true;
   showDialogWithoutInputFocus(dialog);
   dialog.onclose = async () => {
     if (dialog.returnValue !== "confirm") return;
     const previousInstance = state.server?.server_instance_id || "";
     try {
-      status("Requesting server reload...");
+      status("サーバーの再起動を要求中…");
       await api("/api/reload", {method:"POST", body:JSON.stringify({confirm:true})});
-      status("Waiting for server restart...");
+      status("サーバーの再起動を待機中…");
       waitForServerReload(previousInstance, Date.now() + 30000);
     } catch (error) { status(error.message, true); }
   };
@@ -1869,7 +2294,7 @@ async function waitForServerReload(previousInstance, deadline) {
     }
   } catch (_) {}
   if (Date.now() >= deadline) {
-    status("Server reload was requested, but the restarted server did not become ready within 30 seconds.", true);
+    status("サーバーの再起動を要求しましたが、30秒以内に応答が戻りませんでした。", true);
     return;
   }
   setTimeout(() => waitForServerReload(previousInstance, deadline), 500);

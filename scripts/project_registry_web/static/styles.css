@@ -37,8 +37,8 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { min-height: 100%; }
-body { margin: 0; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.45; }
-button, input, select { font: inherit; }
+body { margin: 0; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.6; }
+button, input, select, textarea { font: inherit; }
 button, select, input {
   min-height: 38px;
   border: 1px solid var(--line);
@@ -58,9 +58,9 @@ a { color: var(--accent); overflow-wrap: anywhere; }
 h1, h2, h3, p { margin-top: 0; }
 h1 { margin-bottom: 0; font-size: 21px; line-height: 1.1; }
 h2 { font-size: 18px; }
-h3 { font-size: 13px; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+h3 { font-size: 13px; color: var(--muted); letter-spacing: .04em; }
 pre { margin: 0; max-height: 420px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
-.eyebrow { margin: 0 0 2px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.eyebrow { margin: 0 0 2px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .12em; }
 .eyebrow.project-key { letter-spacing: normal; text-transform: none; }
 .muted { color: var(--muted); }
 .app-header { position: sticky; top: 0; z-index: 10; padding: 10px 14px 0; background: color-mix(in srgb, var(--panel) 94%, transparent); border-bottom: 1px solid var(--line); backdrop-filter: blur(10px); }
@@ -80,7 +80,7 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .explicit-merge-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 8px; align-items: end; }
 .explicit-merge-pair label { min-width: 0; display: grid; gap: 3px; color: var(--muted); font-size: 12px; }
 .explicit-merge-pair input { width: 100%; min-width: 0; }
-.filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 8px; }
 .filter-grid label { min-width: 0; display: grid; gap: 3px; color: var(--muted); font-size: 12px; }
 .filter-grid input, .filter-grid select { width: 100%; min-width: 0; }
 .card { width: 100%; height: max-content; min-height: max-content; display: grid; gap: 6px; text-align: left; padding: 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: var(--shadow); }
@@ -108,7 +108,7 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .identifier-groups { display: grid; gap: 14px; }
 .identifier-kind { display: grid; gap: 5px; }
 .identifier-kind-header { display: flex; align-items: center; justify-content: space-between; color: var(--muted); }
-.identifier-kind-header h4 { margin: 0; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+.identifier-kind-header h4 { margin: 0; font-size: 12px; letter-spacing: .04em; }
 .identifier-kind-header span { font-size: 11px; }
 .identifier { position: relative; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 7px 9px; }
 .identifier-main { min-width: 0; display: grid; gap: 3px; }
@@ -167,7 +167,8 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 dialog { width: min(520px, calc(100% - 24px)); border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); box-shadow: 0 16px 60px rgb(0 0 0 / 30%); }
 dialog::backdrop { background: rgb(0 0 0 / 45%); }
 dialog form { display: grid; gap: 12px; }
-dialog label { display: grid; gap: 5px; }
+dialog label { display: grid; gap: 5px; min-width: 0; }
+dialog input, dialog textarea { min-width: 0; max-width: 100%; }
 .dialog-actions { justify-content: flex-end; }
 .mobile-back { display: none; }
 .context-back { display: inline-flex; margin-right: 8px; margin-bottom: 8px; }
@@ -182,6 +183,9 @@ dialog label { display: grid; gap: 5px; }
   body.detail-open .detail-pane { display: block; }
   .mobile-back { display: inline-flex; }
   .primary-nav { margin-left: -10px; margin-right: -10px; padding: 0 10px; scrollbar-width: none; }
+  .primary-nav { flex-wrap: wrap; }
+  .primary-nav button { flex: 1 1 auto; font-size: 12px; padding: 7px 8px; }
+  .identifier { grid-template-columns: minmax(0, 1fr); }
   .detail-tabs { flex-wrap: wrap; gap: 4px 12px; overflow-x: visible; }
   .kv { grid-template-columns: 1fr; }
   .merge-comparison { grid-template-columns: 1fr; }

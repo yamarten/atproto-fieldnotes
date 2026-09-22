@@ -12,4 +12,4 @@ Promotion再発見導線とLowered一覧の先行絞込みによる高速化は�
 
 品質scoreと受動的な非採用による減衰は変更していません。未見・根拠変化は有用性の保証ではなく、上位での長期非採用も未紹介全体を負例にする根拠ではありません。featuresの言い換えによる再提示と、未収集の変化の見逃しは残ります。現在値による紹介実績分析を過去時点の推薦精度とは扱いません。
 
-現行の選択理由・契約は[評価仕様](../developer/specs/project-evaluation.md#紹介候補の表示順位保留)、保存形は[Project record](../developer/specs/project-record.md#promotionの確認記録)、操作は[Web UI](../user/web-ui.md#review)を参照してください。応答速度と評価の残件を解消したら、この文書とstatusからの参照を整理します。
+現行の選択理由・契約は[評価仕様](../developer/specs/project-evaluation.md#紹介候補の表示順位保留)、保存形は[Project record](../developer/specs/project-record.md#promotionの確認記録)、操作は[Web UI](../user/web-ui.md#レビュー)を参照してください。応答速度と評価の残件を解消したら、この文書とstatusからの参照を整理します。
