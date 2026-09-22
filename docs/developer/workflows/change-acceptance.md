@@ -124,6 +124,16 @@ WAL形式では、`mode=ro`でも`-wal`・`-shm`が存在しない場合に補�
 
 ## 実運用への反映
 
+### HTTPS入口の運用確認
+
+Tailscale Serveの実運用設定変更を明示的に依頼された場合は、[Web UIガイドの設定・解除手順](../../user/web-ui.md#tailscale経由のhttps)に従います。転送先は実運用の`127.0.0.1:8888`で、worktreeの確認用serverへ向けません。設定前後の`tailscale serve status --json`で既存入口が不変であること、専用HTTPSポートだけが追加・解除されたこと、Funnelが有効になっていないことを確認します。
+
+追加後は証明書検証を有効にしたHTTPSで、ページと静的asset、無認証・不正tokenのAPI拒否、正しいtokenでの設定・一覧APIを確認します。tokenをコマンド引数・URL・ログ・画像・検証成果へ含めず、実運用環境からprocess内へ読み込みます。実ブラウザではtoken入力、一覧・詳細・Settingsの表示と再読込をread-onlyで確認し、DB更新・job開始・server reloadは行いません。HTTP入口と同じserver instance・DBを返すことも照合します。設定変更のみならアプリの再起動は不要です。
+
+このMac自身からの成功と、別端末からの到達・tailnetのアクセス許可は区別します。別端末・Mac再起動後・証明書の自動更新を実測しなかった場合は、その範囲を未検証としてstatusへ残します。
+
+### アプリ変更の反映
+
 変更の受入確認と実運用serverへの反映は別作業です。通常は利用者がWeb UIのSettingsにある`Reload server`を押します。明示的な反映依頼がない限り、変更を実装したagentは`project-registry-web-service restart`、reload API、正本DBへの変更を実行しません。
 
 実運用serverのreloadは実行中workerを停止し、process内のjob一覧とeventを失います。明示的に反映する場合も、実行中jobがないことを確認し、影響を説明してから行います。

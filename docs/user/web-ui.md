@@ -46,9 +46,36 @@ project-registry-web-service status
 | `project-registry-web-service restart` | 認証済みreload APIでworkerを停止してから同じ引数で再起動 |
 | `project-registry-web-service uninstall` | processを停止してplistを削除。エラーログは保持 |
 
-plistにはtokenやAPI keyを保存しません。token入り起動URLが出る標準出力は保存せず、例外等の標準エラーだけを`~/Library/Logs/atproto-survey/project-registry-web.err.log`へ保存します。同じMacでは`http://127.0.0.1:8888/`、LAN内の別端末ではMacの管理下のaddressを開き、originごとにSettingsへtokenを入力します。tokenは従来どおりbrowserのlocalStorageに保存されます。
+plistにはtokenやAPI keyを保存しません。token入り起動URLが出る標準出力は保存せず、例外等の標準エラーだけを`~/Library/Logs/atproto-survey/project-registry-web.err.log`へ保存します。同じMacでは`http://127.0.0.1:8888/`、LAN内の別端末ではMacの管理下のaddressを開き、初回の`Project Registry token`入力ダイアログへtokenを入力します。tokenはoriginごとにbrowserのlocalStorageへ保存されます。
 
 LaunchAgentはcheckoutとDBを絶対パスで参照します。リポジトリを移動した場合は旧checkoutで`uninstall`してから新しい場所で`install`し直してください。通常起動には`--reload`を付けません。コード更新後はSettingsの`Reload server`または`project-registry-web-service restart`を使います。
+
+### Tailscale経由のHTTPS
+
+実運用Macでは、[HTTPS入口](https://your-host.your-tailnet.ts.net:8445/)からも同じWeb UIとDBを利用できます。接続端末でTailscaleを有効にし、このMacへの接続が許可されたtailnetから開きます。Tailscale ServeがTLSを終端し、同じMacの`http://127.0.0.1:8888`へ転送します。Funnelによる一般公開は行いません。
+
+初回は`Project Registry token`入力ダイアログに、実運用checkoutの`.envrc`で設定している同じAPI tokenを入力します。HTTPとHTTPSは別originなので、tokenと一覧件数などのUI設定は引き継がれません。tokenをURLへ付ける必要はありません。再入力する場合はSettingsの`Clear API token`で削除してページを再読込します。
+
+設定の確認・再設定は実運用Macで行います。`8445`が既存のServe設定と他の待受processで使われていないこと、転送先のHTTP入口が応答することを先に確認します。静的assetとAPIがルートからの絶対パスを使うため、他アプリとのパス分割ではなく専用ポートを使います。
+
+```bash
+tailscale serve status --json
+lsof -nP -iTCP:8445 -sTCP:LISTEN
+curl --fail --max-time 10 --output /dev/null http://127.0.0.1:8888/
+tailscale serve --bg --https=8445 http://127.0.0.1:8888
+tailscale serve status
+```
+
+`--bg`で設定したServeは終了操作まで保持され、Tailscaleの再起動後も再開します。利用にはMacの稼働・Tailscale接続・転送先Webの起動が必要です。WebのLaunchAgentは利用者のログイン時に起動するため、Mac再起動直後のログイン前の利用は前提にしません。ServeはWebの起動・再起動を担当しません。Webを停止した場合はHTTPSからも利用できなくなります。
+
+HTTPS入口だけを解除する場合は次を実行します。既存の`8443`・`8444`を維持するため、Serve設定全体を消す`tailscale serve reset`は使いません。
+
+```bash
+tailscale serve --bg --https=8445 off
+tailscale serve status
+```
+
+現在は直接HTTPの`0.0.0.0:8888`も維持しています。HTTPS追加はHTTPの閉鎖や自動転送を行いません。LANからの直接HTTPを閉じる場合は、LaunchAgentのbindをloopbackへ変更する別の運用切替が必要です。Serveの設定・永続化については[Tailscale公式CLIガイド](https://tailscale.com/docs/reference/tailscale-cli/serve)、tailnet内の公開範囲については[Serveガイド](https://tailscale.com/docs/features/tailscale-serve)を参照してください。
 
 ## 画面構成
 
@@ -181,7 +208,7 @@ Settingsの`Reload server`はWebプロセスを再起動し、SQLiteは変更し
 
 - 一覧・登録プロジェクト・マージ候補の件数上限、マージ方法、personal toolの包含
 - 表示time zone。既定`Asia/Tokyo`、IANA名または`+09:00`形式
-- API tokenの保存・削除
+- 保存済みAPI tokenの削除（再入力は削除後のページ再読込時）
 - 接続DB、Python version、起動時Git commit/dirty状態
 - サーバーのreload
 
@@ -193,8 +220,8 @@ Web UIは1人の利用者が使う前提です。手動起動の既定は`127.0.
 
 - 起動時の初回URLだけqueryにtokenを含み、UIは読取直後にURLから除去します。ただしターミナル、ブラウザー拡張、初回navigationを観測できる相手からtokenを守る仕組みではありません。
 - tokenは同じoriginの`localStorage`へ保存されます。同じブラウザープロファイル・originを使えるスクリプトや利用者とは秘密を分離できません。不要になったらSettingsの`Clear API token`で削除してください。
-- サーバーはplain HTTPで、TLS終端やtoken rotationを提供しません。LaunchAgentを使うLANと端末は管理下に限定し、internetへport 8888を転送しないでください。
-- 信頼できないnetworkを経由する場合やLAN外から使う場合は、LaunchAgentのbind設定をloopbackへ戻し、管理下のSSH tunnelまたはTLS付きreverse proxyを前段に置きます。
+- アプリ本体はplain HTTPで、token rotationを提供しません。実運用では前段のTailscale ServeからHTTPSでも利用できます。直接HTTPは残っているため、LaunchAgentを使うLANと端末は管理下に限定し、internetへport 8888を転送しないでください。
+- LAN外から使う場合は[Tailscale経由のHTTPS](#tailscale経由のhttps)を使います。直接HTTPを閉じてHTTPS経由だけに限定する運用切替は未実施です。
 
 APIリクエストは共有token必須です。起動時URLのbootstrap token、`Authorization: Bearer ...`、`X-Project-Registry-Token`のいずれかを使います。静的assetはtokenなしで配信します。
 
