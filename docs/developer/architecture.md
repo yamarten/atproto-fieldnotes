@@ -26,6 +26,8 @@ application serviceは、検索や登録・調査などの処理をCLIとWebか�
 
 OAuth metadataの解析は`oauth_metadata.py` → `oauth_scope_parser.mjs` → 公式OAuth scope SDKで行います。Nodeは取得済み文字列の解析に限定し、HTTPは既存collector、保存済み観測の適用は`integration.py`、表示はapplication presentationが担当します。詳細は[OAuth観測](specs/investigation.md#oauth-client-metadataの観測)を参照してください。
 
+`usage_material.py`は取得済みHTMLの本文から検索候補を選び、service観測の一部として保持します。applicationの詳細viewでは保存済み本文・README原文とOAuth collectionの表記を照合します。通信・LLM・用途判定を担当しません。[関連記述](specs/investigation.md#atproto利用の関連記述)を参照してください。
+
 CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をそれぞれtext/JSONとHTTP responseへ変換します。長時間処理では、CLIはserviceを呼び、Webは別processの`worker.py`を介して同じserviceを実行します。業務処理は進捗eventと終了resultを返し、enrichの保存・checkpoint・再開もapplication serviceが担当します。中断可能な境界と再開の保証は[Background jobs](specs/background-jobs.md)で定めます。
 
 独立したLexicon観測はregistry本体とは別の専用DB（sidecar DB）へ保存し、registryは照合用に読みます。App record exportは保存済みprojectから公開用JSONを生成します。いずれも通常のenrichとは別の処理です。

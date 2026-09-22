@@ -214,6 +214,18 @@ service surfaceは、機能を利用・操作するために到達するURL上�
   - 観測総件数を別fieldへ保存するため、保存件数をページ全体の件数と取り違えない
 - `service_verification_results`は`lane + requested_url`ごとの最新観測を最大32組保持します。時系列の確認は`investigation_runs` / `collector_runs`を使います。
 
+### atproto利用の関連記述
+
+`usage_material.py`は、保存先・読取り・書込みを検討するための検索候補を取り出します。主機能での利用判定・寄与度・所有の根拠を自動確定する処理ではありません。ページ本文、ページ説明、browserの保存済み本文、confirmed repositoryの現行解析に付随するREADME原文抜粋を扱います。repositoryの生成summaryは検索対象にせず、既存解析が保持した原文だけを使います。README全体の取得率や、先行解析での原文選択の妥当性は保証しません。
+
+成功したserviceのHTML取得時、先頭12 KiBの保存へ切り詰める前に、標準`HTMLParser`で最大1,048,576文字を読みます。head/script/style/template/noscript/svgを除き、block要素の改行と空白を正規化します。CSSの可視性判定やJavaScript実行は行わないため、実画面で見える本文の保証ではありません。PDS・personal data repository等を優先し、AT Protocol・Bluesky等の表記を検索します。近傍の連続した最大800文字を4箇所まで残し、否定や予定を正例へ分類しません。選んだ範囲、検索語、省略flag、検索本文のhash・文字数と選定versionを`service_verification.atproto_text_candidates`へ保存します。文字位置はHTMLではなく正規化した検索本文上の0始まり半開区間です。
+
+通常のservice観測の適用・保存・replayを使います。既存観測は保存済みHTMLの範囲だけを読むため、以前切り捨てた本文を回復できません。browserは既存の保存抜粋、ページ説明は既存description、READMEは既存の原文catalog内を検索します。取得失敗・projectを支持しないservice・stale repository解析を表示材料にしません。
+
+Web詳細の`service_ownership_review.atproto_material`は読取り時に組み立てるviewで、追加通信・LLM・DB書込みを行いません。最大12資料を表示し、保存済みOAuth repo scopeの個別collectionと本文内の同じ表記を照合します。wildcardや未解決includeをcollectionへ変換せず、同じ表記でも実利用・主機能との意味上の対応とはしません。新しいHTMLの選定段階ではprotocol語を使うため、protocol語から離れたcollection名だけの記載は取りこぼし得ます。
+
+未観測、HTMLから本文を取り出せない状態、検索一致なしを区別します。検索一致なしも非利用の確定ではありません。今回のviewは通常triageの`description_sources`へ追加せず、LLM入力上限・自動利用範囲評価・紹介順位規則は変えません。検索候補の改善と意味判定の精度改善は別です。
+
 ### OAuth client metadataの観測
 
 service pageから発見したmetadata候補（1 pageあたり最大3 URL）を従来のHTTP collectorで取得し、`scope`を公式`@atproto/oauth-scopes@0.5.12`で解析します。`oauth_metadata.py`がNode bridgeを呼び、構文・対象・操作・audienceの検証はSDKへ任せます。追加HTTP、LLM、ソースコード探索は行いません。Node処理は1回5秒まで、scopeは16,384文字まで。同一processではscope文字列ごとに成功した解析結果を128件までcacheし、DB読込・表示・replayでは保存済み解析だけを使います。

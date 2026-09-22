@@ -11,6 +11,7 @@ from typing import Any, Callable
 from . import domain_policy, identifiers, project_repository_policy
 from .evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
 from .relations import relation_record
+from . import usage_material
 
 SUPPORTING_PAGE_PATHS = {
     "about",
@@ -390,6 +391,8 @@ def collect_service_probe_evidence(
     value["urls"] = bounded_service_urls(requested_url, raw_urls)
     value["observed_url_count"] = len(raw_urls)
     value["html_extract"] = bounded_utf8_text(html, SERVICE_HTML_EXTRACT_MAX_BYTES)
+    if html and not result.get("fetch_error") and 0 < int(result.get("status_code") or 0) < 400:
+        value["atproto_text_candidates"] = usage_material.from_html(html)
     value["observed_html_bytes"] = len(html.encode("utf-8"))
     value["content_sha256"] = hashlib.sha256(html.encode("utf-8", errors="replace")).hexdigest() if html else ""
     bundle = EvidenceBundle(project_key=project_key, collected_at=observed_at)

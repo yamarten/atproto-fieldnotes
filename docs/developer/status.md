@@ -64,6 +64,8 @@ OAuth scopeは公式SDKで解析し、通常の収集・保存・replay・Web詳
 
 人が期待判断を定めた固定事例（manual gold）を通常の紹介候補一覧生成へ通す評価と、紹介済みprojectを使う読み取り専用の分析があります。紹介実績分析は現在値に対する評価で、当時の推薦を復元せず、未紹介projectを負例にしません。既存profileのsummaryとcategoryの不整合は残り、全件の一括再分類は実施していません。[評価方法](specs/investigation.md#replay-と-benchmark)を参照してください。
 
+主機能との対応を検討する材料として、service HTMLを切り詰める前の本文検索と、保存済み本文・ページ説明・README抜粋をOAuth宣言の隣に表示するviewを接続しました。検索候補の保存・replay、原文位置の保持、Web表示を確認しています。固定資料ではGleanの保存先とめやすあっとのサインイン条件を拾えますが、Squireの公開ログイン画面からタスクの保存先は分かりません。語句の一致を実利用へ昇格させず、新候補を通常LLMへ追加していません。正本の更新・実運用反映は未実施で、意味判定・寄与度再設計は残ります。[材料の仕様と限界](specs/investigation.md#atproto利用の関連記述)を参照してください。
+
 ## LLM構成の評価
 
 記録上の既定modelはQwen 3.6 35B A3Bです。通常enrichと定期jobでmodelに応じた追加規則を使用します。固定evidenceでprofile有無を分け、project全体の説明・分類を補うtriageの評価と、repository解析からtriageへの二段階評価を利用できます。比較reportは機械検査・反復差・文章確認等を区別し、通常modelを自動変更しません。

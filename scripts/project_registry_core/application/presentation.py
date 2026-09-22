@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .. import editorial, service
+from .. import editorial, service, usage_material
 
 from .. import concurrency
 
@@ -618,6 +618,7 @@ def _service_ownership_review(
         "nsid_ownership": ownership,
         "oauth_permissions": permissions,
         "oauth_clients": list(prepared.get("oauth_client_metadata", [])),
+        "atproto_material": usage_material.review(prepared),
         "oauth_status": "observed" if permissions or prepared.get("oauth_client_metadata") else "not_observed",
         "url_aliases": aliases,
         "url_alias_status": "observed" if aliases else "not_observed",

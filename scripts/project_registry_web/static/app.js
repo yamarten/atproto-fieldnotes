@@ -1045,6 +1045,18 @@ function renderOAuthClient(item) {
     <details><summary>元のscope${item.scope_truncated ? "（長さ上限で省略）" : ""}</summary><pre>${esc(item.scope ?? "記載なし／文字列以外")}</pre></details></div>`;
 }
 
+function renderUsageMaterial(material = {}) {
+  const sources = list(material.sources);
+  const coverage = {collected_html:"取得時のHTML本文から抽出", saved_html_excerpt:"保存済みHTMLの範囲のみ", saved_excerpt:"保存済み画面本文の範囲のみ", saved_readme_excerpt:"保存済みREADME抜粋の範囲のみ", saved_description:"保存済みページ説明文"};
+  return `<details><summary>atproto利用の関連記述 (${sources.length})</summary>
+    <p class="muted">用語検索で選んだ原文です。否定・予定・他サービスの説明も含みます。主機能との関係や実利用は未判定です。</p>
+    ${sources.length ? sources.map((source) => `<div class="collector"><strong>${esc(source.kind)}</strong> ${link(source.url || source.locator)}${source.url ? `<div class="muted">${esc(source.locator)}</div>` : ""}<div class="muted">${esc(coverage[source.coverage] || source.coverage)}${source.observed_at ? ` · ${esc(formatTimestamp(source.observed_at))}` : " · 観測時刻不明"}${source.input_truncated || source.matches_omitted ? " · 検索範囲／表示の省略あり" : ""}</div>
+      ${source.literal_collections?.length ? `<p>scopeのcollectionと同じ表記: ${esc(source.literal_collections.join(", "))}（意味上の対応は未判定）</p>` : ""}
+      ${list(source.passages).map((p) => `<div class="relation"><div class="muted">本文位置 ${esc(p.start)}–${esc(p.end)} · 検索語: ${esc(list(p.matches).join(", "))}</div>${p.before_omitted ? `<div class="muted">前略</div>` : ""}<pre>${esc(p.text)}</pre>${p.after_omitted ? `<div class="muted">後略</div>` : ""}</div>`).join("")}</div>`).join("") : `<p>${material.status === "no_matches" ? "保存済みの材料に検索語が見つかりませんでした。atprotoを使わないという意味ではありません。" : material.status === "text_unavailable" ? "HTMLの観測はありますが、検索できる本文を取り出せませんでした。" : "検索できる本文の観測がありません。"}</p>`}
+    ${material.sources_omitted ? `<p>ほか ${esc(material.sources_omitted)} 件の資料を省略しています。</p>` : ""}
+    </details>`;
+}
+
 function renderServiceOwnership(data, serviceUrls = []) {
   const service = list(data.service_verifications);
   const ownership = list(data.nsid_ownership);
@@ -1060,6 +1072,7 @@ function renderServiceOwnership(data, serviceUrls = []) {
     ${service.length ? `<details><summary>Service verification comparison (${service.length})</summary>${service.map((item) => `<div class="collector">${pill(item.status, item.status)} ${item.application_status === "unapplied" ? pill("未反映（競合）", "candidate") : ""} ${esc(formatTimestamp(item.completed_at))} · ${esc(item.source)}</div>`).join("")}</details>` : ""}
     ${ownership.length ? `<details><summary>NSID ownership (${ownership.length})</summary>${ownership.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.classification, item.classification)}<div class="muted">${esc(item.evidence_status)} · ${esc(item.evidence.map((entry) => `${entry.predicate}:${entry.source}`).join(", ") || "no saved ownership relation")}</div></div>`).join("")}</details>` : ""}
     ${clients.length ? `<details><summary>OAuth scope の宣言 (${clients.length})</summary><p class="muted">要求できる権限の宣言です。実際に許可された権限や利用状況、サービスの所有を示すものではありません。</p>${clients.map(renderOAuthClient).join("")}</details>` : ""}
+    ${renderUsageMaterial(data.atproto_material)}
     ${historicalPermissions.length ? `<details><summary>OAuth permissions・従来の保存情報 (${historicalPermissions.length})</summary>${historicalPermissions.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.method)}${item.include_unresolved ? pill("include unresolved", "candidate") : ""}<div class="muted">${esc(item.source)}</div></div>`).join("")}</details>` : ""}
     ${aliases.length ? `<details><summary>URL aliases (${aliases.length})</summary>${aliases.map((item) => `<div class="identifier ${esc(item.confidence || "candidate")}"><div>${link(item.alias)} → ${link(item.canonical)}</div><div class="muted">${esc(item.reason || "observed alias")}</div><div class="actions">${actionButton("Block alias", "block-identifier", {type:"service_url", value:item.alias}, "small danger")}${actionButton("Defer alias", "defer-identifier", {type:"service_url", value:item.alias})}</div></div>`).join("")}</details>` : ""}`;
 }

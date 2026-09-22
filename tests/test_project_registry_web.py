@@ -1037,6 +1037,21 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(review["oauth_permissions"], [])
         self.assertTrue(review["oauth_clients"][0]["analysis"]["atproto_only"])
 
+    def test_usage_passages_are_served_from_saved_observations(self) -> None:
+        from project_registry_core import usage_material
+        with contextlib.closing(registry.open_db()) as conn:
+            project = project_record.fetch_project(conn, "proj:111111111111")
+            project["service_verification_results"] = [{"requested_url": "https://example.com",
+                "supports_project": True, "status_code": 200, "lane": "static", "observed_at": "2026-09-22",
+                "atproto_text_candidates": usage_material.from_html("<p>Plans to store notes on a PDS.</p>")}]
+            project_record.save_project(conn, project)
+        with mock.patch.object(usage_material, "page_text", side_effect=AssertionError("should use saved extraction")):
+            status, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(status, 200)
+        material = detail["service_ownership_review"]["atproto_material"]
+        self.assertEqual(material["status"], "matches")
+        self.assertEqual(material["sources"][0]["passages"][0]["text"], "Plans to store notes on a PDS.")
+
     def test_search_uses_normalized_table_filters(self) -> None:
         cases = (
             ("identifier_kind=repo_url&identifier_value=example/candidate&identifier_classification=candidate", 1),
