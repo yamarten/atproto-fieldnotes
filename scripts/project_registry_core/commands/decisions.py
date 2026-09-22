@@ -12,6 +12,17 @@ def _print(payload: dict[str, object]) -> int:
     return 0
 
 
+def cmd_set_atproto_usage(args: argparse.Namespace) -> int:
+    conn = core.open_db()
+    try:
+        return _print(services.set_atproto_usage(
+            conn, project_key=args.project_key, role=args.role,
+            reason=args.reason or "", clear=args.clear,
+        ))
+    finally:
+        conn.close()
+
+
 def cmd_set_separate(args: argparse.Namespace) -> int:
     conn = core.open_db()
     try:

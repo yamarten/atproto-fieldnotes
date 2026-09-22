@@ -30,6 +30,7 @@ RELATION_ENTITY_TYPES = (
     "website",
 )
 DECISION_KINDS = (
+    "assess_atproto_usage",
     "block_identifier",
     "confirm_identifier",
     "defer_identifier",
@@ -41,6 +42,7 @@ DECISION_KINDS = (
     "separate_project",
 )
 DECISION_TARGET_TYPES = (
+    "atproto_usage",
     "project_key",
     "promotion_priority",
     "review_kind",
@@ -867,11 +869,11 @@ def queue_payload(
     if queue == "review":
         items = review.review_queue(conn, tracking_states=tracking_states, kinds=kinds, limit=limit)
     elif queue == "promotion":
-        if promotion_view not in {"inbox", "lowered", "waiting", "reviewed", "all"}:
+        if promotion_view not in {"inbox", "technical", "lowered", "waiting", "reviewed", "all"}:
             raise ValueError("invalid promotion view")
         items = review.promotion_queue(
             conn,
-            tracking_states=tracking_states if promotion_view == "inbox" else None,
+            tracking_states=tracking_states if promotion_view in {"inbox", "technical"} else None,
             kinds=kinds,
             limit=None,
             include_personal_tools=include_personal_tools,

@@ -9,6 +9,17 @@ from .. import concurrency
 from . import review_targets
 from project_registry_core import project_record
 from project_registry_core import promotion_attention
+from project_registry_core import atproto_usage
+
+
+def set_atproto_usage(conn: sqlite3.Connection, *, project_key: str, role: str = "unknown",
+                      reason: str = "", clear: bool = False) -> dict[str, Any]:
+    project = core.resolve_single_project(conn, project_key=project_key)
+    atproto_usage.set_override(project, role=role, reason=reason,
+                               assessed_at=project_record.iso_now(), clear=clear)
+    project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")),
+                                preserve_timestamps=True)
+    return {"project_key": project["project_key"], "atproto_usage": atproto_usage.projection(project)}
 
 
 UNAMBIGUOUS_COMPONENT_ROLES = {

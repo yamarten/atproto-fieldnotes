@@ -57,6 +57,7 @@ from project_registry_core import repository_sources as repository_source_core
 from project_registry_core import project_record
 from project_registry_core import naming as naming_core
 from project_registry_core import editorial
+from project_registry_core import atproto_usage
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -7166,6 +7167,7 @@ def build_llm_evidence_bundle(
     project: dict[str, Any],
     *,
     include_candidate_repos: bool = False,
+    max_bytes: int = llm_evidence_core.LLM_EVIDENCE_MAX_BYTES,
 ) -> dict[str, Any]:
     candidate_repo_urls: list[str] = []
     if include_candidate_repos and not project.get("project_repository_urls"):
@@ -7262,7 +7264,7 @@ def build_llm_evidence_bundle(
         **project, "repository_analysis_results": evidence["repository_analysis_results"],
     })
     return llm_evidence_core.bounded_llm_evidence(
-        llm_evidence_core.without_prior_llm_derived_state(evidence)
+        llm_evidence_core.without_prior_llm_derived_state(evidence), max_bytes=max_bytes
     )
 
 
@@ -7281,7 +7283,10 @@ def load_triage_prompt_template() -> str:
 
 
 def build_triage_prompt(project: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    evidence = build_llm_evidence_bundle(project)
+    # Reserve space for the current template within the 32 KiB base prompt.
+    overhead = len(build_triage_prompt_from_evidence({}).encode("utf-8")) - 2
+    budget = min(llm_evidence_core.LLM_EVIDENCE_MAX_BYTES, 32 * 1024 - overhead)
+    evidence = build_llm_evidence_bundle(project, max_bytes=budget)
     return build_triage_prompt_from_evidence(evidence), evidence
 
 
@@ -8014,6 +8019,9 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
         "editorial_source_policy_version": EDITORIAL_SOURCE_POLICY_VERSION,
     }
     project["last_llm_review_at"] = str(meta.get("generated_at") or project_record.iso_now())
+    atproto_usage.apply_assessment(project, payload.get("atproto_usage"),
+                                  evidence.get("description_sources", []),
+                                  assessed_at=project["last_llm_review_at"])
     apply_repository_link_assessments(project, payload, evidence)
     sync_current_llm_name_candidate(project)
     if payload.get("tagline"):
@@ -8947,7 +8955,7 @@ def promotion_queue_score_breakdown(
         "repository_evidence": 0,
         "lexicon_evidence": 0,
         "review_readiness": 0,
-        "atproto_contribution": 0,
+        "atproto_usage": 0,
         "promotion_blockers": 0,
         "recent_activity": 0,
         "recent_collection_activity": 0,
@@ -8997,7 +9005,10 @@ def promotion_queue_score_breakdown(
         components["lexicon_evidence"] = min(4, len(nsid_hints))
     if not bool(project.get("manual_review_recommended")):
         components["review_readiness"] = 4
-    components["atproto_contribution"] = int(project.get("atproto_contribution_score", 0) or 0) // 5
+    # Ownership/observation strength is not depth of protocol use.
+    usage_role = atproto_usage.projection(project)["role"]
+    if signal_kinds & {"service_surface_confirmed", "service_candidate_needs_validation", "lexicon_publisher_confirmed"}:
+        components["atproto_usage"] = 60 if usage_role == "main_data" else -120 if usage_role in atproto_usage.LIMITED_ROLES else 0
     blockers = set(str(item) for item in project.get("promotion_blockers", []))
     components["promotion_blockers"] = -len(
         blockers & {"summary missing", "tagline missing", "fewer than 3 features", "LLM review missing"}
@@ -9040,6 +9051,7 @@ def promotion_policy_projection(
     return {
         "candidate_visibility": promotion_candidate_visibility(project),
         "attention": promotion_attention.projection(project),
+        "atproto_usage": atproto_usage.projection(project),
         "active_deferral": active_promotion_deferral(project),
         "service_evidence_group": promotion_service_evidence_group(signals),
         "priority_group": "lowered" if priority_adjustment else "normal",
@@ -9076,6 +9088,8 @@ def compute_showcase_signals(
     }
     category = str(shaped.get("category") or "")
 
+    usage_role = atproto_usage.projection(shaped)["role"]
+
     allowed_service_categories = {"project", "infra_tool"}
     if include_personal_tools:
         allowed_service_categories.add("personal_tool")
@@ -9083,8 +9097,6 @@ def compute_showcase_signals(
         category in allowed_service_categories
         and service_status in {"live", "beta", "invite_only", "unverified"}
     ):
-        if service_is_derivative_bluesky_tool(shaped):
-            return signals
         if shaped.get("service_urls"):
             usable_surface_evidence = {
                 "login_surface_detected",
@@ -9117,7 +9129,12 @@ def compute_showcase_signals(
                         if surface_confirmed
                         else "service_candidate_needs_validation"
                     ),
-                    "priority": (9 if service_status == "live" else 8) if surface_confirmed else 6,
+                    "priority": (
+                        ((9 if service_status == "live" else 8) if surface_confirmed else 6)
+                        if usage_role == "main_data"
+                        else (5 if surface_confirmed else 3) if usage_role in atproto_usage.LIMITED_ROLES
+                        else (7 if surface_confirmed else 4)
+                    ),
                     "details": {
                         "category": category,
                         "service_status": service_status,
@@ -9138,7 +9155,7 @@ def compute_showcase_signals(
         signals.append(
             {
                 "kind": "lexicon_publisher_confirmed",
-                "priority": 8,
+                "priority": 5 if usage_role in atproto_usage.LIMITED_ROLES else 7,
                 "details": {
                     "publication_count": len(dns_publications),
                     "publications": dns_publications[:5],
@@ -9198,6 +9215,9 @@ def build_showcase_queue_from_projects(
         included = {
             "queue": eligible,
             "inbox": eligible and not lowered and not reviewed,
+            "technical": eligible and not lowered and not reviewed and any(
+                signal["kind"] == "technical_insight_candidate" for signal in signals
+            ),
             "lowered": lowered,
             "waiting": waiting,
             "reviewed": reviewed,
@@ -9207,7 +9227,7 @@ def build_showcase_queue_from_projects(
             raise ValueError(f"unknown promotion view: {view}")
         if not included[view]:
             continue
-        if not signals and (view in {"queue", "inbox"} or kinds is not None):
+        if not signals and (view in {"queue", "inbox", "technical"} or kinds is not None):
             continue
         if not signals and not (lowered or waiting or reviewed):
             continue
@@ -9248,8 +9268,8 @@ def build_showcase_queue_from_projects(
     queue.sort(key=lambda item: (
         1 if item.get("priority_group") == "lowered" else 0,
         1 if item["attention"]["group"] == "reviewed" else 0,
-        -int(item.get("top_priority", 0) or 0),
-        -int(item.get("sort_score", 0) or 0),
+        -int(item.get("technical_interest_score", 0) if view == "technical" else item.get("top_priority", 0) or 0),
+        0 if view == "technical" else -int(item.get("sort_score", 0) or 0),
         str(item.get("project_key") or ""),
     ))
     return queue if limit is None else queue[: max(1, int(limit or 50))]
@@ -9287,6 +9307,7 @@ def build_showcase_queue_item(
     *,
     kinds: set[str] | None = None,
     include_personal_tools: bool = False,
+    view: str = "queue",
 ) -> dict[str, Any] | None:
     project = project_record.fetch_project(conn, project_key)
     if project is None:
@@ -9297,6 +9318,7 @@ def build_showcase_queue_item(
         kinds=kinds,
         include_personal_tools=include_personal_tools,
         command_prefix=registry_command_prefix(conn),
+        view=view,
     )
     return queue[0] if queue else None
 
@@ -10225,6 +10247,12 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["app_category"] = choose_preferred_scalar(merged.get("app_category"), source.get("app_category"))
     merged["category"] = choose_preferred_scalar(merged.get("category"), source.get("category"))
     merged["atproto_auth_only"] = bool(merged.get("atproto_auth_only") or source.get("atproto_auth_only"))
+    # A merged identity changes the scope of automatic claims; reassess it.
+    merged["atproto_usage"] = {}
+    merged["atproto_usage_decisions"] = atproto_usage.merge_decisions(
+        merged.get("atproto_usage_decisions"), source.get("atproto_usage_decisions"),
+        cleared_at=project_record.iso_now(),
+    )
     merged["project_state"] = choose_preferred_scalar(merged.get("project_state"), source.get("project_state"))
     merged["brand_did"] = choose_preferred_scalar(merged.get("brand_did"), source.get("brand_did"))
     merged["ownership_signal"] = choose_preferred_scalar(

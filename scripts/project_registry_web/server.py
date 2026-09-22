@@ -661,6 +661,11 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 tracking_state=str(payload.get("tracking_state") or ""),
                 note=note,
             )
+        if action == "atproto-usage":
+            return decisions.set_atproto_usage(
+                conn, project_key=project_key, role=str(payload.get("role") or "unknown"),
+                reason=str(payload.get("reason") or ""), clear=bool(payload.get("clear")),
+            )
         if action == "dismiss-description-proposal":
             return projects.dismiss_description_proposal(conn, project_key=project_key)
         if action == "profile-preview":

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
 
 from . import llm_evidence as llm_evidence_core
+from . import atproto_usage
 from . import llm_transport
 from . import storage
 
@@ -515,6 +516,22 @@ def validate_output(payload: Any, evidence: dict[str, Any]) -> dict[str, Any]:
             relationship = str(assessment.get("relationship") or "")
             if relationship not in REPOSITORY_RELATIONSHIP_VALUES:
                 errors.append(f"invalid_enum:repository_link_assessments[{index}].relationship:{relationship}")
+    if "atproto_usage" in payload:
+        usage = payload["atproto_usage"]
+        if not isinstance(usage, dict):
+            errors.append("invalid_type:atproto_usage:object")
+        else:
+            role = usage.get("role")
+            if not isinstance(role, str) or role not in atproto_usage.ROLES:
+                errors.append("invalid_enum:atproto_usage.role")
+            if not isinstance(usage.get("reason"), str) or not usage["reason"].strip():
+                errors.append("invalid_value:atproto_usage.reason")
+            ids = usage.get("sources")
+            catalog = {s["id"]: s for s in evidence.get("description_sources", []) if isinstance(s, dict) and s.get("id")}
+            if not isinstance(ids, list) or len(ids) > 4 or any(not isinstance(i, str) or i not in catalog for i in ids):
+                errors.append("invalid_references:atproto_usage.sources")
+            elif role != "unknown" and not any(catalog[i].get("type") != "lexicon" for i in ids):
+                errors.append("missing_context:atproto_usage.sources")
     if len(str(payload.get("tagline") or "")) > 30:
         errors.append("tagline_too_long")
     category = str(payload.get("category") or "")

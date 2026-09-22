@@ -233,7 +233,23 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 - `unknown` / `0`
   - rule-based evidence が無い
 
-`incidental` は level として予約済みですが、現時点で rule-based に確定する source は未接続です。review queue は寄与度を sort score に足し、promotion queue も寄与度を補助点として使います。曖昧ケースの補助分類は[roadmap](../../roadmap.md#atproto寄与度と紹介候補の順位)の検討対象です。既存 row の保存値を洗い替える場合は `repair-db` を使います。queue 表示時は読み取り shape に対しても再計算するため、DB へ書き戻す前でも sort には反映されます。
+`incidental` は level として予約済みですが、現時点で rule-based に確定する source は未接続です。review queueはこのscoreを使います。紹介候補ではNSID等の観測量を利用範囲の代用にせず、次の独立した評価を使います。
+
+### 主機能でのatproto利用
+
+`atproto_usage`はサービスの利用可能性・確認強度・技術的価値とは別の評価です。通常triageの`description_sources`を根拠に自動評価し、CLI/Webで理由付きの手動補正を優先できます。
+
+| role | 意味 |
+| --- | --- |
+| `main_data` | 主機能のデータ、またはprotocol基盤をatprotoで実装している |
+| `supporting` | 主機能は別にあり、プロフィール等の補助部分だけに利用している根拠がある |
+| `bluesky_client` | 既存Blueskyデータの閲覧・操作・管理を主機能とする |
+| `auth_only` | sign-inだけに利用している |
+| `unknown` | 未評価、根拠不足、根拠の変化で以前の評価が失効した |
+
+自動評価の既知roleには現存する根拠IDが必要です。NSID、DNS確認、login画面、単独のschemaだけでは利用範囲を確定しません。根拠IDは参照整合性を保証するだけで、文面の意味的な正しさを保証しません。元資料が変わると自動評価は`unknown`へ戻り、次のtriageで更新します。手動補正は再調査でも維持し、明示解除すると現在の自動評価へ戻ります。未評価の既存projectに名前や過去の生成説明からroleを補完しません。
+
+技術評価は独立し、具体的なprotocol設計・相互運用・再利用できる実装上の学びを`high`以上の対象にします。通常のrecord保存・login・CRUD・言語の珍しさだけでは`notable`を超えません。補助的利用やBlueskyクライアントでも独立した学びがあれば技術候補になります。
 
 ## 紹介候補
 
@@ -257,7 +273,11 @@ Website単独やseedの有無はこのゲートの条件にしません。満た
 
 `promotion-queue`は通常表示と対話操作（interactive）の両方で、対象project全件からsignalと`promotion_queue_sort_score()`を計算し、`priority_group`、確認済みかどうか、`top_priority`、`sort_score`、`project_key`の順で全体を並べてから`--limit`を適用します。`priority_group=lowered`は通常候補の後ろへ送り、同じgroup内では未確認・再確認対象を確認済みより先にします。品質score自体は確認履歴で増減しません。
 
-`lexicon_publisher_confirmed`はcategory横断の紹介候補signalです。confirmed `owned_nsid`、`_lexicon.<authority>` DNS委譲を経て取得した`lexicon_resolution_entries`、同じNSIDの`lexicon_schema_samples`が一致した場合だけ成立します。repository内schema、NSID hint、record利用実績だけでは成立しません。priorityは8、scoreの`lexicon_publication`は160で、confirmed live serviceの次の優先帯に置きます。`reject` / `name_only`は除外し、`personal_tool`は`--include-personal-tools`指定時だけ対象にします。
+`lexicon_publisher_confirmed`はcategory横断の紹介候補signalです。confirmed `owned_nsid`、`_lexicon.<authority>` DNS委譲を経て取得した`lexicon_resolution_entries`、同じNSIDの`lexicon_schema_samples`が一致した場合だけ成立します。repository内schema、NSID hint、record利用実績だけでは成立しません。priorityは通常7、利用範囲が`supporting / bluesky_client / auth_only`なら5です。scoreの`lexicon_publication`は160です。`reject` / `name_only`は除外し、`personal_tool`は`--include-personal-tools`指定時だけ対象にします。
+
+service signalのpriorityは、利用範囲が`main_data`なら画面確認済みlive=9・その他確認済み=8・未確認=6、`unknown`なら確認済み=7・未確認=4、補助的利用・Bluesky操作・認証のみなら確認済み=5・未確認=3です。serviceまたはLexicon公開signalを持つ候補のscoreは`main_data`で+60、限定的な3種類で-120、unknownで0です。旧寄与度による加点は行いません。限定的な利用を理由とする自動Lower priorityや非表示は行いません。説明文のキーワードから派生Blueskyツールを除外していた紹介候補の規則も使いません。
+
+`--view technical` / Webの「技術候補」は、eligible・通常優先度・未確認のうち`technical_insight_candidate`を持つ候補を全件から抽出し、技術scoreとproject keyで並べてからlimitを適用します。serviceの有無や確認強度をこの並び順に使いません。閾値は`high / exceptional`と具体的な技術説明を維持し、通常の紹介候補にも同じsignalを表示します。
 
 promotion policyは次を混ぜずに投影します。
 
@@ -269,11 +289,11 @@ promotion policyは次を混ぜずに投影します。
 
 `defer_promotion`はproject全体を期限または根拠変化まで通常の候補表示から外します。一方、serviceの`needs_validation`は候補を消さず、confirmedより100点低いsignalとして残します。
 
-Webの`Promotion`は既定の「確認対象」でeligible・通常優先度・確認済みでない候補を表示します。「確認済み」「情報待ち」「Lowered / 特集候補」「すべて」へ切り替えられ、理由の部分一致検索・同じ理由の件数・ページ送りでlimitより先も回収できます。専用一覧は通常のtracking state範囲外や推薦signalがなくなった保存候補も表示し、元の追跡・表示状態を示します。「すべて」は現行signal候補とこれらの保存候補の集合であり、全登録projectではありません。
+Webの`Promotion`は既定の「確認対象」でeligible・通常優先度・確認済みでない候補を表示します。「技術候補」「確認済み」「情報待ち」「Lowered / 特集候補」「すべて」へ切り替えられ、理由の部分一致検索・同じ理由の件数・ページ送りでlimitより先も回収できます。専用一覧は通常のtracking state範囲外や推薦signalがなくなった保存候補も表示し、元の追跡・表示状態を示します。「すべて」は現行signal候補とこれらの保存候補の集合であり、全登録projectではありません。
 
 `lowered`一覧は完全なproject復元の前に、normalized decisionに`lower_promotion_priority`の履歴を持つprojectへ読込み対象を絞ります。解除済み履歴も含めて選び、有効な判断・metadataの解釈は既存の復元とpolicyへ委ねます。key選択とproject・子行の復元は同じread snapshot内で行います。全tracking stateからの回収、全体の順位、理由検索前の`reasons`集計、検索後の`total`、最後のoffset/limit適用を維持し、応答cacheは持ちません。他のviewはこの先行絞込みを使いません。
 
-cardはservice確認度、手動優先度、確認記録、追加確認理由、score成分を表示します。詳細上部の同じ場所で確認済み・Defer・Lower priority・Skipを操作します。保存後は表示中のcardを外し、Refreshで先頭から再計算します。単なる画面取得・Refresh・SkipはDBを更新しません。
+cardは主機能での利用範囲と理由・技術的価値の説明・service確認度、手動優先度、確認記録、追加確認理由、score成分を表示します。詳細上部の同じ場所で確認済み・Defer・Lower priority・Skipを操作します。保存後は表示中のcardを外し、Refreshで先頭から再計算します。単なる画面取得・Refresh・SkipはDBを更新しません。
 
 Lower priorityは単体で先に扱わない判断であり、同じ理由をまとめて特集する候補にも使います。理由の編集は旧decisionを解除済みとして残し、新decisionを追加します。通常優先度へ戻す操作も履歴を消しません。明示したloweringは根拠が変わっても自動解除せず、専用一覧で再評価できます。
 

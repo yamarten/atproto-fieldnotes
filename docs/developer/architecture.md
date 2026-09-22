@@ -124,6 +124,8 @@ Webのproject一覧は`projects`を起点にnormalized identifier、relation、d
 - `project_registry_core/editorial.py`
   - 維持する説明、内容を持つ根拠の集合、変更種別と参照検査、編集保護、最新の更新案を扱う。版履歴は作らない
   - 通常triageから呼び、Webのpreview／編集／見送りと同じ状態を使う
+- `project_registry_core/atproto_usage.py`
+  - 主機能での利用範囲、根拠参照、手動補正、失効・マージ規則を扱う。サービス確認と技術評価から独立したprojectionをCLI/Web/紹介候補へ渡す
 - `project_registry_core/promotion_attention.py`
   - 紹介候補を再評価するための構造化snapshot・fingerprintと直近の明示操作を扱う。品質scoreや自動閲覧判定を持たず、`registry.py`の候補選定とapplicationの判断保存から利用する
 

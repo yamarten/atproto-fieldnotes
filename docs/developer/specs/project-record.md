@@ -299,6 +299,7 @@ operator判断を履歴として保持し、自動収集・評価より優先し
 
 現在の`kind`:
 
+- `assess_atproto_usage`: 主機能でのatproto利用を理由付きで補正する。解除・更新前の判断も履歴に残す
 - `block_identifier`: 誤ったidentifierの再付着を恒久的に抑止する
 - `defer_identifier`: identifierの確定を期限付きで保留する
 - `confirm_identifier`: operator入力または採用済みsource seedによるidentifier採用判断
@@ -485,3 +486,9 @@ service観測から現在の稼働状態を算出する処理では、JSON paylo
 - raw HTMLやREADME全文の永続化
 - 旧schemaの通常読み込み互換
 - Web UI向けpayload互換
+
+### 主機能でのatproto利用の保存
+
+`state_json.ops.atproto_usage.automatic`に`role / reason / assessed_at`と、評価に使った`description_sources`の`id / type / locator`を最大4件保存します。根拠本文は重複保存しません。手動補正の正本は`project_decisions`の`assess_atproto_usage`で、roleをtarget value、理由をnoteへ保存し、解除・更新時は旧判断をclearedにして履歴を維持します。runtimeの`atproto_usage_decisions`はこの投影でありstate JSONへ保存しません。新しいtableやschema versionは追加しません。
+
+有効値は手動補正を優先し、自動評価は参照元の現存を確認して投影します。triageで欠落・不正な新しい評価を受けた場合は古いautomaticを残しません。マージ時は自動評価を外し、片側だけの手動補正は保持します。両側で異なるroleの手動補正がある場合はマージを拒否し、先に判断を解消します。利用範囲の変化を紹介候補の再確認fingerprintに含め、理由文だけの変更や評価日時は含めません。従来未評価のprojectのfingerprintは変更しません。

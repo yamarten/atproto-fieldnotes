@@ -351,7 +351,7 @@ bundled Chromiumが`ERR_SOCKET_NOT_CONNECTED`を返した場合だけ、HTTP/2�
 
 ### LLM evidence budget
 
-planningとtriageへ渡す可変evidence JSONは、整形後UTF-8で24 KiBを上限とします。fieldごとの代表件数上限を先に適用し、長いlistは先頭と末尾から均等に残します。それでも超える場合は低優先fieldから追加で縮約します。`project_key`等のscalarはlist budgetで落としません。縮約した場合は`evidence_budget`へfield別の観測件数と採用件数を入れます。planningとtriageは調査の異なる時点で同じbudget規則を使い、triageへ渡したevidenceは`llm_source.evidence`にも保存します。
+planningとtriageへ渡す可変evidence JSONは、整形後UTF-8で24 KiBを上限とします。fieldごとの代表件数上限を先に適用し、長いlistは先頭と末尾から均等に残します。それでも超える場合は低優先fieldから追加で縮約します。`project_key`等のscalarはlist budgetで落としません。縮約した場合は`evidence_budget`へfield別の観測件数と採用件数を入れます。通常triageでは固定templateを含む32 KiBを守るため、template長に応じて可変部分の上限を24 KiBからさらに縮めます。縮約順序はplanningと共通で、triageへ渡したevidenceは`llm_source.evidence`にも保存します。
 
 24 KiBは可変evidence JSONの上限です。prompt templateの固定文を加えた最終promptのbyte数はrun metricsで別に観測します。service HTMLやEvidenceBundleの保存量には、それぞれの保存上限を適用します。
 
@@ -419,3 +419,5 @@ bin/_project-registry-python promotion-outcome-analysis scripts/promotion_outcom
 ```
 
 browser calibrationは実URLを取得し直さず、固定したpage URL、title、text excerpt、link、form input属性、submit label、OAuth候補、匿名menu展開数、service action、network / console errorを`collect_browser_service_evidence()`へ渡します。これにより公開pageが変化しても当時の入力に対する判定を再現できます。実URLへの`verify-service --lane browser`は現在状態のsmoke testに限り、固定期待値との差をsemantic regressionとして扱いません。
+
+主機能でのatproto利用はtriage prompt v3の`atproto_usage`で評価します。固定素材による選定回帰は`tests/fixtures/project_registry/promotion-selection-v1.json`を使い、既存manual goldの紹介好例5件、利用が限定的な2件、schemaしかない反例を通常の適用・queue・保存経路へ通します。素材は意味を切り分けた構成文で、実ページの再取得snapshotや実運用精度測定ではありません。固定出力testと実LLMの判定能力は別に確認します。

@@ -1572,6 +1572,34 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(item["priority_group"], "normal")
         self.assertEqual(item["sort_score"], item["score_breakdown"]["total"])
 
+    def test_atproto_usage_api_and_technical_view(self) -> None:
+        from promotion_selection import cases, apply_fixed_assessment
+        with contextlib.closing(registry.open_db()) as conn:
+            for case in cases():
+                project_record.save_project(conn, apply_fixed_assessment(case))
+        status, first, _ = self.request("/api/promotion-queue?view=technical&limit=1")
+        self.assertEqual(status, 200)
+        self.assertEqual(first["total"], 3)
+        _, second, _ = self.request("/api/promotion-queue?view=technical&limit=1&offset=1")
+        self.assertNotEqual(first["items"][0]["project_key"], second["items"][0]["project_key"])
+        key = "fixture:squire"
+        _, detail, _ = self.request(f"/api/projects/{key}")
+        revision = detail["revision"]
+        self.assertEqual(detail["promotion_policy"]["atproto_usage"]["role"], "supporting")
+        status, _, _ = self.request(f"/api/projects/{key}/atproto-usage", method="POST",
+                                    payload={"role": "main_data", "reason": ""})
+        self.assertEqual(status, 400)
+        status, result, _ = self.request(f"/api/projects/{key}/atproto-usage", method="POST",
+                                        payload={"role": "main_data", "reason": "主機能も移行した根拠"})
+        self.assertEqual(status, 200)
+        self.assertEqual(result["detail"]["promotion_policy"]["atproto_usage"]["source"], "operator")
+        status, _, _ = self.request(f"/api/projects/{key}/atproto-usage", method="POST",
+                                    payload={"clear": True, "expected_revision": revision}, include_revision=False)
+        self.assertEqual(status, 409)
+        status, result, _ = self.request(f"/api/projects/{key}/atproto-usage", method="POST", payload={"clear": True})
+        self.assertEqual(status, 200)
+        self.assertEqual(result["detail"]["promotion_policy"]["atproto_usage"]["role"], "supporting")
+
     def test_promotion_attention_api_views_search_and_stale_mutations(self) -> None:
         key = "proj:111111111111"
         with contextlib.closing(registry.open_db()) as conn:

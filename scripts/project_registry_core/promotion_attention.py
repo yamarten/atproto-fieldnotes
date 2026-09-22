@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 from . import project_record
+from . import atproto_usage
 
 
 def snapshot(project: dict[str, Any]) -> dict[str, Any]:
@@ -22,6 +23,8 @@ def snapshot(project: dict[str, Any]) -> dict[str, Any]:
         "features",
     )
     result = {key: str(project.get(key) or "") for key in scalars}
+    if project.get("atproto_usage") or project.get("atproto_usage_decisions"):
+        result["atproto_usage"] = atproto_usage.projection(project)["role"]
     result.update({key: sorted(set(str(x) for x in project.get(key, []) if x)) for key in lists})
     # Presence of material fills a gap; wording-only changes must not rotate it.
     result["profile_available"] = {

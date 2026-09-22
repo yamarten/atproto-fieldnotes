@@ -156,6 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
     review_queue_parser.set_defaults(func=review_commands.cmd_review_queue)
 
     promotion_queue_parser = subparsers.add_parser("promotion-queue", help="List unintroduced projects that look worth showcasing next.")
+    promotion_queue_parser.add_argument("--view", choices=["queue", "inbox", "technical", "reviewed", "waiting", "lowered", "all"], default="queue", help="technical shows high/exceptional technical candidates independently of service ranking.")
     promotion_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(project_record.TRACKING_STATES), help="Restrict promotion queue to these tracking states. Default: active.")
     promotion_queue_parser.add_argument("--kinds", nargs="+", choices=[
         "service_surface_confirmed",
@@ -167,6 +168,13 @@ def build_parser() -> argparse.ArgumentParser:
     promotion_queue_parser.add_argument("--include-personal-tools", action="store_true", help="Include category=personal_tool in service and Lexicon publication candidates.")
     promotion_queue_parser.add_argument("--interactive", action="store_true", help="Step through promotion items interactively in a TTY.")
     promotion_queue_parser.set_defaults(func=review_commands.cmd_promotion_queue)
+
+    usage_parser = subparsers.add_parser("set-atproto-usage", help="Set or clear an operator assessment of AT Protocol's role in the main function.")
+    usage_parser.add_argument("-p", "--project-key", required=True)
+    usage_parser.add_argument("--role", choices=["main_data", "supporting", "bluesky_client", "auth_only", "unknown"], default="unknown")
+    usage_parser.add_argument("--reason", help="Required for an operator assessment.")
+    usage_parser.add_argument("--clear", action="store_true", help="Remove the override and use the automatic assessment.")
+    usage_parser.set_defaults(func=decision_commands.cmd_set_atproto_usage)
 
     review_stalled_parser = subparsers.add_parser("review-stalled", help="Suggest activity-based tracking-state changes for active and stalled projects.")
     review_stalled_parser.add_argument("--inactivity-days", type=int, default=45, help="Use this many days as the inactivity threshold for repository and collection activity. Default: 45.")

@@ -106,6 +106,7 @@ DECISION_FIELDS = {
     "separate_project_keys",
     "confirmed_identifiers",
     "review_target_decisions",
+    "atproto_usage_decisions",
 }
 
 NORMALIZED_FIELDS = IDENTIFIER_FIELDS | DECISION_FIELDS | {"relation_evidence"}
@@ -402,6 +403,13 @@ def merge_identifier_rows(project: dict[str, Any], target: Mapping[str, Any], so
 
 def _derive_project_decisions(project: Mapping[str, Any]) -> list[ProjectDecision]:
     output: list[ProjectDecision] = []
+    for item in project.get("atproto_usage_decisions", []):
+        if isinstance(item, dict):
+            output.append(ProjectDecision(
+                "assess_atproto_usage", "atproto_usage", str(item.get("role") or ""),
+                note=str(item.get("reason") or ""), created_at=str(item.get("assessed_at") or ""),
+                cleared_at=str(item.get("cleared_at") or ""), metadata=dict(item),
+            ))
     for item in project.get("blocked_identifiers", []):
         if isinstance(item, dict):
             output.append(ProjectDecision(
@@ -657,11 +665,17 @@ def hydrate(
         "promotion_priority_adjustments": [],
         "dismissed_review_kinds": [], "separate_project_keys": [], "confirmed_identifiers": [],
         "review_target_decisions": [],
+        "atproto_usage_decisions": [],
     })
     for row in decision_payload:
         kind = row["kind"]
         metadata = row["metadata"]
-        if kind == "block_identifier":
+        if kind == "assess_atproto_usage":
+            project["atproto_usage_decisions"].append({
+                "role": str(row["target_value"]), "reason": str(row["note"]),
+                "assessed_at": str(row["created_at"]), "cleared_at": str(row["cleared_at"]),
+            })
+        elif kind == "block_identifier":
             project["blocked_identifiers"].append(metadata or {
                 "type": str(row["target_type"]), "value": str(row["target_value"]),
                 "role": str(row["target_role"]),

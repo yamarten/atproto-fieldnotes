@@ -2767,7 +2767,8 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         planning_prompt, planning_evidence = registry.build_investigation_prompt(project)
 
         self.assertEqual(evidence, repeated)
-        self.assertEqual(evidence, triage_evidence)
+        self.assertEqual(triage_evidence, registry.build_triage_prompt(project)[1])
+        self.assertEqual(triage_evidence["project_key"], evidence["project_key"])
         self.assertEqual(evidence["candidate_project_repository_urls"], [])
         self.assertEqual(planning_evidence["candidate_project_repository_urls"], [])
         self.assertLessEqual(

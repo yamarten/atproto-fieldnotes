@@ -1929,7 +1929,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         signals = registry.compute_showcase_signals(project)
 
         self.assertEqual([signal["kind"] for signal in signals], ["lexicon_publisher_confirmed"])
-        self.assertEqual(signals[0]["priority"], 8)
+        self.assertEqual(signals[0]["priority"], 7)
         self.assertEqual(signals[0]["details"]["publication_count"], 1)
         self.assertEqual(
             registry.promotion_queue_score_breakdown(project, signals)["components"]["lexicon_publication"],

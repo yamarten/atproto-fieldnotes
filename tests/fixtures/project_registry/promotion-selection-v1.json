@@ -1,0 +1,46 @@
+{
+  "purpose": "Reduced semantic calibration material, not fetched page snapshots. The five positive references reuse manual-gold-v1; Squire and SkySweeper encode the operator's 2026-09-22 review. Text is constructed to make the expected role decidable from the input. Schema-only is deliberately insufficient.",
+  "cases": [
+    {
+      "reference": "bluesky",
+      "content": "Bluesky is a social network whose posts, follows and profiles are records in users' AT Protocol repositories. Its official implementation includes the PDS, relay and AppView architecture. The implementation demonstrates repository signing, synchronization and independently operated application indexing.",
+      "expected_role": "main_data", "expected_technical": "high"
+    },
+    {
+      "reference": "rolld",
+      "content": "rolld is a public dice rolling service. It writes the dice roll results as its own records in the user's AT Protocol PDS and reads those records to display roll history. Users can sign in and roll dice. This is ordinary application record storage; no additional protocol design or reusable infrastructure mechanism is described.",
+      "expected_role": "main_data", "expected_technical": "notable"
+    },
+    {
+      "reference": "standard-site",
+      "content": "standard.site defines a shared publication and document schema family for AT Protocol. Independent publishing applications exchange publication records using the same definitions and document-to-publication strong references, rather than translating private app schemas. The published specification describes the interoperability mechanism. It is a design specification, not an end-user service or an implementation of a deployed publishing app.",
+      "expected_role": "unknown", "expected_technical": "high"
+    },
+    {
+      "reference": "idiolect",
+      "content": "idiolect is an AT Protocol schema design and interoperability project, not an available end-user service. Its published design represents vocabularies, recommendations, and signed assertions about mappings between schema languages as content-addressed records. It explains how independent parties can express incompatible mappings without changing the original vocabulary. This is a specification; no working hosted application is claimed.",
+      "expected_role": "unknown", "expected_technical": "high"
+    },
+    {
+      "reference": "meyasuat",
+      "content": "meyasuat is a working anonymous-answer service linked from social posts. It implements a custom AT Protocol record model for the main question-and-answer data and reads that data to display responses. It is a distinct application use case. The supplied material describes ordinary record creation and presentation, not a new protocol mechanism.",
+      "expected_role": "main_data", "expected_technical": "notable"
+    },
+    {
+      "subject": {"ref": "squire", "name": "Squire", "category": "project", "service_url": "https://squire.guide", "service_available": true},
+      "content": "Squire is a task management service. Its only AT Protocol integration is a user profile record. Tasks, scheduling and daily priorities are stored and processed by a separate backend outside AT Protocol. Login and an actor Lexicon are available. No other AT Protocol data integration or novel protocol design is claimed.",
+      "expected_role": "supporting", "expected_technical": "notable"
+    },
+    {
+      "subject": {"ref": "skysweeper", "name": "SkySweeper", "category": "project", "service_url": "https://skysweeper.p8.lu", "service_available": true},
+      "content": "SkySweeper is a specialized Bluesky web client that deletes old Bluesky posts using the existing Bluesky API. Its main function manages existing Bluesky post records. The documented implementation is standard authentication and API calls with self-hosting instructions; it does not provide an independent application's data model or a novel protocol mechanism.",
+      "expected_role": "bluesky_client", "expected_technical": "notable"
+    },
+    {
+      "subject": {"ref": "schema-only", "name": "Schema-only example", "category": "project", "service_url": "https://schema-only.example", "service_available": true},
+      "source_type": "lexicon",
+      "content": "{\"lexicon\":1,\"id\":\"example.actor.profile\",\"defs\":{\"main\":{\"type\":\"record\",\"record\":{\"type\":\"object\",\"properties\":{\"displayName\":{\"type\":\"string\"}}}}}}",
+      "expected_role": "unknown", "expected_technical": "notable"
+    }
+  ]
+}

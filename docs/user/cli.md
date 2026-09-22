@@ -107,7 +107,7 @@ project-registry --db-path PATH migrate-db-v4 --execute
 | コマンド | 主な入力 | 出力 | 副作用 |
 | --- | --- | --- | --- |
 | `review-queue` | 追跡状態、理由（signal kind）、件数上限、`--interactive` | 要レビュー項目のJSON | 既定なし。対話操作で選んだ処理は書き込み |
-| `promotion-queue` | 追跡状態、紹介候補の種類、件数上限、personal toolの包含、`--interactive` | 紹介候補のJSON | 既定なし。対話操作で選んだ処理は書き込み |
+| `promotion-queue` | 追跡状態、紹介候補の種類、`--view`、件数上限、personal toolの包含、`--interactive` | 紹介候補のJSON | 既定なし。対話操作で選んだ処理は書き込み |
 | `review-stalled` | 活動日数、`enrich`の鮮度、`--execute`または`--interactive` | 追跡状態の変更候補JSON | 既定なし。execute/interactiveで書き込み |
 | `review-ignore` | 状態、件数上限、note/reason、実行方式 | 追跡対象外にする候補のJSON | 既定なし。execute/interactiveで書き込み |
 | `review-out-of-scope` | 状態、件数上限、note/reason、実行方式 | 調査範囲外または復帰候補のJSON | 既定なし。execute/interactiveで書き込み |
@@ -141,7 +141,18 @@ project-registry --db-path PATH migrate-db-v4 --execute
 | `lexicon_publisher_confirmed` | confirmed owned NSIDが、authorityの`_lexicon` DNS委譲先にあるmatching schema recordとして取得できた。categoryには依存しない。 |
 | `technical_insight_candidate` | 設計・相互運用・参照実装を学ぶうえで特に見る価値がある。 |
 
-`category=personal_tool`は既定ではサービスとLexicon発行の紹介候補から除外し、`--include-personal-tools`で含めます。Lexicon発行はNSID hintやrepository内schemaだけでは成立せず、通常enrichでDNS委譲とschema record取得に成功した観測を必要とします。紹介保留は期限後または保存した判断材料の変化で一覧へ戻り、履歴は残ります。古い保留は期限だけの契約を維持します。`defer-promotion`で日数を省略した場合は登録からの日数と過去の保留回数から期間を自動決定します。Webで「確認済み」にした候補は、根拠が同じ30日間、CLIでも同じ優先度の未確認候補より後ろへ並びます。専用一覧・理由検索・確認済みの設定解除はWebのPromotionを使います。
+`category=personal_tool`は既定ではサービスとLexicon発行の紹介候補から除外し、`--include-personal-tools`で含めます。Lexicon発行はNSID hintやrepository内schemaだけでは成立せず、通常enrichでDNS委譲とschema record取得に成功した観測を必要とします。紹介保留は期限後または保存した判断材料の変化で一覧へ戻り、履歴は残ります。古い保留は期限だけの契約を維持します。`defer-promotion`で日数を省略した場合は登録からの日数と過去の保留回数から期間を自動決定します。Webで「確認済み」にした候補は、根拠が同じ30日間、CLIでも同じ優先度の未確認候補より後ろへ並びます。`--view`は`queue`（既定）、`inbox`、`technical`、`reviewed`、`waiting`、`lowered`、`all`を選べます。理由検索・確認済みの設定解除はWebのPromotionを使います。
+
+技術面から選ぶ場合は`promotion-queue --view technical`を使います。具体的な技術的価値が`high / exceptional`と評価された未確認候補を、サービスの確認度と独立して並べます。通常一覧にも同じ技術候補が含まれます。
+
+主機能でのatproto利用を手動で補正するときは、根拠を添えて保存します。再調査は手動判断を上書きせず、解除すると自動評価へ戻ります。Lower priorityは個別の編集判断として別に維持されます。
+
+```bash
+bin/project-registry set-atproto-usage -p PROJECT_KEY --role supporting --reason 'プロフィールだけをatprotoに保存し、主機能のデータは別基盤'
+bin/project-registry set-atproto-usage -p PROJECT_KEY --clear
+```
+
+`--role`は`main_data / supporting / bluesky_client / auth_only / unknown`です。補正はDBへ書き込みます。定義は[利用ガイド](guide.md#基本用語)を参照してください。
 
 ## インポートと外部情報の取り込み
 

@@ -15,6 +15,7 @@ subcommands=(
   'explain:Explain saved registry conclusions'
   'review-queue:List projects that deserve human review'
   'promotion-queue:List unintroduced projects worth showcasing'
+  'set-atproto-usage:Set or clear the main-function AT Protocol role'
   'review-stalled:Suggest lower-frequency tracking or revival'
   'review-ignore:Suggest low-value fork repos and derivative tools for ignore'
   'review-out-of-scope:Suggest related projects that are outside the survey scope'
@@ -215,8 +216,17 @@ case "$cmd" in
       '--limit[Maximum number of projects to return]:count:' \
       '--interactive[Step through review items interactively]'
     ;;
+  set-atproto-usage)
+    _arguments -S \
+      '--project-key[Project to assess]:project key:' \
+      '-p[Project to assess]:project key:' \
+      '--role[Role of AT Protocol]:role:(main_data supporting bluesky_client auth_only unknown)' \
+      '--reason[Evidence for assessment]:reason:' \
+      '--clear[Clear operator override]'
+    ;;
   promotion-queue)
     _arguments -S \
+      '--view[Promotion view]:view:(queue inbox technical reviewed waiting lowered all)' \
       '--tracking-states+[Restrict promotion queue to these tracking states]:tracking states:_project_registry_tracking_states' \
       "--kinds+[Restrict to specific promotion kinds]:kind:(${promotion_kinds[*]})" \
       '--limit[Maximum number of projects to return]:count:' \

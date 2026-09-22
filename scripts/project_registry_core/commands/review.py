@@ -325,12 +325,14 @@ def cmd_promotion_queue(args: argparse.Namespace) -> int:
     kinds = {str(item).strip() for item in (args.kinds or []) if str(item).strip()} or None
     interactive = bool(getattr(args, "interactive", False))
     include_personal_tools = bool(getattr(args, "include_personal_tools", False))
+    view = getattr(args, "view", "queue")
     queue = services.promotion_queue(
         conn,
         tracking_states=tracking_states,
         kinds=kinds,
         limit=max(1, int(args.limit)) if args.limit is not None else (None if interactive else 50),
         include_personal_tools=include_personal_tools,
+        view=view,
     )
     try:
         return queue_interaction.output_project_queue(
@@ -342,6 +344,7 @@ def cmd_promotion_queue(args: argparse.Namespace) -> int:
             interactive=interactive,
             load_more=None,
             include_personal_tools=include_personal_tools,
+            promotion_view=view,
         )
     finally:
         conn.close()

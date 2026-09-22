@@ -46,6 +46,7 @@ def output_project_queue(
     interactive: bool,
     load_more: Callable[[], list[dict[str, Any]]] | None = None,
     include_personal_tools: bool = False,
+    promotion_view: str = "queue",
 ) -> int:
     kind_counts: dict[str, int] = {}
     for item in queue:
@@ -91,6 +92,7 @@ def output_project_queue(
                             "repo_urls": current_item.get("repo_urls", []),
                             "tagline": current_item.get("tagline", ""),
                             "summary": current_item.get("summary", ""),
+                            "atproto_usage": current_item.get("atproto_usage", {}),
                             "last_promotion_deferral_reason": current_item.get("last_promotion_deferral_reason", ""),
                             "signals": current_item.get("signals", []),
                             "suggested_commands": current_item.get("suggested_commands", []),
@@ -227,6 +229,7 @@ def output_project_queue(
                             str(current_item.get("project_key") or ""),
                             kinds=kinds,
                             include_personal_tools=include_personal_tools,
+                            view=promotion_view,
                         )
                         if refreshed is None:
                             break

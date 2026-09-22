@@ -15,7 +15,7 @@ from . import http_transport
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_LLM_PROMPT_VERSION = "project-triage-v2"
+DEFAULT_LLM_PROMPT_VERSION = "project-triage-v3"
 ENDPOINT_INCOMPATIBLE_HTTP_STATUSES = {400, 404, 405, 415, 422, 501}
 
 

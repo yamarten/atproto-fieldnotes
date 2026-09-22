@@ -291,7 +291,7 @@ function listControls() {
       ? `<div class="toolbar"><label>Signal kind<input id="review-signal-kind" placeholder="e.g. candidate_repo_needs_confirmation" value="${esc(state.reviewSignalKind)}"></label><button id="apply-review-filter" class="primary">Apply</button><button id="clear-review-filter" class="secondary">Clear</button></div>`
       : "";
     const promotionFilter = state.reviewView === "promotion" ? `<div class="toolbar">
-      <label>候補の扱い<select id="promotion-view">${selectOptions([["inbox", "確認対象"], ["reviewed", "確認済み"], ["waiting", "情報待ち"], ["lowered", "Lowered / 特集候補"], ["all", "すべて"]], state.promotionView)}</select></label>
+      <label>候補の扱い<select id="promotion-view">${selectOptions([["inbox", "確認対象"], ["technical", "技術候補"], ["reviewed", "確認済み"], ["waiting", "情報待ち"], ["lowered", "Lowered / 特集候補"], ["all", "すべて"]], state.promotionView)}</select></label>
       <label>理由を検索<input id="promotion-reason" type="search" value="${esc(state.promotionReason)}" placeholder="例: 認証のみ、公開待ち"></label>
       <button id="apply-promotion-filter">検索</button><button id="clear-promotion-filter" class="secondary">条件を解除</button>
       </div><div id="promotion-reasons" class="actions"></div>` : "";
@@ -538,7 +538,7 @@ const promotionScoreLabels = {
   repository_evidence: "Repository found",
   lexicon_evidence: "Lexicon found",
   review_readiness: "No manual-review flag",
-  atproto_contribution: "atproto contribution",
+  atproto_usage: "主機能でのatproto利用",
   promotion_blockers: "Missing introduction material",
   recent_activity: "Recent activity",
   recent_collection_activity: "Recent record activity",
@@ -557,6 +557,21 @@ const promotionSignalLabels = {
   technical_insight_candidate: "Technical insight candidate",
 };
 
+const atprotoUsageLabels = {
+  main_data: "主機能のデータ・基盤", supporting: "補助的な利用",
+  bluesky_client: "Bluesky専用操作", auth_only: "認証のみ", unknown: "利用範囲は不明",
+};
+
+function renderAtprotoUsage(usage = {}) {
+  return `<p>${pill(promotionLabel(atprotoUsageLabels, usage.role || "unknown"))} · ${usage.source === "operator" ? "手動判断" : usage.source === "llm" ? "根拠に基づく自動評価" : "未評価"}</p>
+    <p>${esc(usage.reason || "主機能でのatproto利用は未評価です。")}</p>
+    ${list(usage.sources).length ? `<ul>${usage.sources.map((s) => `<li>${esc(s.type)}: ${esc(s.locator)}</li>`).join("")}</ul>` : ""}
+    <details><summary>利用範囲を訂正</summary><p class="muted">稼働状態や技術的価値とは別の判断です。手動判断は自動調査で上書きしません。</p>
+    <label>主機能での利用<select id="atproto-usage-role">${selectOptions(Object.entries(atprotoUsageLabels), usage.role || "unknown")}</select></label>
+    <label>判断根拠<input id="atproto-usage-reason" value="${esc(usage.source === "operator" ? usage.reason : "")}" placeholder="主機能とatprotoが担う部分を記入"></label>
+    <div class="actions"><button id="save-atproto-usage">判断を保存</button>${usage.source === "operator" ? `<button id="clear-atproto-usage" class="secondary">手動判断を解除</button>` : ""}</div></details>`;
+}
+
 function promotionLabel(labels, value) {
   return labels[value] || String(value || "Not available").replaceAll("_", " ");
 }
@@ -572,13 +587,16 @@ function promotionCardDetails(item) {
   ).map((reason) => promotionLabel(promotionValidationLabels, reason));
   const serviceGroup = item.service_evidence_group || "not_applicable";
   const priorityGroup = item.priority_group || "normal";
-  return `<span class="meta-row">${pill(promotionLabel(promotionServiceLabels, serviceGroup), serviceGroup === "confirmed" ? "confirmed" : "candidate")}${pill(promotionLabel(promotionPriorityLabels, priorityGroup), priorityGroup === "lowered" ? "candidate" : "confirmed")}${pill(`Ranking score ${breakdown.total ?? item.sort_score ?? 0}`)}</span>
-    <span class="meta-row">${pill(promotionLabel({unreviewed:"確認記録なし", recorded:"判断記録あり", reviewed:"確認済み", changed:"根拠変化・再確認", due:"再確認時期"}, item.attention?.group))}${pill(promotionLabel(promotionVisibilityLabels, item.candidate_visibility?.group))}</span>
+  const technicalView = state.promotionView === "technical";
+  return `<span class="meta-row">${pill(promotionLabel(promotionServiceLabels, serviceGroup), serviceGroup === "confirmed" ? "confirmed" : "candidate")}${pill(promotionLabel(promotionPriorityLabels, priorityGroup), priorityGroup === "lowered" ? "candidate" : "confirmed")}${pill(technicalView ? `技術評価 ${item.technical_interest_level} · ${item.technical_interest_score}` : `Ranking score ${breakdown.total ?? item.sort_score ?? 0}`)}</span>
+    <span class="meta-row">${pill(promotionLabel(atprotoUsageLabels, item.atproto_usage?.role || "unknown"))}${pill(promotionLabel({unreviewed:"確認記録なし", recorded:"判断記録あり", reviewed:"確認済み", changed:"根拠変化・再確認", due:"再確認時期"}, item.attention?.group))}${pill(promotionLabel(promotionVisibilityLabels, item.candidate_visibility?.group))}</span>
+    ${item.atproto_usage?.reason ? `<span class="muted">${esc(item.atproto_usage.reason)}</span>` : ""}
+    ${list(item.signals).some((s) => s.kind === "technical_insight_candidate") ? `<span>${esc(list(item.signals).find((s) => s.kind === "technical_insight_candidate").details.technical_interest_summary)}</span>` : ""}
     ${item.active_deferral ? `<span class="muted">情報待ち: ${esc(item.active_deferral.reason)} · ${esc(formatTimestamp(item.active_deferral.expires_at))}まで</span>` : ""}
     ${!item.active_deferral && item.last_promotion_deferral_reason ? `<span class="muted">前回の保留理由: ${esc(item.last_promotion_deferral_reason)}</span>` : ""}
     ${item.priority_reason ? `<span class="muted">Priority note: ${esc(item.priority_reason)}</span>` : ""}
     ${validationReasons.length ? `<span class="muted">Needs validation: ${esc(validationReasons.join(", "))}</span>` : ""}
-    ${components.length ? `<span class="muted">${esc(components.join(" · "))}</span>` : ""}`;
+    ${components.length && !technicalView ? `<span class="muted">${esc(components.join(" · "))}</span>` : ""}`;
 }
 
 function renderList(data) {
@@ -829,6 +847,7 @@ function renderDetail(data) {
     ${project.features?.length ? section("Features", `<ul>${project.features.map((value) => `<li>${esc(value)}</li>`).join("")}</ul>`) : ""}
     ${project.editorial?.proposal ? `<p class="notice">根拠付きの説明更新案があります。ProfileのEditから確認できます。</p>` : ""}
     ${section("確認時点", renderServiceObservations(project.service_observations))}
+    ${section("主機能でのatproto利用", renderAtprotoUsage(promotionPolicy.atproto_usage))}
     ${section("Links / Resources", renderProjectLinks(overview))}
     ${section("Evaluation", `<dl class="kv"><dt>atproto contribution</dt><dd>${pill(evaluation.atproto_contribution_level)} score ${esc(evaluation.atproto_contribution_score)}</dd><dt>Technical interest</dt><dd>${pill(evaluation.technical_interest_level)} score ${esc(evaluation.technical_interest_score)}</dd><dt>Service confidence</dt><dd>${esc(evaluation.service_status_confidence)}</dd><dt>Promotion</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "Not ready"}</dd><dt>Candidate-list status</dt><dd>${pill(promotionLabel(promotionVisibilityLabels, promotionPolicy.candidate_visibility?.group || "excluded"))}</dd><dt>Usable service screen</dt><dd>${pill(promotionLabel(promotionServiceLabels, promotionPolicy.service_evidence_group || "not_applicable"))}</dd><dt>Candidate priority</dt><dd>${pill(promotionLabel(promotionPriorityLabels, priorityGroup))} ${esc(promotionPolicy.priority_reason || "")}</dd><dt>Ranking score</dt><dd>${esc(promotionPolicy.score_breakdown?.total ?? 0)}</dd><dt>Technical summary</dt><dd>${esc(evaluation.technical_interest_summary || "None")}</dd></dl>`)}
     ${section("Active Guards", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">No active guards.</p>`)}
@@ -1228,6 +1247,15 @@ async function addProjectSeed(projectKey) {
 }
 
 function bindDetailActions(projectKey) {
+  $("save-atproto-usage")?.addEventListener("click", () => {
+    const reason = $("atproto-usage-reason").value.trim();
+    if (!reason) { status("判断根拠を入力してください。", true); return; }
+    confirmMutation("利用範囲の判断を保存", "この判断を推薦に反映します。サービスの稼働状態、技術的価値、Lower priorityは変えません。",
+      `/api/projects/${encodeURIComponent(projectKey)}/atproto-usage`, {role:$("atproto-usage-role").value, reason}, false);
+  });
+  $("clear-atproto-usage")?.addEventListener("click", () => confirmMutation(
+    "手動判断を解除", "有効な自動評価があれば使用し、なければ不明へ戻します。",
+    `/api/projects/${encodeURIComponent(projectKey)}/atproto-usage`, {clear:true}, false));
   document.querySelectorAll("[data-action]").forEach((button) => button.onclick = () => {
     const action = button.dataset.action;
     const payload = {identifier_type: button.dataset.type || "", value: button.dataset.value || "", other_project_key: button.dataset.other || "", target_type: button.dataset.targetType || "", target_value: button.dataset.targetValue || "", review_action: button.dataset.reviewAction || "", days: button.dataset.days || ""};

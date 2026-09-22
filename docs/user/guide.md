@@ -57,6 +57,8 @@ project-registry-web --host 127.0.0.1 --port 8765 --db-path data/dev/survey.db -
 | 調査実行記録 | 1つの登録プロジェクトに対する`enrich`などの保存済み調査履歴。画面やJSONでは`investigation run`または`run`と表記される。 |
 | 追跡状態 | 継続調査上の扱いを示す状態。コマンドやJSONでは`tracking_state`と表記される。 |
 | 要レビュー一覧 | 人による確認が必要な項目の一覧。CLIでは`review-queue`。 |
+| 主機能でのatproto利用 | 主機能のデータ・基盤、補助的な利用、Bluesky専用操作、認証のみ、利用範囲は不明の区別。サービスを利用できるか、技術的な学びがあるかとは別に評価する。 |
+| 技術候補 | 具体的なprotocol設計・相互運用・実装上の学びを理由に選ぶ紹介候補。サービスの有無と独立した入口でも確認できる。 |
 | 紹介候補一覧 | 紹介する候補を選び、優先度や保留を判断する一覧。CLIでは`promotion-queue`。 |
 | 分類 | 主な利用者と利用形態による登録プロジェクトの分類。保存値は`project`、`lexicon`、`library`、`infra_tool`、`personal_tool`、`name_only`、`reject`。詳しい境界は[Project Record Schema](../developer/specs/project-record.md#category)を参照。 |
 | 採用 | 候補の識別子を、その登録プロジェクトに属するものとして利用者が認める操作。保存値は`confirmed`。この値は自動判定による採用にも使われ、利用者の操作は手動判断の記録で確認できる。 |

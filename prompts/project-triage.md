@@ -43,6 +43,7 @@ Output schema:
   "why_reject": "string",
   "watch_reason": "string",
   "technical_interest_level": "none | notable | high | exceptional",
+  "atproto_usage": {"role": "main_data | supporting | bluesky_client | auth_only | unknown", "reason": "Japanese explanation of the main function and exactly what AT Protocol does", "sources": ["description_sources ID"]},
   "technical_interest_reasons": ["novel_design_pattern | protocol_gap_exposed | interoperability_experiment | unusual_architecture | implementation_reference"],
   "technical_interest_summary": "string",
   "manual_review_recommended": true,
@@ -74,6 +75,15 @@ Language requirements:
 - `technical_interest_level`: evaluate technical learning value independently from service usability or introduction readiness; use `high` or `exceptional` only with concrete evidence
 - `technical_interest_reasons`: choose only supported enum values; use an empty list when there is no concrete technical insight
 - `technical_interest_summary`: Japanese short explanation of the specific design pattern, protocol gap, interoperability experiment, architecture, or reference value
+- `atproto_usage`: use only `description_sources`, with 1-4 exact source IDs for known roles. Do not infer from current_profile, prior generated text, NSIDs, DNS verification, or login screens.
+  - First distinguish an implemented application/infrastructure from a specification. A schema or design specification with no implemented application/infrastructure is `unknown`, even when its subject is entirely AT Protocol. Do not turn a described record design into a claim that an application already stores those records.
+  - For an implemented artifact: `bluesky_client` if its main purpose is viewing/managing existing Bluesky data; `auth_only` if sign-in is its only integration; `supporting` if evidence explicitly limits integration to an ancillary part of an otherwise external service; `main_data` if the application's main data or core protocol infrastructure is actually implemented on AT Protocol. Custom NSIDs are not required. Otherwise `unknown`.
+  - A lone schema sample cannot establish either main use or ancillary-only use. Explain what is known and what is missing, without inventing absence of other integration.
+- Calibrate `technical_interest_level` using this rubric, independently of usage role, deployment and service usability:
+  - `high`: the material identifies a concrete protocol/interoperability mechanism or reusable infrastructure implementation worth explaining to developers. This includes protocol infrastructure implementing signing/synchronization/indexing, shared schema designs that explain how independent applications exchange records, and designs that explain how independently signed claims resolve an interoperability problem. A published design can qualify without a deployed application. Do not downgrade these to `notable` merely because they reuse AT Protocol or are not unprecedented.
+  - `notable`: ordinary application record storage, login, CRUD, API calls or a programming-language choice, without such a mechanism or reusable implementation lesson.
+  - `none`: no evidenced technical lesson. Reserve `exceptional` for evidence beyond the `high` standard.
+  - For `high` or `exceptional`, state the concrete mechanism/lesson in `technical_interest_summary`; do not leave it empty. Supporting integrations and Bluesky clients can qualify on this independent axis.
 - `manual_review_recommended`: true when a human should inspect rich docs, a usable service, or complicated evidence that the shallow automated pass may not fully digest
 - `manual_review_kind`: choose `editorial_refresh` for weak tagline/summary/features, `deep_source_material` for rich docs/pages worth reading more deeply, `service_status_manual_check` for usable-looking but still uncertain services, `identity_resolution` for conflicting identities or ownership, `category_recheck` for likely category drift, `other` when none of those fit
 - Maintain one useful description of what this project provides or provided and its technical characteristics. `current_profile` contains accumulated editorial understanding, not just the last observation. Preserve known purpose and design details through temporary collection failures. Do not replace them with an access-error report.
