@@ -59,6 +59,7 @@ from project_registry_core import project_record
 from project_registry_core import naming as naming_core
 from project_registry_core import editorial
 from project_registry_core import atproto_usage
+from project_registry_core import usage_material
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -7836,6 +7837,7 @@ def collect_service_evidence_with_followups(
     *,
     lane: str = "static",
 ) -> EvidenceBundle:
+    collection_names = usage_material.known_collections(project)
     if lane == "repository_homepage":
         # Observation precedes attribution and role selection. In particular, a
         # reciprocal repository link does not establish that this page is a service.
@@ -7843,6 +7845,7 @@ def collect_service_evidence_with_followups(
             str(project.get("project_key") or ""), service_url, result,
             observed_at=project_record.iso_now(), lane=lane,
             subject_component_role=exact_project_page_component_role(project, service_url),
+            collection_names=collection_names,
         )
     supports_project = service_probe_supports_project(project, service_url, result)
     normalized_service_url = identifier_core.normalize_url(service_url)
@@ -7851,6 +7854,7 @@ def collect_service_evidence_with_followups(
         str(project.get("project_key") or ""), service_url, result, observed_at=project_record.iso_now(), lane=lane,
         supports_project=supports_project,
         subject_component_role=component_role,
+        collection_names=collection_names,
     )
     working = copy.deepcopy(project)
     follow_urls = collect_first_party_links(
@@ -7871,6 +7875,7 @@ def collect_service_evidence_with_followups(
                 observed_at=project_record.iso_now(), lane="follow_up",
                 supports_project=service_probe_supports_project(project, follow_url, follow_result),
                 subject_component_role="",
+                collection_names=collection_names,
             )
         except Exception as exc:
             follow_bundle = failed_collector_bundle(

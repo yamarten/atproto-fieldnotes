@@ -64,7 +64,7 @@ OAuth scopeは公式SDKで解析し、通常の収集・保存・replay・Web詳
 
 人が期待判断を定めた固定事例（manual gold）を通常の紹介候補一覧生成へ通す評価と、紹介済みprojectを使う読み取り専用の分析があります。紹介実績分析は現在値に対する評価で、当時の推薦を復元せず、未紹介projectを負例にしません。既存profileのsummaryとcategoryの不整合は残り、全件の一括再分類は実施していません。[評価方法](specs/investigation.md#replay-と-benchmark)を参照してください。
 
-主機能との対応を検討する材料として、service HTMLを切り詰める前の本文検索と、保存済み本文・ページ説明・README抜粋をOAuth宣言の隣に表示するviewを接続しました。検索候補の保存・replay、原文位置の保持、Web表示を確認しています。固定資料ではGleanの保存先とめやすあっとのサインイン条件を拾えますが、Squireの公開ログイン画面からタスクの保存先は分かりません。語句の一致を実利用へ昇格させず、新候補を通常LLMへ追加していません。正本の更新・実運用反映は未実施で、意味判定・寄与度再設計は残ります。[材料の仕様と限界](specs/investigation.md#atproto利用の関連記述)を参照してください。
+主機能との対応を検討する材料として、個別repo宣言・record型Lexicon・record観測を同じcollection名で並べ、本文・ページ説明・READMEの関連記述と併せて表示します。service HTMLを切り詰める前に既知のcollection名も検索し、後から判明した名前は保存済みHTML内で補います。保存・replay、原文位置、Web表示を確認しています。固定資料ではGleanの購読・注釈、mathrの個人バックアップ用スコアとBluesky投稿を分けて確認できますが、Squireのactorサンプルからタスクの保存先は分かりません。11対象の固定資料では本文の追加発見はなく、collection名だけの記述を拾う経路は構成例で確認しています。追加通信・LLMはなく、正本の更新・実運用反映は未実施です。意味判定・寄与度再設計は残ります。[材料の仕様と限界](specs/investigation.md#atproto利用の関連記述)を参照してください。
 
 ## LLM構成の評価
 

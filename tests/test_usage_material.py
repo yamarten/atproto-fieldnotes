@@ -11,6 +11,71 @@ from project_registry_core.evidence import EvidenceBundle
 
 
 class UsageMaterialTest(TempRegistryDbTestCase):
+    def test_collection_join_preserves_observation_kinds_and_missing_schema_fields(self):
+        project = {"oauth_client_metadata": [oauth_metadata.observe("https://example.com/client.json", {
+            "scope": "atproto repo:app.example.note?action=delete repo:* include:app.example.permissionSet",
+        }, "2026-09-22")], "lexicon_schema_samples": [
+            {"nsid": "app.example.note", "id": "app.example.note", "defs": {"main": {
+                "type": "record", "description": "A reading annotation", "record": {"properties": "... 2 keys"}}}},
+            {"nsid": "app.example.note", "id": "app.other.note", "defs": {"main": {"type": "record", "description": "wrong schema"}}},
+            {"nsid": "app.example.query", "defs": {"main": {"type": "query"}}}],
+            "recent_record_samples": [{"collection": "app.example.note", "did": "did:plc:sample", "rkey": "one",
+                "record": {"$type": "app.example.note", "createdAt": "2026-09-22", "text": "private sample text", "...": "2 more keys"}},
+                {"collection": "app.other.note", "record": {"$type": "app.other.note", "title": "A title"}}],
+            "collection_observations": [{"collection": "app.example.note", "count": 3, "recent_count": 1}]}
+        before = copy.deepcopy(project)
+        catalog = usage_material.collection_evidence(project)
+        rows = {r["collection"]: r for r in catalog["rows"]}
+        self.assertEqual(set(rows), {"app.example.note", "app.other.note"})
+        note = rows["app.example.note"]
+        self.assertEqual(note["permissions"][0]["actions"], ["delete"])
+        self.assertEqual(len(note["schemas"]), 1)
+        self.assertEqual(note["schemas"][0]["fields_status"], "not_saved")
+        self.assertEqual(note["schemas"][0]["record_description"], "A reading annotation")
+        self.assertEqual(note["record_samples"][0]["fields"], ["createdAt", "text"])
+        self.assertNotIn("private sample text", str(catalog))
+        self.assertEqual(rows["app.other.note"]["permissions"], [])
+        self.assertEqual(project, before)
+
+    def test_collection_only_passage_is_collected_in_normal_path_and_replayed(self):
+        project = self.make_project("proj:material", "service_url", "https://example.com")
+        project["lexicon_schema_samples"] = [{"nsid": "app.example.note", "defs": {"main": {"type": "record"}}}]
+        text = "Plans to save notes in app.example.note. Anonymous drafts are not saved there."
+        html = "<style>" + "padding " * 2000 + "</style><p>" + text + "</p>"
+        result = {"html": html, "status_code": 200, "service_status": "live", "title": "Example",
+                  "description": "", "final_url": "https://example.com", "links": [], "urls": []}
+        with mock.patch.object(registry, "collect_first_party_links", return_value=[]), \
+             mock.patch.object(registry, "service_probe_supports_project", return_value=True):
+            bundle = registry.collect_service_evidence_with_followups(project, "https://example.com", result)
+        observation = bundle.records[0].value
+        self.assertNotIn(text, observation["html_extract"])
+        self.assertEqual(observation["atproto_text_candidates"]["searched_collections"], ["app.example.note"])
+        self.assertEqual(observation["atproto_text_candidates"]["passages"][0]["text"], text)
+        registry.apply_replay_evidence(project, EvidenceBundle.from_dict(bundle.to_dict()))
+        with contextlib.closing(registry.open_db()) as conn:
+            project_record.save_project(conn, project)
+            material = presentation.project_detail(conn, project_key=project["project_key"])["service_ownership_review"]["atproto_material"]
+        self.assertEqual(material["sources"][0]["literal_collections"], ["app.example.note"])
+
+    def test_later_collection_knowledge_searches_only_retained_html(self):
+        project, _ = self.collect("<p>Plans to save in app.example.note. This is not implemented.</p>")
+        project["recent_record_samples"] = [{"collection": "app.example.note", "record": {"createdAt": "today"}}]
+        material = usage_material.review(project)
+        self.assertEqual(material["sources"][0]["coverage"], "saved_html_excerpt")
+        self.assertIn("not implemented", material["sources"][0]["passages"][0]["text"])
+        project["service_verification_results"][0]["html_extract"] = "<style>padding</style>"
+        self.assertEqual(usage_material.review(project)["status"], "no_matches")
+
+    def test_collection_fields_and_display_bounds(self):
+        samples = [{"nsid": f"app.example.record{i}", "defs": {"main": {"type": "record"}}} for i in range(70)]
+        samples[0]["defs"]["main"]["record"] = {"properties": {"title": {"type": "string", "description": "Article title"}}}
+        catalog = usage_material.collection_evidence({"lexicon_schema_samples": samples})
+        self.assertEqual(len(catalog["rows"]), 64)
+        self.assertEqual(catalog["omitted"], 6)
+        fields = next(r for r in catalog["rows"] if r["collection"] == "app.example.record0")["schemas"][0]
+        self.assertEqual(fields["fields"][0]["description"], "Article title")
+        self.assertEqual(fields["fields_status"], "saved")
+
     def collect(self, html, *, date="2026-09-22T10:00:00+00:00"):
         project = self.make_project("proj:material", "service_url", "https://example.com")
         bundle = service.collect_service_probe_evidence(project["project_key"], "https://example.com", {

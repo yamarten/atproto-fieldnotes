@@ -82,6 +82,14 @@ HTMLを先頭12 KiBへ切り詰める前に、PDS等の関連箇所を原文・�
 
 全unit test 1,008件、APIとJavaScript構文検査が通過しました。固定8事例で、正しい根拠ID付きLLM出力と旧automatic状態が利用範囲・score・再確認fingerprintを変えないこと、手動判断の保存・再調査・解除・mergeをtemp DBで確認しています。開発DBのDemo Field Notesでは実ブラウザで記録・再読込・解除を行い、unknown→main_data→unknown、score 262→322→262と、関連原文の保持を確認しました。確認serverは停止済みです。正本5,054件のread-only監査では、旧自動評価のops状態と利用範囲の手動判断はともに0件でした。通常triage v4での実LLM再較正は未実施で、今回の12件は実験用promptの評価です。
 
+### collection別の材料と本文検索の確認
+
+collection別の材料表示を追加しました。2026-09-22の固定素材11対象では計41 collectionを束ね、6対象でschemaとrecordサンプルを同名で確認できました。Gleanでは注釈の要求操作・RSS記事の読書メモという定義・`articleUrl / note / quote`等の観測fieldを並べられます。mathrでは個人バックアップ用スコアの定義と`level / percentage`等を、Bluesky投稿の権限と区別できます。Squireはactor recordに`createdAt`があることまでで、タスク保存の根拠は増えていません。standard.siteのrecordも作成アプリの確認には使っていません。
+
+同じ固定素材のHTML本文・選定済みREADME抜粋について、protocol語だけの検索とcollection名追加後を比較しました。新たに拾えたcollectionの本文は0件でした。既知名だけがある説明を取得時に拾うこと、取得後に名前が分かった場合は保存範囲だけを検索することは、通常collector・temp DB・replay経路の構成例で確認しています。実例で取りこぼしが減ったとはまだ言えません。5回ずつ計測したcollection結合と抽出済み本文検索の中央値は対象ごとに0.02〜0.20msです。HTML解析・OAuth SDK起動・通信・enrich全体はこの計測に含めません。作業用の比較は`.tmp/collection-material-check.py`と`.tmp/collection-material-results.json`にあります。
+
+全unit test 1,012件、API、JavaScript構文検査が通過しました。開発DBの架空例を実ブラウザで確認し、個別scopeあり／なし、保存されたschema field／圧縮で未保存のfield、recordの観測field、collection名だけの予定・否定を含む本文が区別されて表示されています。正本の更新・新しいHTTP・実LLM実行はありません。
+
 ### 未実装の評価と再開条件
 
 - **機能とcollectionの対応**: 今回は操作の抽出を試したもので、taglineとcollection名・schema説明の意味対応は未評価です。次に試すなら、観測済みの特定の機能とcollectionの組について、対応が明記される／名称上関連しそう／不明を区別します。名前が似ていることと実際にそのアプリが使うことを混ぜず、出力を主機能や寄与度へ直結させません。

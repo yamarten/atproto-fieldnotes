@@ -1044,6 +1044,10 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             project["service_verification_results"] = [{"requested_url": "https://example.com",
                 "supports_project": True, "status_code": 200, "lane": "static", "observed_at": "2026-09-22",
                 "atproto_text_candidates": usage_material.from_html("<p>Plans to store notes on a PDS.</p>")}]
+            project["lexicon_schema_samples"] = [{"nsid": "app.example.note", "defs": {"main": {
+                "type": "record", "description": "Reading notes", "record": {"properties": "... 2 keys"}}}}]
+            project["recent_record_samples"] = [{"collection": "app.example.note", "did": "did:plc:example", "rkey": "one",
+                                                  "record": {"$type": "app.example.note", "text": "note"}}]
             project_record.save_project(conn, project)
         with mock.patch.object(usage_material, "page_text", side_effect=AssertionError("should use saved extraction")):
             status, detail, _ = self.request("/api/projects/proj:111111111111")
@@ -1051,6 +1055,9 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         material = detail["service_ownership_review"]["atproto_material"]
         self.assertEqual(material["status"], "matches")
         self.assertEqual(material["sources"][0]["passages"][0]["text"], "Plans to store notes on a PDS.")
+        self.assertEqual(material["collections"]["rows"][0]["collection"], "app.example.note")
+        self.assertEqual(material["collections"]["rows"][0]["schemas"][0]["record_description"], "Reading notes")
+        self.assertEqual(material["collections"]["rows"][0]["record_samples"][0]["fields"], ["text"])
 
     def test_search_uses_normalized_table_filters(self) -> None:
         cases = (

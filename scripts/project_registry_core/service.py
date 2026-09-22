@@ -365,6 +365,7 @@ def collect_service_probe_evidence(
     lane: str = "static",
     supports_project: bool | None = None,
     subject_component_role: str = "",
+    collection_names: list[str] | None = None,
 ) -> EvidenceBundle:
     html = str(result.get("html") or "")
     value = {
@@ -392,7 +393,7 @@ def collect_service_probe_evidence(
     value["observed_url_count"] = len(raw_urls)
     value["html_extract"] = bounded_utf8_text(html, SERVICE_HTML_EXTRACT_MAX_BYTES)
     if html and not result.get("fetch_error") and 0 < int(result.get("status_code") or 0) < 400:
-        value["atproto_text_candidates"] = usage_material.from_html(html)
+        value["atproto_text_candidates"] = usage_material.from_html(html, collection_names)
     value["observed_html_bytes"] = len(html.encode("utf-8"))
     value["content_sha256"] = hashlib.sha256(html.encode("utf-8", errors="replace")).hexdigest() if html else ""
     bundle = EvidenceBundle(project_key=project_key, collected_at=observed_at)

@@ -1048,13 +1048,28 @@ function renderOAuthClient(item) {
 function renderUsageMaterial(material = {}) {
   const sources = list(material.sources);
   const coverage = {collected_html:"取得時のHTML本文から抽出", saved_html_excerpt:"保存済みHTMLの範囲のみ", saved_excerpt:"保存済み画面本文の範囲のみ", saved_readme_excerpt:"保存済みREADME抜粋の範囲のみ", saved_description:"保存済みページ説明文"};
-  return `<details><summary>atproto利用の関連記述 (${sources.length})</summary>
+  return `${renderCollectionMaterial(material.collections)}<details><summary>atproto利用の関連記述 (${sources.length})</summary>
     <p class="muted">用語検索で選んだ原文です。否定・予定・他サービスの説明も含みます。主機能との関係や実利用は未判定です。</p>
     ${sources.length ? sources.map((source) => `<div class="collector"><strong>${esc(source.kind)}</strong> ${link(source.url || source.locator)}${source.url ? `<div class="muted">${esc(source.locator)}</div>` : ""}<div class="muted">${esc(coverage[source.coverage] || source.coverage)}${source.observed_at ? ` · ${esc(formatTimestamp(source.observed_at))}` : " · 観測時刻不明"}${source.input_truncated || source.matches_omitted ? " · 検索範囲／表示の省略あり" : ""}</div>
-      ${source.literal_collections?.length ? `<p>scopeのcollectionと同じ表記: ${esc(source.literal_collections.join(", "))}（意味上の対応は未判定）</p>` : ""}
+      ${source.literal_collections?.length ? `<p>観測済みcollectionと同じ表記: ${esc(source.literal_collections.join(", "))}（意味上の対応は未判定）</p>` : ""}
       ${list(source.passages).map((p) => `<div class="relation"><div class="muted">本文位置 ${esc(p.start)}–${esc(p.end)} · 検索語: ${esc(list(p.matches).join(", "))}</div>${p.before_omitted ? `<div class="muted">前略</div>` : ""}<pre>${esc(p.text)}</pre>${p.after_omitted ? `<div class="muted">後略</div>` : ""}</div>`).join("")}</div>`).join("") : `<p>${material.status === "no_matches" ? "保存済みの材料に検索語が見つかりませんでした。atprotoを使わないという意味ではありません。" : material.status === "text_unavailable" ? "HTMLの観測はありますが、検索できる本文を取り出せませんでした。" : "検索できる本文の観測がありません。"}</p>`}
     ${material.sources_omitted ? `<p>ほか ${esc(material.sources_omitted)} 件の資料を省略しています。</p>` : ""}
     </details>`;
+}
+
+function renderCollectionMaterial(catalog = {}) {
+  const rows = list(catalog.rows);
+  return `<details><summary>collectionごとの材料 (${rows.length})</summary>
+    <p class="muted">同じ名前の観測を並べています。権限は要求の宣言、Lexiconはデータの定義、recordは公開データの観測です。作成アプリ・所有・主機能との関係は未確認です。個別のrepo宣言がなくても公開読取りは可能です。wildcard・権限セット・未解釈scopeは上のOAuth欄を確認してください。</p>
+    ${rows.map((row) => `<div class="collector"><h4>${esc(row.collection)}</h4>
+      <strong>要求する操作</strong>${row.permissions.length ? row.permissions.map((p) => `<p>${esc(p.actions.join(", "))} · ${link(p.metadata_url)} · ${esc(p.observed_at ? formatTimestamp(p.observed_at) : "観測時刻不明")}</p>`).join("") : "<p>このcollection名の個別repo宣言は未観測</p>"}
+      <strong>Lexiconの定義</strong>${row.schemas.length ? row.schemas.map((s) => `<div class="relation"><p>${esc(s.description || s.record_description || "説明文は未保存")}</p>${s.description && s.record_description ? `<p>${esc(s.record_description)}</p>` : ""}<p>record key: ${esc(s.key || "未保存")}</p>
+        ${s.fields_status === "saved" ? `<ul>${s.fields.map((f) => `<li>${esc(f.name)}${f.type ? ` (${esc(f.type)})` : ""}${f.description ? ` — ${esc(f.description)}` : ""}</li>`).join("")}</ul>${s.fields_omitted || s.fields_compacted ? `<p>field一覧の一部は省略されています。</p>` : ""}` : "<p>field一覧は保存時に省略、または未保存</p>"}
+        <p class="muted">${esc(s.observed_at ? formatTimestamp(s.observed_at) : "観測時刻不明")}</p></div>`).join("") : "<p>record型のschemaは未観測</p>"}
+      <strong>recordの観測</strong>${row.record_observations.map((o) => `<p>観測時の集計: ${esc(o.count ?? "不明")} 件 / recent ${esc(o.recent_count ?? "不明")} 件 · ${esc(o.observed_at ? formatTimestamp(o.observed_at) : "観測時刻不明")}</p>`).join("")}
+      ${row.record_samples.length ? `<p>保存済みサンプル ${row.record_samples.length} 件</p>${row.record_samples.map((r) => `<div class="relation"><p>${esc(r.did || "DID未保存")} / ${esc(r.rkey || "record key未保存")}</p><p>観測field: ${esc(r.fields.join(", ") || "なし／未保存")}${r.fields_omitted ? "（一部省略）" : ""}</p>${r.declared_type && r.declared_type !== row.collection ? `<p>record内の$typeはcollection名と不一致: ${esc(r.declared_type)}</p>` : ""}</div>`).join("")}` : "<p>保存済みrecordサンプルなし（recordが存在しないという意味ではありません）</p>"}
+      </div>`).join("") || "<p>個別のcollectionを照合できる観測がありません。</p>"}
+    ${catalog.omitted ? `<p>ほか ${esc(catalog.omitted)} collectionを省略しています。</p>` : ""}</details>`;
 }
 
 function renderServiceOwnership(data, serviceUrls = []) {
