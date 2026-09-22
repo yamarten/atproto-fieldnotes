@@ -9068,6 +9068,15 @@ def compute_showcase_signals(
     include_ineligible: bool = False,
 ) -> list[dict[str, Any]]:
     shaped = apply_promotion_state(project_record.ensure_project_shape(dict(project)))
+    return _showcase_signals_from_shaped(
+        shaped, include_personal_tools=include_personal_tools, include_ineligible=include_ineligible,
+    )
+
+
+def _showcase_signals_from_shaped(
+    shaped: dict[str, Any], *, include_personal_tools: bool, include_ineligible: bool,
+) -> list[dict[str, Any]]:
+    """Read a normalized project with promotion state already applied."""
     if not include_ineligible and promotion_candidate_visibility(shaped)["group"] != "eligible":
         return []
 
@@ -9196,11 +9205,22 @@ def build_showcase_queue_from_projects(
     command_prefix: str = "project-registry",
     view: str = "queue",
 ) -> list[dict[str, Any]]:
-    queue: list[dict[str, Any]] = []
     project_list = [project_record.ensure_project_shape(project) for project in projects]
-    for project in project_list:
+    return _showcase_queue_from_shaped(
+        project_list, limit=limit, kinds=kinds, include_personal_tools=include_personal_tools,
+        command_prefix=command_prefix, view=view,
+    )
+
+
+def _showcase_queue_from_shaped(
+    projects: list[dict[str, Any]], *, limit: int | None, kinds: set[str] | None,
+    include_personal_tools: bool, command_prefix: str, view: str,
+) -> list[dict[str, Any]]:
+    """Use normalized inputs from the record loader or the public dict builder."""
+    queue: list[dict[str, Any]] = []
+    for project in projects:
         shaped = apply_promotion_state(dict(project))
-        signals = compute_showcase_signals(shaped, include_personal_tools=include_personal_tools, include_ineligible=True)
+        signals = _showcase_signals_from_shaped(shaped, include_personal_tools=include_personal_tools, include_ineligible=True)
         if kinds is not None:
             signals = [item for item in signals if str(item.get("kind") or "") in kinds]
         policy = promotion_policy_projection(shaped, signals)
@@ -9279,12 +9299,13 @@ def build_showcase_queue(
 ) -> list[dict[str, Any]]:
     projects = (
         project_record.list_projects_with_decision(
-            conn, "lower_promotion_priority", tracking_states=tracking_states,
+            conn, "lower_promotion_priority" if view == "lowered" else "defer_promotion",
+            tracking_states=tracking_states,
         )
-        if view == "lowered"
+        if view in {"lowered", "waiting"}
         else project_record.list_projects(conn, tracking_states=tracking_states)
     )
-    return build_showcase_queue_from_projects(
+    return _showcase_queue_from_shaped(
         projects,
         limit=limit,
         kinds=kinds,

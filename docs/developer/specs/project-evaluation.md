@@ -293,7 +293,7 @@ promotion policyは次を混ぜずに投影します。
 
 Webの`Promotion`は既定の「確認対象」でeligible・通常優先度の候補を表示します。「技術候補」「保留」「Lowered / 特集候補」「すべて」へ切り替えられ、理由の部分一致検索・同じ理由の件数・ページ送りでlimitより先も回収できます。専用一覧は通常のtracking state範囲外や推薦signalがなくなった保存候補も表示し、元の追跡・表示状態を示します。「すべて」は現行signal候補とこれらの保存候補の集合であり、全登録projectではありません。
 
-`lowered`一覧は完全なproject復元の前に、normalized decisionに`lower_promotion_priority`の履歴を持つprojectへ読込み対象を絞ります。解除済み履歴も含めて選び、有効な判断・metadataの解釈は既存の復元とpolicyへ委ねます。key選択とproject・子行の復元は同じread snapshot内で行います。全tracking stateからの回収、全体の順位、理由検索前の`reasons`集計、検索後の`total`、最後のoffset/limit適用を維持し、応答cacheは持ちません。他のviewはこの先行絞込みを使いません。
+`lowered`と`waiting`一覧は完全なproject復元の前に、それぞれ`lower_promotion_priority`と`defer_promotion`の判断履歴を持つprojectへ読込み対象を絞ります。保留へ読込み変換する旧確認期限も`waiting`の対象に含めます。解除済み・期限切れ履歴も選び、有効な判断・metadata・根拠変化の解釈は復元とpolicyへ委ねます。全viewでproject本体・子行・更新番号を同じread snapshot内で復元し、正規化済みの完全runtime viewから推薦を計算します。同じrequest内で本体を再読込みせず、shape正規化と保存用baseline作成は各projectで1回です。全tracking stateからの回収、全体の順位、理由検索前の`reasons`集計、検索後の`total`、最後のoffset/limit適用を維持します。応答や評価済みprojectをrequest間でcacheせず、再取得ごとに現在のDBと期限を評価します。
 
 cardは主機能での利用範囲と理由・技術的価値の説明・service確認度、手動優先度、確認記録、追加確認理由、score成分を表示します。詳細上部の同じ場所で保留・Lower priority・Skipを操作します。保存後は表示中のcardを外し、Refreshで先頭から再計算します。単なる画面取得・Refresh・SkipはDBを更新しません。
 

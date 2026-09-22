@@ -755,4 +755,6 @@ def hydrate(
     project[RUNTIME_RELATION_ROWS] = copy.deepcopy(relation_payload)
     project[RUNTIME_DECISION_ROWS] = [asdict(ProjectDecision(**item)) for item in decision_payload]
     project[RUNTIME_ADOPTION_ROWS] = [dict(row) for row in adoption_rows]
-    return refresh_baselines(project)
+    # The record loader normalizes the hydrated view before taking baselines.
+    # Mark it complete here so normalization preserves the stored namespaces.
+    return mark_complete(project)

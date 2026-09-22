@@ -60,6 +60,8 @@ Webの初期detailは全project hydrateを行わず、merge candidateだけを`/
 
 Webのproject一覧は`projects`を起点にnormalized identifier、relation、decisionを`EXISTS` queryでfilterします。一覧候補作成時に全projectのchildをhydrateせず、detailは選択した1件のchildを取得します。自由入力はproject key、name、Website、identifier value、relation subject/object/locator、decision target/noteの大小文字を無視した部分一致です。summary、tagline、raw evidence、README/HTML全文は対象外です。
 
+紹介候補一覧は全子行を含む完全runtime viewを使います。読込み境界で正規化と保存用baseline作成を済ませ、queueとsignalの計算は同じ正規化済み値を再利用します。任意dictからの公開builderは正規化を行いますが、DBからの一覧は重複させません。読み取りsnapshotと判断履歴による先行絞込みの契約は[評価仕様](specs/project-evaluation.md#紹介候補の表示順位保留)を参照してください。
+
 ## Module構成と依存方向
 
 以下のpathは`scripts/`からの相対pathです。処理を変更するときの参照用に、担当moduleをまとめます。

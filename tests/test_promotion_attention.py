@@ -6,11 +6,114 @@ import json
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
-from project_registry_core import project_record, promotion_attention
+from project_registry_core import project_record, promotion_attention, runtime_view
 from project_registry_core.application import decisions, merge, presentation
 
 
 class PromotionAttentionTest(TempRegistryDbTestCase):
+    def test_all_views_match_full_hydration_across_pages_filters_and_updates(self):
+        with contextlib.closing(registry.open_db()) as conn:
+            for n in range(12):
+                project = self.candidate(f"proj:equivalent{n:02d}")
+                project.update(technical_interest_level="high" if n % 2 else "none",
+                               technical_interest_reasons=["novel_design_pattern"],
+                               technical_interest_summary="Protocol design")
+                if n % 3 == 0:
+                    registry.set_promotion_priority_on_project(project, lowered=True, reason="Straße")
+                if n % 4 == 0:
+                    registry.defer_promotion_on_project(project, reason="公開待ち")
+                if n == 5:
+                    project["category"] = "personal_tool"
+                if n == 6:
+                    project.update(tracking_state="ignore", service_status="unknown")
+                if n == 7:
+                    project["introduced_url"] = "https://example.com/post"
+                project_record.save_project(conn, project)
+            self.legacy_project(conn, "proj:legacyhold")
+            self.legacy_project(conn, "proj:legacyexpired", expired=True)
+
+            def check():
+                # Reference path keeps the old extra normalization passes and
+                # full scan, including projects excluded by decision selection.
+                projects = project_record.list_projects(conn)
+                for view in ("queue", "inbox", "technical", "waiting", "lowered", "all"):
+                    for kinds in (None, {"technical_insight_candidate"}, {"service_surface_confirmed"}):
+                        for personal in (False, True):
+                            selected = [p for p in projects if view not in {"inbox", "technical"}
+                                        or p["tracking_state"] == "active"]
+                            expected = registry.build_showcase_queue_from_projects(
+                                [project_record.ensure_project_shape(p) for p in selected],
+                                view=view, kinds=kinds, include_personal_tools=personal, limit=None,
+                                command_prefix=registry.registry_command_prefix(conn))
+                            if view == "queue":
+                                self.assertEqual(registry.build_showcase_queue(conn, view=view, kinds=kinds,
+                                    include_personal_tools=personal, limit=None), expected)
+                                continue
+                            reasons = {}
+                            for item in expected:
+                                for note in {item["priority_reason"], item["last_promotion_deferral_reason"]} - {""}:
+                                    reasons[note] = reasons.get(note, 0) + 1
+                            for reason in ("", "STRASSE", "公開", "absent"):
+                                filtered = [i for i in expected if reason.casefold() in i["priority_reason"].casefold()
+                                            or reason.casefold() in i["last_promotion_deferral_reason"].casefold()]
+                                for offset in (0, 2, 50):
+                                    actual = presentation.queue_payload(conn, queue="promotion",
+                                        tracking_states={"active"}, promotion_view=view, kinds=kinds,
+                                        include_personal_tools=personal, reason=reason, offset=offset, limit=2)
+                                    self.assertEqual(actual, dict(queue="promotion", items=filtered[offset:offset+2],
+                                        total=len(filtered), count=len(filtered[offset:offset+2]), offset=offset,
+                                        has_more=offset+len(filtered[offset:offset+2]) < len(filtered),
+                                        reasons=[dict(reason=k, count=v) for k, v in sorted(reasons.items())]))
+            check()
+            decisions.set_promotion_defer(conn, project_key="proj:equivalent01", reason="new")
+            decisions.set_promotion_defer(conn, project_key="proj:equivalent00", clear=True)
+            decisions.set_promotion_priority(conn, project_key="proj:equivalent03", lowered=False)
+            changed = project_record.fetch_project(conn, "proj:equivalent04")
+            changed["service_status"] = "beta"
+            project_record.save_project(conn, changed)
+            expired = project_record.fetch_project(conn, "proj:equivalent08")
+            expired["promotion_deferrals"][0]["expires_at"] = "2000-01-01T00:00:00+00:00"
+            project_record.save_project(conn, expired)
+            check()
+
+    def test_queue_normalizes_once_and_retains_saveable_complete_views(self):
+        with contextlib.closing(registry.open_db()) as conn:
+            project_record.save_project(conn, self.candidate("proj:once"))
+            with mock.patch.object(project_record, "ensure_project_shape", wraps=project_record.ensure_project_shape) as shape, \
+                 mock.patch.object(runtime_view, "refresh_baselines", wraps=runtime_view.refresh_baselines) as baseline:
+                registry.build_showcase_queue(conn, view="inbox")
+            self.assertEqual(shape.call_count, 1)
+            self.assertEqual(baseline.call_count, 1)
+            fetched = project_record.fetch_project(conn, "proj:once")
+            listed = project_record.list_projects(conn)[0]
+            self.assertEqual(fetched, listed)
+            self.assertTrue(runtime_view.is_complete(listed))
+            self.assertTrue(runtime_view.normalized_children_unchanged(listed))
+            project_record.save_project(conn, listed)
+
+    def test_list_snapshot_keeps_scalar_children_and_revision_together(self):
+        with contextlib.closing(registry.open_db()) as conn, contextlib.closing(registry.open_db()) as writer:
+            key = "proj:snapshotall"
+            project_record.save_project(conn, self.candidate(key))
+            revision = presentation.project_revision(conn, key)
+            original = project_record._project_from_snapshot_row
+            def update_after_selection(reader, row):
+                if reader is conn:
+                    changed = project_record.fetch_project(writer, key)
+                    changed["name"] = "updated"
+                    registry.set_promotion_priority_on_project(changed, lowered=True, reason="new")
+                    project_record.save_project(writer, changed)
+                return original(reader, row)
+            with mock.patch.object(project_record, "_project_from_snapshot_row", side_effect=update_after_selection):
+                selected = project_record.list_projects(conn)[0]
+            self.assertNotEqual(selected["name"], "updated")
+            self.assertIsNone(registry.active_promotion_priority_adjustment(selected))
+            self.assertEqual(str(selected[runtime_view.RUNTIME_PROJECT_REVISION]), revision)
+            self.assertFalse(conn.in_transaction)
+            current = project_record.fetch_project(conn, key)
+            self.assertEqual(current["name"], "updated")
+            self.assertEqual(registry.active_promotion_priority_adjustment(current)["reason"], "new")
+
     def candidate(self, key):
         project = self.make_project(key, "service_url", "https://app.example")
         project.update(category="project", service_status="live", service_status_confidence="medium",
@@ -81,11 +184,11 @@ class PromotionAttentionTest(TempRegistryDbTestCase):
                 if n == 1:
                     registry.set_promotion_priority_on_project(project, lowered=False)
                 project_record.save_project(conn, project)
-            with mock.patch.object(project_record, "fetch_project", wraps=project_record.fetch_project) as fetch:
+            with mock.patch.object(project_record, "_project_from_snapshot_row", wraps=project_record._project_from_snapshot_row) as fetch:
                 result = presentation.queue_payload(conn, queue="promotion", tracking_states={"active"},
                                                     promotion_view="lowered", limit=1)
             self.assertEqual(result["total"], 1)
-            self.assertCountEqual([call.args[1] for call in fetch.call_args_list],
+            self.assertCountEqual([call.args[1]["project_key"] for call in fetch.call_args_list],
                                   ["proj:bounded0", "proj:bounded1"])
             for states in (None, {"active"}, {"stalled"}, set()):
                 actual = registry.build_showcase_queue(conn, view="lowered", tracking_states=states)
@@ -94,7 +197,7 @@ class PromotionAttentionTest(TempRegistryDbTestCase):
                     command_prefix=registry.registry_command_prefix(conn))
                 self.assertEqual(actual, expected)
             with mock.patch.object(project_record, "list_projects_with_decision") as selector:
-                for view in ("queue", "inbox", "all", "waiting"):
+                for view in ("queue", "inbox", "all"):
                     registry.build_showcase_queue(conn, view=view)
                 selector.assert_not_called()
 
@@ -121,14 +224,15 @@ class PromotionAttentionTest(TempRegistryDbTestCase):
             project = self.candidate(key)
             registry.set_promotion_priority_on_project(project, lowered=True, reason="before")
             project_record.save_project(conn, project)
-            original = project_record.project_from_row
+            original = project_record._project_from_snapshot_row
 
-            def clear_after_selection(conn, row):
-                self.assertTrue(conn.in_transaction)
-                decisions.set_promotion_priority(writer, project_key=key, lowered=False)
-                return original(conn, row)
+            def clear_after_selection(reader, row):
+                if reader is conn:
+                    self.assertTrue(reader.in_transaction)
+                    decisions.set_promotion_priority(writer, project_key=key, lowered=False)
+                return original(reader, row)
 
-            with mock.patch.object(project_record, "project_from_row", side_effect=clear_after_selection):
+            with mock.patch.object(project_record, "_project_from_snapshot_row", side_effect=clear_after_selection):
                 selected = project_record.list_projects_with_decision(conn, "lower_promotion_priority")
             self.assertEqual(registry.active_promotion_priority_adjustment(selected[0])["reason"], "before")
             self.assertFalse(conn.in_transaction)

@@ -1327,9 +1327,14 @@ def fetch_project(conn: sqlite3.Connection, project_key: str) -> dict[str, Any] 
     ).fetchone()
     if row is None:
         return None
+    return _project_from_snapshot_row(conn, row)
+
+
+def _project_from_snapshot_row(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
+    """Hydrate a row selected inside the caller's read snapshot."""
     payload = project_from_row_payload(row)
     payload = registry_database.hydrate_project_children(conn, payload)
-    payload[runtime_view.RUNTIME_PROJECT_REVISION] = concurrency.revision(conn, project_key)
+    payload[runtime_view.RUNTIME_PROJECT_REVISION] = concurrency.revision(conn, str(row["project_key"]))
     return runtime_view.refresh_baselines(ensure_project_shape(payload))
 
 
@@ -1397,7 +1402,7 @@ def list_projects(conn: sqlite3.Connection, tracking_states: set[str] | None = N
             """,
             tuple(requested),
         ).fetchall()
-    return [project_from_row(conn, row) for row in rows]
+    return [_project_from_snapshot_row(conn, row) for row in rows]
 
 
 @concurrency.consistent_read
@@ -1411,6 +1416,13 @@ def list_projects_with_decision(
     # remain responsible for interpreting the decision's metadata/current effect.
     conditions = ["project_key IN (SELECT project_key FROM project_decisions WHERE kind = ?)"]
     params: list[str] = [decision_kind]
+    if decision_kind == "defer_promotion":
+        # Hydration also projects the older review deadline into a deferral.
+        # Keep a superset; expiry, fingerprint and cleared metadata are policy.
+        conditions[0] = (
+            f"({conditions[0]} OR "
+            "json_extract(state_json, '$.ops.promotion_attention.reviewed_until') IS NOT NULL)"
+        )
     if tracking_states is not None:
         requested = sorted(normalize_tracking_state(item) for item in tracking_states if item)
         if not requested:
@@ -1418,12 +1430,12 @@ def list_projects_with_decision(
         conditions.append(f"tracking_state IN ({', '.join('?' for _ in requested)})")
         params.extend(requested)
     rows = conn.execute(
-        f"SELECT project_key FROM projects WHERE {' AND '.join(conditions)} "
+        f"SELECT * FROM projects WHERE {' AND '.join(conditions)} "
         "ORDER BY last_seen_at DESC, project_key ASC",
         params,
     ).fetchall()
     # Keep key selection and complete project reads in the same snapshot.
-    return [project_from_row(conn, row) for row in rows]
+    return [_project_from_snapshot_row(conn, row) for row in rows]
 
 
 def project_matches_identifier(project: dict[str, Any], identifier_type: str, identifier_value: str) -> tuple[int, bool]:
