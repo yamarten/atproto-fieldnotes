@@ -91,4 +91,4 @@ Blueskyを対象とするか、読取り／書込みのどちらか、主機能�
 - v2 corpus: `12e646367862d9cd1b376e4f63b3986cf7178dfec858bfd0cea4dbe92300519d`
 - v2 rubric: `ea799d6b14e8bf9afd2073451f6ccc382d715131859e0b83a8a56ba47821b57c`
 
-開始点は`8d75468f1294528d2bab3493acfa0aade9569ad4`、作業branchは`codex/feature-collection-evaluation`です。子taskは`01a0c9c7-213a-78f3-aba0-8f0bdf3bf81d`、母艦は`01a050d2-495b-7fc0-85f5-3fb214fd1c9f`（local）。受理方式は`human-review`。子が変更commitを担当し、母艦が監査と文書commitの統合・archiveを行います。成果レビューと処分は了承済みで、集約案の確認・明示送信指示を待っています。文書は未統合です。
+成果・処分・集約の送信は利用者了承済みで、母艦が文書commitを統合しました。通常コード・正本DB・本番動作は変更していません。
