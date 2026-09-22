@@ -58,13 +58,13 @@ service確認は最新の試行と最後の利用面確認を分け、古いbrow
 
 `Promotion`（紹介候補）では確認対象・技術候補・確認済み・情報待ち・Lowered / 特集候補の一覧、理由検索と集約件数、ページ送り、判断の設定・解除を実装しています。確認済みは30日間または根拠変化まで通常表示から外し、新しいDeferも期限・根拠変化を扱います。未閲覧やRefreshを判断にせず、既存Lower priorityの履歴と復帰、旧Deferの期限契約を維持します。Loweredの先行絞込みを含む従来の再発見導線はhuman reviewを経て実運用へ反映済みです。通常一覧や他viewの全件処理負荷、長期運用での捕捉率・判断負担の評価は残ります。[運用評価と他viewの性能残件](../notes/promotion-rediscovery-review.md)を参照してください。活動・調査鮮度に基づく追跡状態の見直しも接続済みです。
 
-技術候補は通常CLI/Web/applicationへ接続し、サービス確認度と独立して技術score順に取り出せます。利用範囲は理由付きの手動判断だけを紹介順位へ反映します。実資料で権限やrecordを主機能の利用と取り違え、短い文面の抽出でも保存や書込みを誤って生成したため、LLMによる利用範囲の総括を通常prompt・適用・保存経路から外しました。意味抽出用の追加LLM呼出しも通常enrichには入れていません。技術候補入口・手動判断は実運用へ未反映で、正本を一括更新していません。[選定評価と反映境界](../notes/promotion-selection-validation.md)を参照してください。
+技術候補は通常CLI/Web/applicationへ接続し、サービス確認度と独立して技術score順に取り出せます。利用範囲は理由付きの手動判断だけを紹介順位へ反映します。実資料で権限やrecordを主機能の利用と取り違え、短い文面の抽出でも保存や書込みを誤って生成したため、LLMによる利用範囲の総括を通常prompt・適用・保存経路から外しました。意味抽出用の追加LLM呼出しも通常enrichには入れていません。実運用Webへ反映し、HTTPSの実ブラウザで技術候補への切替・詳細の判断欄を確認しました。保存・解除は開発DBでの確認に限り、正本への判断保存や一括更新はしていません。[選定評価と反映境界](../notes/promotion-selection-validation.md)を参照してください。
 
-OAuth scopeは公式SDKで解析し、通常の収集・保存・replay・Web詳細へ接続しました。対象collection、書込み操作、RPCの宛先、基本／移行用scope、未解釈tokenを区別します。`include`は未解決の権限セットとして保持し、まだ展開しません。宣言を実際の利用・所有・主機能への依存に昇格させず、この解析結果を利用範囲の自動評価や推薦順位へ直接反映しません。実資料の固定metadata、temp DBの保存・scope削減・merge・replay、開発DBの表示で確認しています。metadata発見率、権限セットの解決、説明文との対応付けは未検証・未実装の範囲です。新解析の正本への保存・実運用反映は行っていません。[観測仕様](specs/investigation.md#oauth-client-metadataの観測)を参照してください。
+OAuth scopeは公式SDKで解析し、通常の収集・保存・replay・Web詳細へ接続しました。対象collection、書込み操作、RPCの宛先、基本／移行用scope、未解釈tokenを区別します。`include`は未解決の権限セットとして保持し、まだ展開しません。宣言を実際の利用・所有・主機能への依存に昇格させず、この解析結果を利用範囲の自動評価や推薦順位へ直接反映しません。実資料の固定metadata、temp DBの保存・scope削減・merge・replay、開発DBの表示で確認しています。metadata発見率、権限セットの解決、説明文との対応付けは未検証・未実装の範囲です。依存SDKを含め実運用checkoutへ反映済みですが、今回新解析を正本へ保存するenrichは実行していません。[観測仕様](specs/investigation.md#oauth-client-metadataの観測)を参照してください。
 
 人が期待判断を定めた固定事例（manual gold）を通常の紹介候補一覧生成へ通す評価と、紹介済みprojectを使う読み取り専用の分析があります。紹介実績分析は現在値に対する評価で、当時の推薦を復元せず、未紹介projectを負例にしません。既存profileのsummaryとcategoryの不整合は残り、全件の一括再分類は実施していません。[評価方法](specs/investigation.md#replay-と-benchmark)を参照してください。
 
-主機能との対応を検討する材料として、個別repo宣言・record型Lexicon・record観測を同じcollection名で並べ、本文・ページ説明・READMEの関連記述と併せて表示します。service HTMLを切り詰める前に既知のcollection名も検索し、後から判明した名前は保存済みHTML内で補います。保存・replay、原文位置、Web表示を確認しています。固定資料ではGleanの購読・注釈、mathrの個人バックアップ用スコアとBluesky投稿を分けて確認できますが、Squireのactorサンプルからタスクの保存先は分かりません。11対象の固定資料では本文の追加発見はなく、collection名だけの記述を拾う経路は構成例で確認しています。追加通信・LLMはなく、正本の更新・実運用反映は未実施です。意味判定・寄与度再設計は残ります。[材料の仕様と限界](specs/investigation.md#atproto利用の関連記述)を参照してください。
+主機能との対応を検討する材料として、個別repo宣言・record型Lexicon・record観測を同じcollection名で並べ、本文・ページ説明・READMEの関連記述と併せて表示します。service HTMLを切り詰める前に既知のcollection名も検索し、後から判明した名前は保存済みHTML内で補います。保存・replay、原文位置、Web表示を確認しています。固定資料ではGleanの購読・注釈、mathrの個人バックアップ用スコアとBluesky投稿を分けて確認できますが、Squireのactorサンプルからタスクの保存先は分かりません。11対象の固定資料では本文の追加発見はなく、collection名だけの記述を拾う経路は構成例で確認しています。追加通信・LLMはなく、実運用Webでもcollection別材料の表示を確認しました。正本への観測追加は行っていません。意味判定・寄与度再設計は残ります。[材料の仕様と限界](specs/investigation.md#atproto利用の関連記述)を参照してください。
 
 ## LLM構成の評価
 
