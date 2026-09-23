@@ -32,6 +32,8 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果を�
 
 独立したLexicon観測はregistry本体とは別の専用DB（sidecar DB）へ保存し、registryは照合用に読みます。App record exportは保存済みprojectから公開用JSONを生成します。いずれも通常のenrichとは別の処理です。
 
+LLMの個別事例は[非公開事例の固定保存](specs/llm-case-store.md)で、registry DBと公開テストfixtureから独立したGit管理外のJSONに保存できます。入力・出力・実行条件の固定snapshotと後からの判断eventを分けます。登録・event追記・検査はCLIの`commands/llm_cases.py`から`llm_case_store.py`を呼び、通常enrichには接続しません。
+
 ### 実装の依存境界
 
 - `application/sync.py`は`source_sync.py`を呼び、source別の取得、watermark、既存projectへの接続を実行する

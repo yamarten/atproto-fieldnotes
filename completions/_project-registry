@@ -29,6 +29,11 @@ subcommands=(
   'replay-investigation:Replay a saved investigation without network access'
   'benchmark-investigation:Benchmark an investigation fixture corpus'
   'export-investigation-fixture:Export a sanitized saved investigation fixture'
+  'register-llm-case:Save one immutable private LLM case'
+  'append-llm-case-event:Append a private LLM case review or decision'
+  'list-llm-cases:List private LLM cases'
+  'show-llm-case:Read one private LLM case'
+  'verify-llm-cases:Verify private LLM cases'
   'export-llm-evaluation-corpus:Export fixed triage evidence from saved runs'
   'evaluate-llm-corpus:Run one model configuration against a fixed corpus'
   'compare-llm-evaluation-reports:Compare two complete LLM evaluation reports'
@@ -341,6 +346,27 @@ case "$cmd" in
       '--run-id[Saved investigation run ID]:run id:' \
       '--case-id[Fixture case ID]:case id:' \
       '--output[Write fixture JSON to this path]:path:_files'
+    ;;
+  register-llm-case)
+    _arguments -S \
+      '--store[Private case directory outside the repository]:path:_files' \
+      '--file[Case draft JSON path]:path:_files'
+    ;;
+  append-llm-case-event)
+    _arguments -S \
+      '--store[Private case directory outside all Git repositories]:path:_files' \
+      '--file[Case event draft JSON path]:path:_files'
+    ;;
+  list-llm-cases)
+    _arguments -S '--store[Private case directory]:path:_files'
+    ;;
+  show-llm-case)
+    _arguments -S '--store[Private case directory]:path:_files' '1:case id:'
+    ;;
+  verify-llm-cases)
+    _arguments -S \
+      '--store[Private case directory]:path:_files' \
+      '--case-id[Case ID to verify]:case id:'
     ;;
   export-llm-evaluation-corpus)
     _arguments -S \

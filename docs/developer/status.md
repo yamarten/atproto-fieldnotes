@@ -68,6 +68,8 @@ OAuth scopeは公式SDKで解析し、通常の収集・保存・replay・Web詳
 
 ## LLM構成の評価
 
+個別のtriage/repository analysis事例を非公開のGit管理外ディレクトリへ固定保存し、登録・判断追記・一覧・再読込・整合検査するCLIを利用できます。入力・出力・実行条件の当時記録と再構成／欠落を区別し、後から付く部分判断、人による確認、調整利用は同じ事例の追記履歴へ保持します。一覧は追記後の有効状態を表示します。保存した事例は評価corpusや学習へ自動投入されず、秘密情報の自動伏字後も人による確認が必要です。合成事例で登録、伏字、判断追記と訂正、上書き拒否、再読込、digest検査を確認しました。実資料の登録と長期保全は未実施です。[保存契約](specs/llm-case-store.md)を参照してください。
+
 記録上の既定modelはQwen 3.6 35B A3Bです。通常enrichと定期jobでmodelに応じた追加規則を使用します。固定evidenceでprofile有無を分け、project全体の説明・分類を補うtriageの評価と、repository解析からtriageへの二段階評価を利用できます。比較reportは機械検査・反復差・文章確認等を区別し、通常modelを自動変更しません。
 
 Gemmaは比較時のrepository解析でJSON失敗が再現し、通常処理への置換試用を停止しています。Qwenを維持していますが、解析内容の品質は引き続き評価対象です。後続のclosed candidate契約での確認と旧契約の結果も区別します。Agents A1の低優先度処理への試用も、比較時の速度・Qwenとの自動切替時の共存条件から停止しています。低優先度modelの通常自動切替と、同じ処理を実行した時のmemory・swap・入力処理（prefill）・出力生成（decode）の自動計測は未接続です。[評価手順](workflows/llm-model-evaluation.md)、[候補固有の保留・再開材料](../notes/llm-model-evaluation.md)を参照してください。

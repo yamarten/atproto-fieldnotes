@@ -245,6 +245,9 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 | `replay-investigation` | 調査実行記録IDまたは登録プロジェクトの最新記録を読み、保存済みの根拠を現行規則で再評価してJSON出力 | なし。ネットワークや収集処理も使わない |
 | `benchmark-investigation` | 固定したテスト事例の集合を指定パスから読み、再評価結果と期待結果の差をJSON出力 | なし |
 | `export-investigation-fixture` | 保存済み調査実行記録をsanitizationし、stdoutまたは`--output`へ出力 | DB変更なし。`--output`はファイル書き込み |
+| `register-llm-case` | triage/repository analysis事例draftとリポジトリ外の`--store`を受け、固定保存したID・digest・伏字箇所を表示 | DB変更なし。指定した非公開ディレクトリへ新規ファイルを書き込み、既存IDは上書きしない |
+| `append-llm-case-event` | 既存事例IDの判断・人による確認・調整利用のevent draft | DBと固定snapshotは変更せず、非公開ディレクトリへ一意なeventファイルを追記 |
+| `list-llm-cases` / `show-llm-case` / `verify-llm-cases` | リポジトリ外の`--store`、必要ならcase ID | 事例の一覧・全文・構造/digest検査 | なし |
 | `export-llm-evaluation-corpus` | 指定DBの保存済みLLM evidenceから固定corpusを作り、`--output`へ出力 | DBはread-only。指定ファイルへ書き込み |
 | `evaluate-llm-corpus` | 固定corpus、任意の`--labels`、LLM接続設定、繰り返し回数、最大出力token数を受け、構造化reportを`--output`へ出力 | LLMへ接続。DB変更なし。指定ファイルへ書き込み |
 | `compare-llm-evaluation-reports` | 同じcaseとrepeatで作ったbaseline/candidate reportを比較し、機械検査の差と未実施確認を`--output`へ出力 | DB・LLM接続なし。指定ファイルへ書き込み |
@@ -259,6 +262,8 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 | `compare-identifier-storage` | 指定DBの現行identifierと判断履歴から、非現行identifier・採用理由・時間関係を分離した保存案への移行を投影し、`--output`へ構造化reportを出力。`--materialized-db`を指定するとreview manifestを新しい複製DBへ適用する | 入力DBはread-only。reportと、明示した場合だけ新規複製DBへ書き込み。既存複製DBは上書きしない |
 | `verify-service` | 登録プロジェクトまたはシード、任意URL、調査方法（`static\|deep\|browser`） | 外部接続。`--execute`で評価と再評価可能な調査実行記録をDBへ保存 |
 | `monitor-services` | `--min-age-days`（既定30）、`--limit`（既定20） | 既定は未確認・古いconfirmed service URLの一覧だけ。`--execute`で匿名browser確認と保存 |
+
+事例・eventのdraft形式、保存先と確認手順は[非公開LLM事例の固定保存](../developer/specs/llm-case-store.md)を参照してください。通常の作業ではCodexがdraftを組み立て、`register-llm-case`の後に`show-llm-case`と`verify-llm-cases`で保存内容を確認します。後からの判断・調整利用は同じ事例IDへ`append-llm-case-event`で追記し、一覧と詳細の有効状態を確認します。`--store`にはworktree終了後も残る個人用の絶対パスを毎回指定します。実資料はGitへ追加しません。
 
 書き出し時の機密情報除去（sanitization）は機械的な補助です。実プロジェクトキー、時刻、handle/DID、自由記述が残り得るため、fixtureとしてcommitする前に必ず人が確認してください。
 

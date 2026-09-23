@@ -12,6 +12,7 @@ from .commands import enrichment as enrichment_commands
 from .commands import explain as explain_commands
 from .commands import investigation as investigation_commands
 from .commands import llm_evaluation as llm_evaluation_commands
+from .commands import llm_cases as llm_case_commands
 from .commands import maintenance as maintenance_commands
 from .commands import merge as merge_commands
 from .commands import projects as project_commands
@@ -289,6 +290,30 @@ def build_parser() -> argparse.ArgumentParser:
     export_fixture_parser.add_argument("--case-id")
     export_fixture_parser.add_argument("--output")
     export_fixture_parser.set_defaults(func=investigation_commands.cmd_export_investigation_fixture)
+
+    case_register = subparsers.add_parser("register-llm-case", help="Save one immutable private LLM case snapshot.")
+    case_register.add_argument("--store", required=True, help="Absolute private directory outside this repository.")
+    case_register.add_argument("--file", required=True, help="Case draft JSON path.")
+    case_register.set_defaults(func=llm_case_commands.cmd_register)
+
+    case_event = subparsers.add_parser("append-llm-case-event", help="Append a review, assessment, or adjustment-use event to a private LLM case.")
+    case_event.add_argument("--store", required=True, help="Absolute private case directory outside every Git repository.")
+    case_event.add_argument("--file", required=True, help="Case event draft JSON path.")
+    case_event.set_defaults(func=llm_case_commands.cmd_append_event)
+
+    case_list = subparsers.add_parser("list-llm-cases", help="List private LLM cases and review status.")
+    case_list.add_argument("--store", required=True)
+    case_list.set_defaults(func=llm_case_commands.cmd_list)
+
+    case_show = subparsers.add_parser("show-llm-case", help="Read one private LLM case and verify its digest.")
+    case_show.add_argument("--store", required=True)
+    case_show.add_argument("case_id")
+    case_show.set_defaults(func=llm_case_commands.cmd_show)
+
+    case_verify = subparsers.add_parser("verify-llm-cases", help="Validate private LLM case structure and digests.")
+    case_verify.add_argument("--store", required=True)
+    case_verify.add_argument("--case-id")
+    case_verify.set_defaults(func=llm_case_commands.cmd_verify)
 
     export_llm_corpus_parser = subparsers.add_parser(
         "export-llm-evaluation-corpus",
