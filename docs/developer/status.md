@@ -10,7 +10,7 @@
 
 CLI/Webからseed登録、一覧・詳細検索、追跡状態の変更、identifierの採用・除外・期限付き保留（confirm/block/defer）、profile編集を利用できます。新しいコードの通常導線はschema v4 DBです。Websiteとservice identifier、resourceの役割（role）と採用状態（classification）を区別して表示します。非現行identifier・採用来歴・移転関係・再登録の抑止情報は保存可能ですが、旧構成要素（`former`）と開発・試験用（`non_production`）の専用編集UIは未接続です。identifierへの判断は`kind + value`全体へ作用し、同じ値のroleごとには分けられません。
 
-検索は正規化して保存したfieldの部分一致・構造化filterで、summaryやREADME全文、自然語の概念検索には対応しません。保存・変更操作・マージ元keyの解決のtestと、schema v3切替後の利用者による典型操作・定期sync/enrichを確認した記録があります。これらの経路の確認は、現在の全データの正しさを保証するものではありません。保存契約は[project record](specs/project-record.md)を参照してください。
+登録プロジェクトのWeb検索は識別子・関係・判断と保存済みの`tagline`、`summary`、`features`を大小文字を無視した部分一致で探し、構造化filterと併用できます。raw evidenceやREADME全文、自然語の概念検索には対応しません。説明検索は一時DBのAPI testと開発DBの実ブラウザで確認し、正本5,054件のread-only計測では説明だけにある語が約250ms、既存識別子が約282ms、不一致が約244msでした。実運用Webへの反映は未確認です。保存・変更操作・マージ元keyの解決のtestと、schema v3切替後の利用者による典型操作・定期sync/enrichを確認した記録があります。これらの経路の確認は、現在の全データの正しさを保証するものではありません。保存契約は[project record](specs/project-record.md)を参照してください。
 
 ## 発見と取り込み
 

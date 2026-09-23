@@ -702,7 +702,7 @@ function listControls() {
   }
   const relationSources = filterOptionValues("relation_sources");
   return `<div class="controls">
-    <div class="toolbar"><input id="project-query" type="search" placeholder="名前・NSID・アカウント・URLを検索" value="${esc(state.projectSearch.query)}"><button id="search-projects" class="primary">検索</button><button id="new-seed">シードを登録</button></div>
+    <div class="toolbar"><input id="project-query" type="search" placeholder="名前・説明・NSID・アカウント・URLを検索" value="${esc(state.projectSearch.query)}"><button id="search-projects" class="primary">検索</button><button id="new-seed">シードを登録</button></div>
     <details><summary>絞り込み</summary><p class="muted">複数選択可。未選択ならすべて対象。</p><div class="filter-grid">
       <label>追跡状態<select id="filter-tracking" multiple size="5">${multiEnumOptions(filterOptionValues("tracking_states"), state.projectSearch.tracking)}</select></label>
       <label>サービス状態<select id="filter-service" multiple size="5">${multiEnumOptions(filterOptionValues("service_statuses"), state.projectSearch.service)}</select></label>

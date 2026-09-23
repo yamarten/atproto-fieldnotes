@@ -693,6 +693,61 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         }
         self.assertIn("https://app.example.com", candidate_values)
 
+    def test_search_matches_saved_description_fields_only(self) -> None:
+        conn = registry.open_db()
+        try:
+            for suffix, field, value, tracking_state in (
+                ("tagline", "tagline", "TaglineOnly SharedDescription", "active"),
+                ("summary", "summary", "SummaryOnly SharedDescription", "active"),
+                ("features", "features", ["FeatureOnly SharedDescription", "Second SharedDescription"], "stalled"),
+                ("noise", "system_notes", ["HiddenOnly SharedDescription"], "active"),
+            ):
+                project = project_record.default_project_record(
+                    f"proj:description{suffix}", "nsid", f"app.fixture.{suffix}"
+                )
+                project["name"] = f"Fixture {suffix}"
+                project["tracking_state"] = tracking_state
+                project[field] = value
+                if suffix == "noise":
+                    project["notes"] = "HiddenOnly"
+                project_record.save_project(conn, project)
+            conn.commit()
+        finally:
+            conn.close()
+
+        for query, suffix in (
+            ("taglineonly", "tagline"),
+            ("SUMMARYONLY", "summary"),
+            ("featureonly", "features"),
+        ):
+            status, payload, _ = self.request(f"/api/projects?q={query}")
+            self.assertEqual(status, 200)
+            self.assertEqual(payload["count"], 1)
+            self.assertEqual(payload["items"][0]["project_key"], f"proj:description{suffix}")
+
+        status, payload, _ = self.request("/api/projects?q=HiddenOnly")
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["count"], 0)
+
+        status, payload, _ = self.request("/api/projects?q=app.fixture.tagline")
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["items"][0]["project_key"], "proj:descriptiontagline")
+
+        status, payload, _ = self.request("/api/projects?q=shareddescription&limit=2")
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["count"], 3)
+        self.assertEqual(payload["returned_count"], 2)
+        self.assertEqual(len(payload["items"]), 2)
+
+        status, payload, _ = self.request("/api/projects?q=shareddescription&tracking_states=active")
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["count"], 2)
+        self.assertEqual(
+            {item["project_key"] for item in payload["items"]},
+            {"proj:descriptiontagline", "proj:descriptionsummary"},
+        )
+
     def test_search_candidate_badge_ignores_confirmed_duplicate_rows(self) -> None:
         conn = registry.open_db()
         try:

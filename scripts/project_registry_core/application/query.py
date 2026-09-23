@@ -90,10 +90,14 @@ def search_project_rows(
             "OR EXISTS (SELECT 1 FROM project_relations r WHERE r.project_key = p.project_key AND "
             "(LOWER(r.subject_value) LIKE ? OR LOWER(r.object_value) LIKE ? OR LOWER(r.locator) LIKE ?)) "
             "OR EXISTS (SELECT 1 FROM project_decisions d WHERE d.project_key = p.project_key AND "
-            "(LOWER(d.target_value) LIKE ? OR LOWER(d.note) LIKE ?))"
+            "(LOWER(d.target_value) LIKE ? OR LOWER(d.note) LIKE ?)) "
+            "OR LOWER(json_extract(p.profile_json, '$.core.tagline')) LIKE ? "
+            "OR LOWER(json_extract(p.profile_json, '$.core.summary')) LIKE ? "
+            "OR EXISTS (SELECT 1 FROM json_each(p.state_json, '$.evidence.features') feature "
+            "WHERE feature.type = 'text' AND LOWER(feature.value) LIKE ?)"
             ")"
         )
-        parameters.extend([pattern] * 9)
+        parameters.extend([pattern] * 12)
 
     identifier_parts: list[str] = []
     identifier_parameters: list[Any] = []
@@ -224,8 +228,8 @@ def rank_project_rows(conn: sqlite3.Connection, projects: list[dict[str, Any]], 
             score += 90 if exact else 35
             reasons.append("identifier_exact" if exact else "identifier_substring")
         if score <= 0:
-            # Relation/decision text may have selected the project even when its
-            # project and identifier fields do not match.
+            # Relation, decision, or saved description text may have selected
+            # the project even when its key, name, and identifiers do not match.
             score = 25
             reasons.append("evidence_match")
         ranked.append({"project_key": project_key, "score": score, "reasons": reasons})
