@@ -70,6 +70,7 @@
 - DB保存契約やcleanupはtemp DB上で実装確認する。正本DBのread-only CLI・SQL・書き捨てスクリプトは直接使用し、書込みを伴う確認や保存前後の比較だけ複製DBを使う。正本DBへの適用は別途承認を得る
 - external source契約を変える場合は、通常testと分けてbounded smoke testの要否を判断する
 - 実施していない確認は未検証としてstatusまたは作業固有notesの適切な場所へ残す
+- LLM調査・評価・修正中に誤判定、訂正、判断が分かれる例、有用な正例を得たら、一時資料を片付ける前に[事例保存の作業手順](docs/developer/workflows/llm-model-evaluation.md#作業中に得た事例の保存)に従って保存を検討する。未確認の判断は未確認のまま残し、調整に使った事例には利用履歴を追記する。
 
 ## 参照先
 

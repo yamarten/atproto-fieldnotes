@@ -66,6 +66,19 @@ requestへreasoning値を送っただけでは適用済みと扱いません。r
 
 ## 評価データ
 
+### 作業中に得た事例の保存
+
+model比較に限らず、通常の調査・不具合修正・利用者からの訂正で、triageまたはrepository analysisの誤判定、判断が分かれる例、有用な正例を得たら、作業者が保存を検討します。誤りだけを集めず、同種事例の重複を避けます。全件収集や追加実験は不要です。保存のためだけに元タスクを拡大せず、手元の入力が履歴削除や一時資料のcleanupで失われる前に扱います。
+
+1. [非公開事例の保存仕様](../specs/llm-case-store.md#保存先と境界)にある共通保存先の一覧を確認し、同じ事例があれば新規複製ではなく判断eventの追記を選びます。
+2. 当時の入力・出力・実行条件と出典をdraftへ写します。再構成・欠落は明記し、部分判断や未確認でも保存できます。Codexの推定を人間goldへ昇格させず、人による確認を待つためだけに保存を先延ばししません。
+3. draftに秘密情報を含めないよう確認し、`register-llm-case`で登録後、`show-llm-case`と`verify-llm-cases`で保存内容と伏字による欠落を確認します。Codexによる確認では`human_reviewed=true`や`snapshot_reviewed`を設定しません。人が実際に確認した部分だけ、その根拠とともに記録します。
+4. promptや規則の調整に使ったら、同じ事例へ`adjustment_used`を追記します。後の訂正もeventとして残し、再利用時は初期snapshotではなく`effective`の判断・利用状態を確認します。
+
+作業の引き継ぎには保存したcase IDと、残る確認事項があればそれを含めます。保存先への書込み権限がなければ必要な承認を求め、無断で別の保存先へ分散させません。保存できなかった場合は未保存と理由を明記し、必要な一時入力を残件が解消する前に削除しません。事例の登録は学習・評価への採用ではなく、公開fixtureへの転用や人手goldとしての利用には別の確認が必要です。
+
+### 固定評価用corpus
+
 `export-llm-evaluation-corpus`は指定DBをread-onlyで開き、保存済みevidenceから固定caseを出力します。corpus選抜ではpromptの長さごとの区分（bucket）と保存済みcategoryを分け、既定で`category=library`を最低8件優先します。保存済み出力は比較referenceとして保持します。前回LLM出力だけを根拠とするfieldは、次のmodel入力へ戻しません。現在のprofileは観測由来の根拠（base evidence）から分けて保持し、`evaluate-llm-corpus --current-profile-mode without|with`で入力条件を切り替えます。
 
 期待categoryを付ける前に、現在のcategory契約と入力evidenceだけで人が判断できるかを確認します。外部情報を見れば判断できても固定evidenceから導けないcaseは、modelのcategory成績には使いません。外部情報不足はcollector契約の問題として分けます。

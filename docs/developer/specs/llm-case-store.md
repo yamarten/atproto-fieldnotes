@@ -6,7 +6,9 @@
 
 `register-llm-case --store ABSOLUTE_PATH --file DRAFT.json`は、リポジトリ外の絶対パスに`case_id.json`を作る。`append-llm-case-event`は同じ保存先の`events/case_id/event_id.json`へ判断履歴を追加する。worktree、`data/`、`.tmp/`等のGit管理下は拒否する。保存ディレクトリは新規作成時に0700、ファイルは0600とし、既存ディレクトリがgroup/otherに開いていれば拒否する。同じIDは上書きせず失敗する。これらのファイルはGit・DB・履歴retention・`cleanup-workspace-temp`の対象外なので、恒久保存先のバックアップは利用者の通常の個人データ保全に含める。作業worktreeの終了や正本DBの履歴削除でも残る。
 
-macOSの個人用保存先の例は`$HOME/Library/Application Support/atproto-survey/llm-cases`。Codexが作業ごとのdraftを`.tmp/`に作り、登録後に保存した事例を確認する場合は次を使う。draftは一時入力なので作業終了時に削除してよい。
+このMacでの共通の恒久保存先は`$HOME/Library/Application Support/atproto-survey/llm-cases`とします。全task・worktreeで同じ保存先を`--store`に明示し、CLIの暗黙の既定値とは扱いません。初回登録時にCLIが作成します。保存先への書込みに承認が必要なら取得し、worktree内や別の一時領域へ代替しません。バックアップの設定・復旧確認は別途必要で、保存先の確定だけでは長期保全済みとはしません。
+
+保存する契機と作業中の扱いは[事例保存の作業手順](../workflows/llm-model-evaluation.md#作業中に得た事例の保存)に従います。Codexが作業ごとのdraftを`.tmp/`に作り、登録後に保存した事例を確認する場合は次を使います。draftは保存成功と内容確認の後、不要なら削除して構いません。
 
 ```sh
 bin/project-registry register-llm-case --store "$HOME/Library/Application Support/atproto-survey/llm-cases" --file .tmp/case-draft.json
