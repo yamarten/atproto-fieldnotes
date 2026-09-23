@@ -52,8 +52,10 @@ draftは次の形を使う。`payload`は実際のprompt、evidence、model出�
 
 同じevent IDの上書き、存在しない事例・訂正元、複数の訂正先が同じ判断を置換する分岐は拒否する。`show-llm-case`は固定した`case`、追記された全`events`、現在有効な`effective`を分けて返す。`list-llm-cases`は`effective`の確認状態・調整利用・有効判断数とevent数を表示する。初期`false`だけを拾って未使用の評価用事例とみなさず、必ず`effective.used_for_adjustment`を参照する。
 
-登録時はsecret名のkey（`Set-Cookie`を含む）、Bearer token、文字列中の代表的な`api_key`等の値、URLのuserinfo/query/fragmentを自動で伏せる。伏せたJSON pathは`sanitization.auto_redacted_paths`に残し、その場合`human_reviewed`をfalseに戻す。既に`[redacted]`の値は再び変更したと数えず、伏字済みdraftを新IDで登録する場合も元の伏字pathを引き継ぐ。自動処理は自由文中のすべての秘密や任意の認証形式を検出できない。登録後に`show-llm-case`で保存物を読み、人が機密・入力欠落・意味の変化を確認してから参照利用する。確認結果は同じ事例へ`snapshot_reviewed` eventで追記できる。伏字によって必要な入力が欠けた事例は、元の実行を厳密に再現できないと扱う。公開fixtureへ転用するときは別途最小化・匿名化を行う。
+個人用・非公開の保存と参照では、人による事前確認や公開用の匿名化を必須にしない。公開資料の原文、project名、公開identifier、時刻、通常の作業記録は、判断の再現に必要な範囲で保持する。認証情報の混入は防ぐが、利用者へ毎件のプライバシー確認を求めない。公開・外部送信・公開fixtureへの転用時に、その範囲に応じた除去・最小化を改めて確認する。
 
-事例とeventの各ファイルは正規化JSONのSHA-256を持つ。`show-llm-case`と`verify-llm-cases`は構造、digest、event参照を検査する。digestは誤変更の検出用で、署名や真正性証明ではない。`input.status`が`captured`でない事例は当時入力の厳密な再実行に使えない。`effective.human_reviewed=false`や`authority`がhuman以外の判断は人手goldとして扱わない。
+現行の登録処理はsecret名のkey（`Set-Cookie`を含む）、Bearer token、文字列中の代表的な`api_key`等の値、URLのuserinfo/query/fragmentを自動で伏せる。伏せたJSON pathは`sanitization.auto_redacted_paths`に残し、その場合`human_reviewed`をfalseに戻す。既に`[redacted]`の値は再び変更したと数えず、伏字済みdraftを新IDで登録する場合も元の伏字pathを引き継ぐ。自動処理はすべての秘密を検出できず、逆に非秘密のURL要素も除去するため、Codexが登録後に`show-llm-case`で保存内容と必要な意味の欠落を確認する。伏字によって必要な入力が欠けた事例は、元の実行を厳密に再現できないと扱う。人が実際にsnapshotを確認した場合だけ、その事実を`snapshot_reviewed` eventで追記する。
+
+事例とeventの各ファイルは正規化JSONのSHA-256を持つ。`show-llm-case`と`verify-llm-cases`は構造、digest、event参照を検査する。digestは誤変更の検出用で、署名や真正性証明ではない。`input.status`が`captured`でない事例は当時入力の厳密な再実行に使えない。`effective.human_reviewed`はsnapshot確認の来歴で、ローカル参照の許可や判断の正しさを表さない。人手goldとして使えるのは、人が実際に確認した判断の範囲だけであり、`authority`がhuman以外の判断を昇格させない。
 
 既存`export-llm-evaluation-corpus`と`export-repository-analysis-corpus`は保存済み資料から固定比較用caseを選ぶ入口で、過去model出力はreferenceである。`export-investigation-fixture`はGitに置く最小fixtureを作るためprompt・本文等を落とす。非公開事例の原文保存には直接使わない。必要な時点でこれらの出力や当時のreportをdraftへ明示的に写し、実際に保存されていた入力と再構成入力を区別する。

@@ -265,7 +265,7 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 
 事例・eventのdraft形式、保存先と確認手順は[非公開LLM事例の固定保存](../developer/specs/llm-case-store.md)を参照してください。通常の作業ではCodexがdraftを組み立て、`register-llm-case`の後に`show-llm-case`と`verify-llm-cases`で保存内容を確認します。後からの判断・調整利用は同じ事例IDへ`append-llm-case-event`で追記し、一覧と詳細の有効状態を確認します。`--store`にはworktree終了後も残る個人用の絶対パスを毎回指定します。実資料はGitへ追加しません。
 
-書き出し時の機密情報除去（sanitization）は機械的な補助です。実プロジェクトキー、時刻、handle/DID、自由記述が残り得るため、fixtureとしてcommitする前に必ず人が確認してください。
+公開テストfixture向けの書き出し時の機密情報除去（sanitization）は機械的な補助です。実プロジェクトキー、時刻、handle/DID、自由記述が残り得るため、fixtureとしてcommitする前に必ず人が確認してください。この公開用の確認を、非公開LLM事例のローカル保存・参照の前提にはしません。
 
 LLM評価corpusも保存済みの根拠、実プロジェクトキー、公開識別子、自由記述を含みます。通常は`.tmp/`へ出力し、commit前に人が確認します。`reference_output`は保存済みモデル出力との比較用で、正解labelではありません。
 
