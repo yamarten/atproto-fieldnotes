@@ -186,7 +186,9 @@ Jetstream v2で`com.atproto.lexicon.schema`を観測できるため、public rec
 
 operator decisionや人が確認した評価labelを、LLMの出力品質改善へ再利用できる可能性があります。ただし、`project_decisions`の多くはidentifier採否、reviewの保留・dismiss、別project判断などの運用上の正本であり、project-level triageやrepository解析のgold labelとはそのまま扱いません。
 
-保存済みの訂正・保留・除外判断と当時のevidenceから、回帰評価用のfixture候補を自動抽出し、人が期待結果を確認してcorpusへ取り込める状態を目指します。学習用dataの蓄積と、heuristicやprompt変更の評価に再利用します。各候補は当時の根拠と判断理由を人が確認して期待結果を定め、現行の[replay・sanitize契約](developer/specs/investigation.md#replay-と-benchmark)へ接続します。抽出commandの設計は未確定です。
+当面は今後の作業で得られた事例を[非公開事例保存](developer/specs/llm-case-store.md)へ明示登録し、当時の入力・出力・実行条件と、部分判断・確認・調整利用の来歴を蓄積します。保存しただけでは学習用の正解や未使用の評価用事例とみなしません。全件自動収集・過去資料の大量移行・学習実行は現段階では行いません。
+
+蓄積した事例を回帰評価や学習へ利用する際は、当時の根拠と判断理由を人が確認し、用途に合う期待結果と入力の充足を確かめてcorpusへ取り込みます。公開fixtureへの転用は[replay・sanitize契約](developer/specs/investigation.md#replay-と-benchmark)に従います。保存済みの訂正・保留・除外判断からの自動候補抽出は、明示登録の負担と利用できる事例の量を確認してから再検討します。
 
 同種の誤りが蓄積し、プロンプトや解析素材の選択・入力上限の規則だけでは十分に減らせず、独立した人手確認済み事例を訓練用と評価用に分けられる量が揃った場合に、次を検討します。
 
