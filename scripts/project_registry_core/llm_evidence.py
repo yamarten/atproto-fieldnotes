@@ -78,7 +78,7 @@ LLM_EVIDENCE_MIN_COUNTS = {
 
 
 def evidence_json(value: dict[str, Any]) -> str:
-    return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True)
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
 def evidence_bytes(value: dict[str, Any]) -> int:
@@ -145,6 +145,44 @@ def balanced_sample(values: list[Any], limit: int) -> list[Any]:
     return list(values[:front_count]) + (list(values[-back_count:]) if back_count else [])
 
 
+REPOSITORY_CLAIM_FIELDS = ("collections", "capabilities", "observations")
+
+
+def _evidence_locator(value: Any) -> tuple[str, int, str]:
+    if not isinstance(value, dict):
+        return ("", 0, "")
+    return (
+        str(value.get("path") or ""),
+        int(value.get("line") or 0),
+        str(value.get("json_pointer") or ""),
+    )
+
+
+def _trim_repository_claim(result: dict[str, Any]) -> bool:
+    """Remove one complete claim and only excerpts unused by retained claims."""
+    field = next(
+        (name for name in REPOSITORY_CLAIM_FIELDS if result.get(name)), None
+    )
+    if field is None:
+        return False
+    claims = result[field]
+    claims.pop(middle_index(len(claims)))
+    used = {
+        _evidence_locator(ref)
+        for ref in result.get("summary_evidence", [])
+        if isinstance(ref, dict)
+    }
+    for name in REPOSITORY_CLAIM_FIELDS:
+        for claim in result.get(name, []):
+            if isinstance(claim, dict):
+                used.update(_evidence_locator(ref) for ref in claim.get("evidence", []))
+    result["evidence_excerpts"] = [
+        excerpt for excerpt in result.get("evidence_excerpts", [])
+        if _evidence_locator(excerpt) in used
+    ]
+    return True
+
+
 def bounded_llm_evidence(
     evidence: dict[str, Any],
     *,
@@ -160,6 +198,15 @@ def bounded_llm_evidence(
         if isinstance(value, list)
     }
     truncated_fields: set[str] = set()
+    original_repositories = {
+        str(item.get("repo_url") or ""): {
+            name: len(item.get(name, []))
+            for name in (*REPOSITORY_CLAIM_FIELDS, "evidence_excerpts")
+        }
+        for item in result.get("repository_analysis_results", [])
+        if isinstance(item, dict)
+    }
+    omitted_repositories: list[str] = []
     for field, limit in LLM_EVIDENCE_COUNT_LIMITS.items():
         values = result.get(field)
         if not isinstance(values, list) or len(values) <= limit:
@@ -182,6 +229,8 @@ def bounded_llm_evidence(
             },
             "string_values_truncated": string_values_truncated,
         }
+        if omitted_repositories:
+            result["evidence_budget"]["omitted_repository_analysis_urls"] = omitted_repositories
 
     update_budget_metadata()
     while evidence_bytes(result) > max_bytes:
@@ -202,6 +251,30 @@ def bounded_llm_evidence(
             if trimmed:
                 break
         if trimmed:
+            continue
+        repositories = result.get("repository_analysis_results")
+        if isinstance(repositories, list) and repositories:
+            # Keep every repository overview as long as possible. A claim and its
+            # locators stay together; unused excerpt text is removed with it.
+            for repo in sorted(repositories, key=lambda item: -len(evidence_json(item))):
+                if not _trim_repository_claim(repo):
+                    continue
+                original = original_repositories.get(str(repo.get("repo_url") or ""), {})
+                repo.setdefault("coverage", {})["triage_input"] = {
+                    name: {"observed_count": original[name], "included_count": len(repo.get(name, []))}
+                    for name in (*REPOSITORY_CLAIM_FIELDS, "evidence_excerpts")
+                    if original.get(name, 0) != len(repo.get(name, []))
+                }
+                truncated_fields.add("repository_analysis_results")
+                update_budget_metadata()
+                trimmed = True
+                break
+            if trimmed:
+                continue
+            removed = repositories.pop(middle_index(len(repositories)))
+            omitted_repositories.append(str(removed.get("repo_url") or ""))
+            truncated_fields.add("repository_analysis_results")
+            update_budget_metadata()
             continue
         raise ValueError("LLM evidence cannot fit within configured byte budget")
     return result

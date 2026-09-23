@@ -179,7 +179,7 @@ cache identityはcanonical repo URL、`source_revision`（取得できないprov
 
 LLM endpointまたはmodel出力をJSONとして解釈できなかった場合、run metricsには失敗段階、UTF-8 byte数、SHA-256、JSON構文エラー位置、先頭と末尾がJSON記号か、code fenceを含むかだけを記録します。利用不能だった応答本文は保存しません。これにより、出力上限で途中終了した可能性と形式違反を、repository内容を追加保存せず区別できます。
 
-triageへ渡す解析結果はconfirmed repoだけを対象に最大6件とし、operator-confirmed repo、代表repo、coverageの順で優先します。repository observationはproject categoryやidentifier confirmを直接上書きしません。categoryはservice、collection、現在profileなどを合わせたproject-level triageが決めます。`lexicon`はschema自体が追跡対象である積極的根拠を必要とし、NSID seedやLexicon JSONの存在だけでは選びません。repositoryが宣言したdocumentation site URLは`docs` roleのcandidate resource URLに留めます。
+triageへ渡す解析結果はconfirmed repoだけを対象に最大6件とし、operator-confirmed repo、代表repo、coverageの順で優先します。入力予算を超える場合は各repoのsummaryとその根拠を先に残し、claimを根拠位置ごと省略して未使用のexcerptも除きます。省略したclaim・excerptの元件数と採用件数は当該repoの`coverage.triage_input`に記録し、repo全体を省略した場合は`evidence_budget.omitted_repository_analysis_urls`にURLを記録します。repository observationはproject categoryやidentifier confirmを直接上書きしません。categoryはservice、collection、現在profileなどを合わせたproject-level triageが決めます。`lexicon`はschema自体が追跡対象である積極的根拠を必要とし、NSID seedやLexicon JSONの存在だけでは選びません。repositoryが宣言したdocumentation site URLは`docs` roleのcandidate resource URLに留めます。
 
 ### Tangledの調査
 
@@ -381,7 +381,7 @@ bundled Chromiumが`ERR_SOCKET_NOT_CONNECTED`を返した場合だけ、HTTP/2�
 
 ### LLM evidence budget
 
-planningとtriageへ渡す可変evidence JSONは、整形後UTF-8で24 KiBを上限とします。fieldごとの代表件数上限を先に適用し、長いlistは先頭と末尾から均等に残します。それでも超える場合は低優先fieldから追加で縮約します。`project_key`等のscalarはlist budgetで落としません。縮約した場合は`evidence_budget`へfield別の観測件数と採用件数を入れます。通常triageでは固定templateを含む32 KiBを守るため、template長に応じて可変部分の上限を24 KiBからさらに縮めます。縮約順序はplanningと共通で、triageへ渡したevidenceは`llm_source.evidence`にも保存します。
+planningとtriageへ渡す可変evidence JSONは、空白を付けないJSONのUTF-8で24 KiBを上限とします。fieldごとの代表件数上限を先に適用し、長いlistは先頭と末尾から均等に残します。それでも超える場合は低優先fieldから追加で縮約し、repository解析はclaimと根拠を一緒に扱います。`project_key`等のscalarはlist budgetで落としません。縮約した場合は`evidence_budget`へfield別の観測件数と採用件数を入れます。通常triageでは固定templateを含む32 KiBを守るため、template長に応じて可変部分の上限を24 KiBからさらに縮めます。縮約順序はplanningと共通で、triageへ渡したevidenceは`llm_source.evidence`にも保存します。
 
 24 KiBは可変evidence JSONの上限です。prompt templateの固定文を加えた最終promptのbyte数はrun metricsで別に観測します。service HTMLやEvidenceBundleの保存量には、それぞれの保存上限を適用します。
 
@@ -450,4 +450,4 @@ bin/_project-registry-python promotion-outcome-analysis scripts/promotion_outcom
 
 browser calibrationは実URLを取得し直さず、固定したpage URL、title、text excerpt、link、form input属性、submit label、OAuth候補、匿名menu展開数、service action、network / console errorを`collect_browser_service_evidence()`へ渡します。これにより公開pageが変化しても当時の入力に対する判定を再現できます。実URLへの`verify-service --lane browser`は現在状態のsmoke testに限り、固定期待値との差をsemantic regressionとして扱いません。
 
-triage prompt v4は主機能でのatproto利用の総括を要求しません。固定素材による選定回帰は`tests/fixtures/project_registry/promotion-selection-v1.json`を使い、技術評価と理由付き手動判断をqueue・保存経路へ通します。同じ素材でLLM出力だけでは利用範囲・順位が変わらないことも確認します。素材は意味を切り分けた構成文で、実ページの再取得snapshotや実運用精度測定ではありません。実資料を使う限定的な意味抽出の試行は通常triageと分け、採否と速度を[選定評価](../../notes/promotion-selection-validation.md)に記録しています。
+triage prompt v5は主機能でのatproto利用の総括を要求せず、repository URLの出力fieldを通常適用・評価と同じ`project_repository_urls`に統一します。固定素材による選定回帰は`tests/fixtures/project_registry/promotion-selection-v1.json`を使い、技術評価と理由付き手動判断をqueue・保存経路へ通します。同じ素材でLLM出力だけでは利用範囲・順位が変わらないことも確認します。素材は意味を切り分けた構成文で、実ページの再取得snapshotや実運用精度測定ではありません。実資料を使う限定的な意味抽出の試行は通常triageと分け、採否と速度を[選定評価](../../notes/promotion-selection-validation.md)に記録しています。

@@ -2801,6 +2801,77 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
             llm_evidence_core.LLM_EVIDENCE_STRING_MAX_BYTES,
         )
 
+    def test_repository_analysis_budget_keeps_claims_with_locators_and_reports_omissions(self) -> None:
+        repositories = []
+        for repo_index in range(3):
+            summary_ref = {"path": "README.md", "line": 1}
+            claims = []
+            excerpts = [{**summary_ref, "excerpt": "summary source " + "s" * 180}]
+            for claim_index in range(5):
+                ref = {"path": f"src/{claim_index}.py", "line": claim_index + 1}
+                claims.append({"value": "feature " + "f" * 250, "evidence": [ref]})
+                excerpts.append({**ref, "excerpt": "source " + "e" * 260})
+            repositories.append({
+                "repo_url": f"https://github.com/example/repo-{repo_index}",
+                "coverage": {"readme": "complete"},
+                "summary": "Repository overview",
+                "summary_evidence": [summary_ref],
+                "observations": claims,
+                "capabilities": [],
+                "collections": [],
+                "evidence_excerpts": excerpts,
+            })
+        source = {"project_key": "proj:budget", "repository_analysis_results": repositories}
+
+        bounded = llm_evidence_core.bounded_llm_evidence(source, max_bytes=5000)
+
+        self.assertEqual(bounded, llm_evidence_core.bounded_llm_evidence(source, max_bytes=5000))
+        self.assertLessEqual(llm_evidence_core.evidence_bytes(bounded), 5000)
+        self.assertEqual(len(bounded["repository_analysis_results"]), 3)
+        self.assertIn("repository_analysis_results", bounded["evidence_budget"]["truncated_fields"])
+        self.assertTrue(any("triage_input" in repo["coverage"] for repo in bounded["repository_analysis_results"]))
+        for repo in bounded["repository_analysis_results"]:
+            self.assertEqual(repo["summary_evidence"], [{"path": "README.md", "line": 1}])
+            locators = {(ref["path"], ref["line"]) for claim in repo["observations"] for ref in claim["evidence"]}
+            locators.add(("README.md", 1))
+            self.assertEqual(
+                {(item["path"], item["line"]) for item in repo["evidence_excerpts"]},
+                locators,
+            )
+
+    def test_repository_analysis_budget_identifies_omitted_repositories(self) -> None:
+        source = {"repository_analysis_results": [
+            {
+                "repo_url": f"https://github.com/example/repo-{index}",
+                "coverage": {},
+                "summary": "s" * 1000,
+                "summary_evidence": [{"path": "README.md", "line": 1}],
+                "observations": [], "capabilities": [], "collections": [], "evidence_excerpts": [],
+            }
+            for index in range(3)
+        ]}
+
+        bounded = llm_evidence_core.bounded_llm_evidence(source, max_bytes=1500)
+
+        self.assertLessEqual(llm_evidence_core.evidence_bytes(bounded), 1500)
+        self.assertLess(len(bounded["repository_analysis_results"]), 3)
+        self.assertEqual(
+            len(bounded["evidence_budget"]["omitted_repository_analysis_urls"]),
+            3 - len(bounded["repository_analysis_results"]),
+        )
+
+    def test_triage_repository_url_contract_reaches_normal_application(self) -> None:
+        project = self.nsid_project()
+        project["developer_accounts"] = [{"handle": "example"}]
+        repository_url = "https://github.com/example/new-project"
+        prompt, evidence = registry.build_triage_prompt(project)
+        self.assertIn('"project_repository_urls": ["string"]', prompt)
+        self.assertNotIn('"source_code_urls": ["string"]', prompt)
+
+        registry.apply_llm_output(project, {"project_repository_urls": [repository_url]}, {}, evidence)
+
+        self.assertIn(repository_url, project["candidate_project_repository_urls"])
+
     def test_candidate_repo_is_available_to_investigation_planning_but_not_triage(self) -> None:
         project = self.nsid_project()
         project["name"] = "Candidate"
