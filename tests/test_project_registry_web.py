@@ -1610,6 +1610,30 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(item["priority_group"], "normal")
         self.assertEqual(item["sort_score"], item["score_breakdown"]["total"])
 
+    def test_promotion_queue_api_defaults_include_stable_but_not_stalled(self) -> None:
+        with contextlib.closing(registry.open_db()) as conn:
+            for state in ("stable", "stalled"):
+                project = self.make_project(f"proj:{state}")
+                project.update(
+                    name=f"{state} technical project",
+                    tracking_state=state,
+                    category="project",
+                    technical_interest_level="high",
+                    technical_interest_reasons=["implementation_reference"],
+                    technical_interest_summary="Reusable protocol implementation",
+                )
+                project_record.save_project(conn, project)
+
+        _, default, _ = self.request("/api/promotion-queue?view=technical")
+        default_keys = {item["project_key"] for item in default["items"]}
+        self.assertIn("proj:stable", default_keys)
+        self.assertNotIn("proj:stalled", default_keys)
+
+        _, explicit, _ = self.request("/api/promotion-queue?view=technical&tracking_states=stalled")
+        explicit_keys = {item["project_key"] for item in explicit["items"]}
+        self.assertIn("proj:stalled", explicit_keys)
+        self.assertNotIn("proj:stable", explicit_keys)
+
     def test_atproto_usage_api_and_technical_view(self) -> None:
         from promotion_selection import cases, apply_fixed_assessment
         with contextlib.closing(registry.open_db()) as conn:

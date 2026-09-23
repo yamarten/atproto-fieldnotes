@@ -31,7 +31,7 @@ from project_registry_core import project_record
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 DEFAULT_REVIEW_STATES = {"active", "stable", "stalled", "out_of_scope"}
-DEFAULT_PROMOTION_STATES = {"active"}
+DEFAULT_PROMOTION_STATES = {"active", "stable"}
 
 
 def restart_argv(argv: list[str] | None = None) -> list[str]:

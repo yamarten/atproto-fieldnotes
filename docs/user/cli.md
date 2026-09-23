@@ -143,6 +143,8 @@ project-registry --db-path PATH migrate-db-v4 --execute
 
 `category=personal_tool`は既定ではサービスとLexicon発行の紹介候補から除外し、`--include-personal-tools`で含めます。Lexicon発行はNSID hintやrepository内schemaだけでは成立せず、通常enrichでDNS委譲とschema record取得に成功した観測を必要とします。紹介保留は期限後または保存した判断材料の変化で一覧へ戻り、履歴は残ります。判断時の根拠情報がない古い保留だけは期限で復帰します。`defer-promotion`の理由は任意、日数省略時は履歴や登録時期によらず30日です。`--days`で期間を指定し、`--clear`で解除できます。旧「確認済み」も保留へ統合し、CLI・Webとも通常候補から一時的に外します。`--view`は`queue`（既定）、`inbox`、`technical`、`waiting`（保留）、`lowered`、`all`を選べます。理由検索はWebの紹介候補一覧を使います。
 
+通常の`promotion-queue`は追跡状態`active / stable`を対象にし、`stalled`は含めません。`--tracking-states`で明示した時は指定した状態だけを対象にします。紹介済みや保留中などの候補は、追跡状態が対象でも通常一覧には戻りません。
+
 技術面から選ぶ場合は`promotion-queue --view technical`を使います。具体的な技術的価値が`high / exceptional`と評価された未確認候補を、サービスの確認度と独立して並べます。通常一覧にも同じ技術候補が含まれます。
 
 主機能でのatproto利用を判断するときは、根拠を添えて保存します。再調査は手動判断を上書きせず、解除すると未評価へ戻ります。LLMによる利用範囲の自動確定は行いません。Lower priorityは個別の編集判断として別に維持されます。

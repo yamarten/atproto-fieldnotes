@@ -279,6 +279,8 @@ Website単独やseedの有無はこのゲートの条件にしません。満た
 
 `promotion-queue`は通常表示と対話操作（interactive）の両方で、対象project全件からsignalと`promotion_queue_sort_score()`を計算し、`priority_group`、確認済みかどうか、`top_priority`、`sort_score`、`project_key`の順で全体を並べてから`--limit`を適用します。`priority_group=lowered`は通常候補の後ろへ送り、同じgroup内では未確認・再確認対象を確認済みより先にします。品質score自体は確認履歴で増減しません。
 
+CLIとWebの通常候補は既定で`active`と`stable`を含み、`stalled`を含めません。紹介済み、明示した対象外、保留、低優先度の扱いは追跡状態とは別に評価します。CLIの`--tracking-states`とWeb APIの`tracking_states`で明示した場合は、その指定を使います。
+
 `lexicon_publisher_confirmed`はcategory横断の紹介候補signalです。confirmed `owned_nsid`、`_lexicon.<authority>` DNS委譲を経て取得した`lexicon_resolution_entries`、同じNSIDの`lexicon_schema_samples`が一致した場合だけ成立します。repository内schema、NSID hint、record利用実績だけでは成立しません。priorityは通常7、利用範囲が`supporting / bluesky_client / auth_only`なら5です。scoreの`lexicon_publication`は160です。`reject` / `name_only`は除外し、`personal_tool`は`--include-personal-tools`指定時だけ対象にします。
 
 service signalのpriorityは、利用範囲が`main_data`なら画面確認済みlive=9・その他確認済み=8・未確認=6、`unknown`なら確認済み=7・未確認=4、補助的利用・Bluesky操作・認証のみなら確認済み=5・未確認=3です。serviceまたはLexicon公開signalを持つ候補のscoreは`main_data`で+60、限定的な3種類で-120、unknownで0です。旧寄与度による加点は行いません。限定的な利用を理由とする自動Lower priorityや非表示は行いません。説明文のキーワードから派生Blueskyツールを除外していた紹介候補の規則も使いません。

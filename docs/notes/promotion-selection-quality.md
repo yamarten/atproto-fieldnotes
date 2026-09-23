@@ -488,3 +488,27 @@ Cobalt・standard.siteについて、部分的な裏付けで通る原因を確�
 今回の選抜は既知例・紹介実績・上位・保存語彙に偏ります。未発見project、まだ材料のない高関心対象、全候補の人間goldがないため、全体の捕捉率・ノイズ率・方式全体の品質合格は判断できません。少数の大きな逆転と表示条件は示せますが、追加対象のすべてを紹介したいと確定したものでもありません。
 
 調査成果はhuman-reviewで了承され、明示的な送信指示後に母艦で文書を統合しました。候補条件・順位・入力契約の実装修正は未承認の改善候補であり、今回の調査の未完作業とは扱いません。本番操作・推薦変更・正本DB更新は未実施です。
+
+## 保存済み情報だけを使った先頭50件の限定比較と採否
+
+2026-09-23。前段の調査を踏まえ、Promotionを開いた時に検討したい候補が見えるかを、現在保存された情報だけで再比較した。**利用者は順位方式を採用せず、合意済みのstable包含だけを実装して順位調整をいったん区切る推奨を了承した。** Lexicon用の枠を設けるとCommunity Lexicon CalendarとAstrosky GCN Lexicon等が50件内に入るが、同じ規則で汎用schema断片や紹介単位が不明な行も入り、具体的な基盤候補と確認済みサービスを押し出す。現行の誤逆転は残るものの、この対案が全体としてより役立つという根拠はない。Codexによる保存資料上の見立てであり、利用者の新たな紹介可否判断ではない。
+
+正本DBを`mode=ro`、`query_only`、単一read transactionで5,054件読み、同じsnapshotの通常builderで変更前のactive 448件とactive＋stable 459件を計算した。active条件の先頭50件は通常application APIと全件一致した。今回の全対照はactive＋stableの459件と同じ保存値を使う。stable包含は合意済み方針の影響を独立して見るための条件であり、順位品質の改善件数に数えない。比較では新規取得、LLM、DB保存、通常コード変更をしていない。
+
+| 条件 | 先頭50件の変化 | 判断に効く例 |
+| --- | --- | --- |
+| activeのみの現行 | 技術16、category=`lexicon` 0 | Calendar 179位、Juntos 348位、Konbiniは候補外という先行調査を再現する起点 |
+| 合意済みstableを加える | 候補459件。先頭50件へStreamplace、FedProxy、TOKIMEKI Poll、Germ Networkが入り、Corgi、Cartes、Echosky、Siftedが押し出される | Streamplaceは利用者が紹介済み扱いでもよいとした例で、新しい有用候補4件とは数えない。Calendar 183位、Juntos 355位 |
+| 合計score順だけへ変更 | 技術16→2、Lexicon 0のまま。技術候補14件の代わりに51〜64位のservice等が入る | Laplan、hydrant、zkat等の有力な技術候補が外れ、共有Lexiconを救わない |
+| 技術8枠・DNS公開を確認した`category=lexicon` 12枠・その他30枠 | Lexicon 0→12。Calendarは49位。技術16→8 | device-atproto-link、atproto、Laplan、edgebox、zkat、SSRF Probe、Cobalt、hydrantと、47〜50位のservice等4件が外れる |
+| 技術12枠・Lexicon12枠・その他26枠 | Lexicon 0→12。Calendarは48位。技術16→12 | zkat、SSRF Probe、Cobalt、hydrantと、43〜50位のservice等8件が外れる |
+
+両枠案で新たに見える12件はschema、Astrosky GCN Lexicon、town.walls、Substratum Passport、Cacao Bookmarks、metadata、OPN Haus、BeaconBits、com.atproto.repo、名前空欄の`social.grain.actor.profile`行、Community Lexicon Calendar、Sprk。Calendarは共有のイベント／参加表明schemaという既知の検討対象、Astroskyは天体現象を記録するschema、Substratum PassportはPDS等の運用・所有権を表すschemaで、少なくとも内容を見てみる理由がある。一方、schemaとcom.atproto.repoはプロトコルの汎用定義、town.wallsは特定サービスのlike、名前空欄の行は紹介単位が判然としない。DNS公開はschema実在の根拠であり、独立した共有仕様・単独紹介価値の根拠ではない。
+
+枠案の選定に使っていない対象も、project keyのSHA-256順で入替え双方から5件ずつ、Lexicon候補の13番目以降から10件を抽出し、保存説明・signalを点検した。追加側にはSubstratum Passportのように内容を見たい例と、汎用schema、特定サービスのlike、名前空欄のprofileが混在する。押し出し側には技術highの根拠があるhydrant、device-atproto-link、zkatと、実サービス確認済みのPDSjsがある。後続のLexicon抽出にはMooring用サイト設定、stream.placeの断片、第三者向け共有仕様ではないと保存説明が記すtenna.party等が含まれる。未見対象の人間goldを作ったわけではなく、この抽出から有用率や全体の捕捉率は計算しない。
+
+`lexicon_scope=shared`を追加の確定条件にもできない。459件のうち50件がsharedだが、保存値はLLM出力または説明文の語句判定を含み、上記のservice固有・断片例にもsharedが付いている。現行ではJuntosの独自recordはservice未確認のpriority 4に留まり、枠案でも355位のまま。Konbiniも候補外のままである。分類や推薦入口を新設するに足る信頼できる保存signalは、この比較では確認できなかった。
+
+合意済みの未紹介stable包含だけを通常経路へ反映し、今回の枠案・score順は採用しなかった。stableを含めても全体の選定品質を合格とはしない。Calendar等を見せるために確認済みの技術・サービスを押し出して汎用schema断片も受け入れる枠は、今回の保存資料では推奨できない。Promotion順位の継続的な配点調整はここでいったん区切る。
+
+CLIとWeb APIの既定追跡状態を`active / stable`に変更し、`stalled`は明示指定時のみ対象とした。temp DBのCLI/API test、全1,025件のunit test、JavaScript構文検査が通過した。開発DBの実ブラウザではstableに変更した架空のDemo Field Notesが「確認対象」に表示され、紹介済みstableのDemo Garden Logは出なかった。正本DB複製は作らず、正本DBへの書込み・本番Webの再起動もしていない。本番Webへの反映、利用者の実際の閲覧頻度、変更後の全体的な選定品質は未検証。再計算用の書き捨てscriptと全候補snapshotはこのworktreeの`.tmp/promotion-comparison/`に置いた。
