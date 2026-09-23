@@ -16,7 +16,7 @@ CLI/Webからseed登録、一覧・詳細検索、追跡状態の変更、identi
 
 introduced（紹介済み投稿）、collection inventory（collectionの活動一覧）、Bluesky公式Lexicon、GitHub、Semble、Tangledの取り込みと、共通の外部情報源設定をCLI/Web/workerへ接続しています。情報源ごとに既存projectへの照合、未一致、取り込み済みの境界（watermark）、候補確認（dry-run）と保存（execute）を扱います。TangledはJetstream v2を使い、上限で区切った増分実行に対応します。[取り込み仕様](specs/discovery-and-sync.md)で情報源ごとの条件を定めます。
 
-introducedの取得後にseedを作れなかった投稿も、投稿・URL別の理由とともに同じqueryの同期状態へ保存し、Webの「紹介投稿の要確認」から元投稿、対象外判断、登録projectへの紹介URL設定、取消・再照合を扱います。既存の自動照合とcandidate判定は維持し、取得未完走と要確認0件を区別します。正本DBのread-only確認では旧未一致保留が21 seedあり、既存検索設定で最新10投稿を限定取得した際はseedを作れない投稿が6件ありました。これは全期間の漏れ件数ではありません。temp DBの再同期・取消・複数一致とAPI test、開発DBの実ブラウザで主要導線を確認しました。正本DBへの新しい保存処理の適用と実運用Webでの表示・判断は未確認です。
+introducedの取得後にseedを作れなかった投稿も、投稿・URL別の理由とともに同じqueryの同期状態へ保存し、Webの「紹介投稿の要確認」から元投稿、対象外判断、登録projectへの紹介URL設定、取消・再照合を扱います。既存の自動照合とcandidate判定は維持し、取得未完走と要確認0件を区別します。正本DBのread-only確認では旧未一致保留が21 seedあり、既存検索設定で最新10投稿を限定取得した際はseedを作れない投稿が6件ありました。これは全期間の漏れ件数ではありません。temp DBの再同期・取消・複数一致とAPI test、開発DBの実ブラウザで主要導線を確認しました。母艦統合後の全unit testを経て、実行中job・workerのない状態で実運用Webへ反映しました。HTTPS経由で新build・同じDB・配信asset一致と、要確認APIが旧保留21件を返すことを確認しています。実運用のブラウザ表示はブラウザ側の接続ブロックにより未確認です。正本DBへの新しい保存処理・判断操作・過去投稿の再取得は実行していません。
 
 外部情報源への取得件数・request数を限定した疎通・動作確認（bounded smoke）と、Tangledの実適用・照合補正を確認しています。Tangledの全snapshotの初回完走時間・API利用量、長時間運用の再試行・cache・取得上限の妥当性は未検証です。
 
