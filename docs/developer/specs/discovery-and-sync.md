@@ -15,7 +15,7 @@
 ### `sync-introduced`
 
 - 入力は Bluesky post search の結果です
-- post 本文や facet URL から seed を抽出し、`collect_applog_entries()` で project 候補に束ねます
+- 現行の自動照合は facet URL から seed を抽出し、`collect_applog_entries()` で project 候補に束ねます。本文中の非 facet URL は自動照合せず、要確認として記録します
 - seed として採るもの:
   - collection NSID
   - GitHub/Tangled の repo root
@@ -36,7 +36,12 @@
 - 新規 project は作りません
 - query ごとの watermark を `sync_state` に保存します
 - 初回は 7 日 lookback、以後は Bluesky search の `since` と `sort=latest` を使います
-- unmatched entry は state に保留し、後から project が登録された時に再照合します
+- 取得した投稿は投稿URIとURLの組（URLがない場合は投稿URI）を識別子として、抽出・照合の結果を同じqueryの`sync_state.watermark_json.review_items`に保存します。facetにない本文URL、seedにならないURL、URLなし、未一致、複数project一致、既存の別の紹介URLにより未反映のURLを理由付きで要確認にします。自動反映できたURLも同じ投稿の他URLと区別して記録します。保存済みの旧`pending_entries`は読込み時に一覧へ投影し、次の実行または手動判断で`review_items`へ移します
+- 未一致のfacet seedは後からprojectが登録された時に再照合します。複数projectに一致した場合は従来どおり最優先の一件へ自動反映し、選ばれなかった一致先も含めて要確認に残します。手動で対象外・紐付け済みと判断した投稿URLは再同期で自動反映せず、判断を取り消した時だけ再び要確認になります
+- Webの「紹介投稿の要確認」では元投稿とURL・理由を確認し、登録projectへの`introduced_url`設定または対象外判断で解消します。`introduced_url`が別URLなら明示的な付け替え確認を要します。この操作はidentifierのclassificationを変更しません。複数一致でこの同期が先頭projectへ紹介URLを自動設定した項目は、別projectへの手動紐付けや対象外判断でその自動設定だけを外します。同じ投稿の別URLが先頭projectへ自動一致または手動紐付けされている間は外しません。判断取消時は、同じ投稿への他の紐付けがなく、この操作で変更した値がまだ同じ場合だけ元へ戻し、再照合は要確認項目に対して明示的に実行できます
+- introducedの保存実行では、投稿取得後のproject更新・レビュー項目・watermarkを一つのtransactionで保存します。途中の例外ではすべてrollbackします
+- executeの取得がpage上限や停止で未完走でも、取得済み投稿の要確認項目と未完走状態は保存し、watermarkは進めません。要確認0件は検索結果を完全取得した証拠ではなく、走査完了は設定された検索範囲内だけを示します。dry-runはDBへ書きません
+- この記録を導入する前に取得され、seedを作れず消えた投稿の本文・URLは既存DBから復元できません。必要な過去範囲の再取得は別の同期実行を要します
 
 ### `sync-collections`
 

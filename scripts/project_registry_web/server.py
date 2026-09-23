@@ -23,6 +23,7 @@ from typing import Any, Callable
 from project_registry_core import database
 from project_registry_core import domain_policy
 from project_registry_core import identifiers as identifier_core
+from project_registry_core import introduced_review
 from project_registry_core import registry as core
 from project_registry_core.application import decisions, maintenance, merge, presentation as services, projects
 from .jobs import JobConflictError, JobManager
@@ -277,6 +278,14 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
         if path == "/api/jobs":
             self.send_json(self.server.jobs.list_jobs(limit=_int(query.get("limit", [50])[0], 50)))
             return
+        if path == "/api/introduced-review":
+            with contextlib.closing(self.server.open_db()) as conn:
+                self.send_json(introduced_review.review_payload(
+                    conn, include_resolved=str(query.get("status", ["open"])[0]) == "all",
+                    limit=_int(query.get("limit", [100])[0], 100),
+                    offset=_int(query.get("offset", [0])[0], 0, minimum=0, maximum=1000000),
+                ))
+            return
         if path == "/api/checkpoints":
             self.send_json(self.server.jobs.list_checkpoints(limit=_int(query.get("limit", [100])[0], 100)))
             return
@@ -430,6 +439,17 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
 
     def handle_api_post(self, parsed: urllib.parse.ParseResult, payload: dict[str, Any]) -> None:
         path = parsed.path
+        if path == "/api/introduced-review/action":
+            with contextlib.closing(self.server.open_db()) as conn:
+                result = introduced_review.resolve_item(
+                    conn, scope_key=str(payload.get("scope_key") or ""),
+                    target_id=str(payload.get("item_id") or ""),
+                    action=str(payload.get("action") or ""),
+                    project_key=str(payload.get("project_key") or ""),
+                    replace=_boolean(payload.get("replace"), default=False),
+                )
+            self.send_json(result)
+            return
         if path == "/api/jobs/enrich":
             result = self.server.jobs.start_enrich(self.enrich_job_parameters(payload))
             self.send_json(result, status=HTTPStatus.ACCEPTED)

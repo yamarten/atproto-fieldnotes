@@ -13,7 +13,7 @@ from http import HTTPStatus
 from io import BytesIO
 
 from helpers import SCRIPTS, TempRegistryDbTestCase, registry
-from project_registry_core import domain_policy, storage
+from project_registry_core import domain_policy, introduced_review, storage
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle
 from project_registry_web.server import (
     RegistryWebHandler,
@@ -232,6 +232,32 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         )
         conn.commit()
         conn.close()
+
+    def test_introduced_review_api_lists_and_resolves_post(self) -> None:
+        source = {"uri": "at://did:plc:example/app.bsky.feed.post/review", "author": {"handle": "example.test"},
+                  "indexedAt": "2026-09-23T00:00:00Z", "record": {"text": "A post", "facets": []}}
+        conn = registry.open_db()
+        try:
+            item = introduced_review.observe_posts(conn, [source])[0]
+            registry.write_sync_state(conn, "introduced", {"query": "test"}, {"review_items": [item], "last_scan_complete": False})
+            conn.commit()
+        finally:
+            conn.close()
+        status, listed, _ = self.request("/api/introduced-review")
+        self.assertEqual(status, 200)
+        self.assertEqual(listed["open_count"], 1)
+        self.assertEqual(listed["items"][0]["reason"], "no_url")
+        status, result, _ = self.request("/api/introduced-review/action", method="POST", payload={
+            "scope_key": listed["items"][0]["scope_key"], "item_id": item["id"], "action": "link",
+            "project_key": "proj:111111111111",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(result["item"]["status"], "linked")
+        status, listed, _ = self.request("/api/introduced-review?status=all")
+        self.assertEqual(listed["open_count"], 0)
+        self.assertEqual(listed["items"][0]["status"], "linked")
+        status, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(detail["project"]["introduced_url"], "https://bsky.app/profile/example.test/post/review")
 
     def request(
         self,

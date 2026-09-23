@@ -37,6 +37,7 @@ LLMの個別事例は[非公開事例の固定保存](specs/llm-case-store.md)�
 ### 実装の依存境界
 
 - `application/sync.py`は`source_sync.py`を呼び、source別の取得、watermark、既存projectへの接続を実行する
+- `introduced_review.py`は取得済み紹介投稿のURL別要確認記録、旧保留の投影、手動解消を担当し、`source_sync.py`とWeb APIから利用する。project本体の紹介URL保存は`project_record.py`を使い、判断は同じqueryの`sync_state`へ置く
 - `application/enrichment.py`は`enrichment_pipeline.py`を呼び、1 projectのcollector、LLM、保存前のcurrent state更新を実行する
 - `commands/queue_interaction.py`はreview/promotion queueのinteractive入出力を担当し、queue policy自体は`registry.py`に残す
 - `project_record.py`はproject shape、保存payload、fetch/list/save、normalized exact lookup、project key allocationを所有する
@@ -83,7 +84,7 @@ Webのproject一覧は`projects`を起点にnormalized identifier、relation、d
   - `jobs.py`は別process worker、直近event、停止・再開を管理する
   - JSON responseはDB schema versionと独立した`api_version: 2`を持つ
   - presenterがidentifierを種類・同値関係でまとめた表示、relationと調査履歴の要約、project revisionを生成する
-  - mutationは`expected_revision`を必須とし、stale detailを`409 stale_project`で拒否する
+  - project detailからのmutationは`expected_revision`を必須とし、stale detailを`409 stale_project`で拒否する。紹介投稿の要確認はitem IDを指定し、保存transactionで現在の判断とproject更新番号を検査する
   - server内のmutationはlockで直列化する
 - `project_registry_core/jobs.py`
   - 長時間処理のrequest/event/resultと協調的cancellation契約

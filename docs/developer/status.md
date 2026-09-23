@@ -16,6 +16,8 @@ CLI/Webからseed登録、一覧・詳細検索、追跡状態の変更、identi
 
 introduced（紹介済み投稿）、collection inventory（collectionの活動一覧）、Bluesky公式Lexicon、GitHub、Semble、Tangledの取り込みと、共通の外部情報源設定をCLI/Web/workerへ接続しています。情報源ごとに既存projectへの照合、未一致、取り込み済みの境界（watermark）、候補確認（dry-run）と保存（execute）を扱います。TangledはJetstream v2を使い、上限で区切った増分実行に対応します。[取り込み仕様](specs/discovery-and-sync.md)で情報源ごとの条件を定めます。
 
+introducedの取得後にseedを作れなかった投稿も、投稿・URL別の理由とともに同じqueryの同期状態へ保存し、Webの「紹介投稿の要確認」から元投稿、対象外判断、登録projectへの紹介URL設定、取消・再照合を扱います。既存の自動照合とcandidate判定は維持し、取得未完走と要確認0件を区別します。正本DBのread-only確認では旧未一致保留が21 seedあり、既存検索設定で最新10投稿を限定取得した際はseedを作れない投稿が6件ありました。これは全期間の漏れ件数ではありません。temp DBの再同期・取消・複数一致とAPI test、開発DBの実ブラウザで主要導線を確認しました。正本DBへの新しい保存処理の適用と実運用Webでの表示・判断は未確認です。
+
 外部情報源への取得件数・request数を限定した疎通・動作確認（bounded smoke）と、Tangledの実適用・照合補正を確認しています。Tangledの全snapshotの初回完走時間・API利用量、長時間運用の再試行・cache・取得上限の妥当性は未検証です。
 
 Tangledの通常新規発見は、recordの`source`が宣言するfork元を使い、GitHubの通常検索`fork:false`に合わせてforkを除外します。既存URLへの一致・更新と明示登録は維持します。公式のfork保存契約、保存実例4件、独立forkの明示登録を含むtemp DB testで確認しています。欠落・不正・未知形式の`source`からcloneを検出する機能、親との差分から独立性を自動判定する機能はありません。masterへ統合済みで、次回起動するCLI・sync workerはこの実装を読み込みます。Webの再起動は不要です。統合後の本番syncでの除外実績と正本の既存候補の処遇は未確認・未実施です。[確認範囲と既存候補](../notes/tangled-fork-discovery-2026-09-20.md)を参照してください。

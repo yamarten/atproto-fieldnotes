@@ -8,6 +8,7 @@ registry schema version 4では、紹介・検索・要レビュー項目の確�
 | `project_identifiers` / `project_relations` | resourceの採用状態と、観測・確定した方向付きの関係 |
 | `project_decisions` | 自動評価が尊重するoperatorの判断 |
 | `investigation_runs` / `collector_runs` | project一件ごとの調査入力・根拠・評価・結果と、収集処理ごとの成否 |
+| `sync_state` | sourceとscopeごとのwatermark。introducedでは取得済み投稿URLの要確認項目と手動判断も同じ行に保持する |
 
 保存処理は現在状態を正規化し、識別子・関係・判断などを個別のtableの行（normalized row）へ分けます。読み出すときは、それらの行から調査・評価処理用のproject dict（runtime view）を組み立てます。この復元をhydrate、読み出した内容を変更せず再保存する確認を無変更roundtripと呼びます。調査履歴は過去の入力と結果を再評価する材料、現在状態は一覧や詳細の表示元です。
 
@@ -54,6 +55,8 @@ CLI/Webの手動確認用の`dev-db`は、既存schema・project保存・調査�
 - `first_seen_at`, `last_seen_at`, `last_enriched_at`: registry内での観測・調査時刻
 
 scalar columnは一覧、filter、運用判定で頻繁に使う値だけに限定します。
+
+紹介投稿の手動紐付けはこの`introduced_url`だけを設定し、`project_identifiers`のcandidate/confirmed判定は変更しません。紹介投稿の要確認項目と対象外判断はproject rowではなく、query別の`sync_state`に保存します。投稿URIとURLを合わせて同じ項目を識別し、再取得しても重複させません。保存構造と再照合規則は[発見と取り込み](discovery-and-sync.md#sync-introduced)を参照してください。
 
 ### `project_key_aliases`
 

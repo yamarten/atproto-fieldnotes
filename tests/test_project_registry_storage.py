@@ -1062,13 +1062,11 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
     def test_introduced_sync_retains_unmatched_entry_for_later_project(self) -> None:
         conn = registry.open_db()
         query = "from:example.test #atproto"
-        entry = {
-            "seed_type": "nsid",
-            "seed_value": "app.example.post",
-            "labels": ["Example"],
-            "post_web_urls": ["https://bsky.app/profile/example.test/post/abc"],
-        }
-        post = {"indexedAt": "2026-06-10T00:00:00Z", "record": {"createdAt": "2026-06-10T00:00:00Z"}}
+        timestamp = dt.datetime.now(dt.timezone.utc).isoformat()
+        post = {"uri": "at://did:plc:example/app.bsky.feed.post/abc", "author": {"handle": "example.test"},
+                "indexedAt": timestamp, "record": {"createdAt": timestamp,
+                "text": "Example", "facets": [{"index": {"byteStart": 0, "byteEnd": 7}, "features": [
+                    {"$type": "app.bsky.richtext.facet#link", "uri": "https://github.com/example/post"}]}]}}
         seen_since: list[str] = []
 
         def fake_search(*args, **kwargs):
@@ -1076,20 +1074,17 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             return {"posts": [post]}
 
         try:
-            with mock.patch.object(source_sync, "search_bsky_posts_payload", side_effect=fake_search), mock.patch.object(
-                source_sync,
-                "collect_applog_entries",
-                return_value={(entry["seed_type"], entry["seed_value"]): entry},
-            ):
+            with mock.patch.object(source_sync, "search_bsky_posts_payload", side_effect=fake_search):
                 first = source_sync.sync_introduced_entries(conn, query=query, execute=True, lookback_days=7)
 
             state = registry.read_sync_state(conn, "introduced", {"query": query})
             self.assertEqual(first["unmatched"], 1)
-            self.assertEqual(len(state["watermark"]["pending_entries"]), 1)
+            self.assertEqual(len(state["watermark"]["review_items"]), 1)
+            self.assertEqual(state["watermark"]["review_items"][0]["reason"], "unmatched")
             self.assertTrue(seen_since[0])
 
-            project = self.make_project("proj:introduced01", "nsid", "app.example.post")
-            registry.add_manual_seed(project, "nsid", "app.example.post", source="test")
+            project = self.make_project("proj:introduced01", "repo_url", "https://github.com/example/post")
+            registry.add_manual_seed(project, "repo_url", "https://github.com/example/post", source="test")
             project_record.save_project(conn, project)
             conn.commit()
 
@@ -1100,10 +1095,10 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
-        self.assertEqual(second["pending_before"], 1)
+        self.assertEqual(second["entries"], 1)
         self.assertEqual(second["pending_after"], 0)
         self.assertEqual(saved["introduced_url"], "https://bsky.app/profile/example.test/post/abc")
-        self.assertEqual(state["watermark"]["pending_entries"], [])
+        self.assertEqual(state["watermark"]["review_items"][0]["status"], "auto_applied")
 
     def test_introduced_dry_run_does_not_write_sync_state(self) -> None:
         conn = registry.open_db()

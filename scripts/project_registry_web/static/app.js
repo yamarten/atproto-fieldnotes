@@ -415,6 +415,9 @@ const decisionTargetOptionLabels = {
 const state = {
   screen: "review",
   reviewView: "queue",
+  introducedStatus: "open",
+  introducedOffset: 0,
+  introducedItems: [],
   reviewSignalKind: "",
   promotionView: "inbox",
   promotionReason: "",
@@ -590,7 +593,9 @@ function restoreStateFromUrl(query = new URLSearchParams(location.search)) {
   const screen = query.get("screen");
   if (["review", "projects", "operations", "settings"].includes(screen)) state.screen = screen;
   const view = query.get("view");
-  if (["queue", "promotion", "merge"].includes(view)) state.reviewView = view;
+  if (["queue", "promotion", "merge", "introduced"].includes(view)) state.reviewView = view;
+  state.introducedStatus = query.get("introduced_status") === "all" ? "all" : "open";
+  state.introducedOffset = Math.max(0, Number(query.get("introduced_offset")) || 0);
   state.reviewSignalKind = query.get("review_kind") || "";
   state.promotionView = query.get("promotion_view") || "inbox";
   state.promotionReason = query.get("promotion_reason") || "";
@@ -630,6 +635,8 @@ function syncUrl({replace = false} = {}) {
   if (state.screen === "review" && state.reviewView === "queue" && state.reviewSignalKind) {
     query.set("review_kind", state.reviewSignalKind);
   }
+  if (state.screen === "review" && state.reviewView === "introduced" && state.introducedStatus === "all") query.set("introduced_status", "all");
+  if (state.screen === "review" && state.reviewView === "introduced" && state.introducedOffset) query.set("introduced_offset", state.introducedOffset);
   if (state.screen === "projects") {
     const values = {
       q: state.projectSearch.query,
@@ -671,7 +678,7 @@ function setScreen(screen, {updateUrl = true, preserveSelection = false} = {}) {
   const single = $("single-pane");
   if (["review", "projects"].includes(screen)) {
     workspace.hidden = false; single.hidden = true; loadList().then(() => {
-      if (state.selected) loadDetail(state.selected, {updateUrl: false});
+      if (state.selected && !(state.screen === "review" && state.reviewView === "introduced")) loadDetail(state.selected, {updateUrl: false});
     });
   } else {
     workspace.hidden = true; single.hidden = false;
@@ -693,12 +700,14 @@ function listControls() {
       <label>理由を検索<input id="promotion-reason" type="search" value="${esc(state.promotionReason)}" placeholder="例: 認証のみ、公開待ち"></label>
       <button id="apply-promotion-filter">検索</button><button id="clear-promotion-filter" class="secondary">条件を解除</button>
       </div><div id="promotion-reasons" class="actions"></div>` : "";
+    const introducedFilter = state.reviewView === "introduced" ? `<div class="toolbar"><label>表示<select id="introduced-status">${selectOptions([["open", "要確認"], ["all", "判断済みを含むすべて"]], state.introducedStatus)}</select></label></div>` : "";
     return `<div class="controls"><div class="subnav">
       <button data-review-view="queue" class="${state.reviewView === "queue" ? "active" : ""}">要レビュー一覧</button>
+      <button data-review-view="introduced" class="${state.reviewView === "introduced" ? "active" : ""}">紹介投稿の要確認</button>
       <button data-review-view="promotion" class="${state.reviewView === "promotion" ? "active" : ""}">紹介候補一覧</button>
       <button data-review-view="merge" class="${state.reviewView === "merge" ? "active" : ""}">マージ</button>
       <button id="refresh-review-list" class="secondary">再読込</button>
-    </div>${reviewFilter}${promotionFilter}${explicitMerge}</div>`;
+    </div>${reviewFilter}${introducedFilter}${promotionFilter}${explicitMerge}</div>`;
   }
   const relationSources = filterOptionValues("relation_sources");
   return `<div class="controls">
@@ -738,6 +747,7 @@ async function loadList() {
   try {
     let data;
     if (state.screen === "projects") data = await api(projectSearchPath());
+    else if (state.reviewView === "introduced") data = await api(`/api/introduced-review?${new URLSearchParams({status:state.introducedStatus, limit:100, offset:state.introducedOffset})}`);
     else if (state.reviewView === "promotion") data = await api(`/api/promotion-queue?${new URLSearchParams({limit:state.settings.reviewLimit, include_personal_tools:state.settings.includePersonalTools, view:state.promotionView, reason:state.promotionReason, offset:state.promotionOffset})}`);
     else if (state.reviewView === "merge") data = await api(`/api/merge-batch?mode=${encodeURIComponent(state.settings.mergeMode)}&limit=${state.settings.mergeLimit}`);
     else {
@@ -846,6 +856,7 @@ function bindControls() {
     $("promotion-reason").value = ""; applyPromotionFilter();
   });
   document.querySelectorAll("[data-review-view]").forEach((button) => button.onclick = () => { state.reviewView = button.dataset.reviewView; state.selected = ""; syncUrl(); loadList(); });
+  $("introduced-status")?.addEventListener("change", () => { state.introducedStatus = $("introduced-status").value; state.introducedOffset = 0; state.selected = ""; syncUrl(); loadList(); });
   $("refresh-review-list")?.addEventListener("click", () => loadList());
   const applyReviewFilter = () => {
     state.reviewSignalKind = $("review-signal-kind")?.value.trim() || "";
@@ -1001,7 +1012,99 @@ function promotionCardDetails(item) {
     ${validationReasons.length ? `<span class="muted">追加確認: ${esc(validationReasons.join("、"))}</span>` : ""}`;
 }
 
+const introducedReasonLabels = {
+  no_url: "URLが見つからない",
+  no_seed: "紹介対象の識別子を抽出できないURL",
+  text_url_not_extracted: "本文のURLは現行の自動抽出対象外",
+  unmatched: "一致する登録プロジェクトがない",
+  multiple_projects: "複数の登録プロジェクトに一致（自動照合は従来どおり先頭へ反映）",
+  different_introduced_url: "一致先には別の紹介投稿が設定済み",
+  post_url_unavailable: "投稿URLを再構成できない",
+  not_applied: "一致先の紹介URLへ自動反映されていない",
+};
+const introducedStatusLabels = {open:"要確認", auto_applied:"自動反映済み", linked:"手動で紐付け済み", ignored:"対象外"};
+const introducedSourceLabels = {facet:"投稿のリンク", text:"本文中のURL", none:"URLなし", legacy:"旧保留記録"};
+
+function renderIntroducedList(data) {
+  state.introducedItems = list(data.items);
+  const scopes = list(data.scopes);
+  const coverage = scopes.map((scope) => `<p class="muted">${esc(scope.query)} · 前回の取得: ${scope.last_scan_at ? esc(formatTimestamp(scope.last_scan_at)) : "記録なし"} · ${scope.last_scan_complete === false ? "取得未完走" : scope.last_scan_complete === true ? "設定範囲の走査完了" : "完走状態の記録なし"} · ${esc(scope.last_scan_fetched_posts)}投稿 / ${esc(scope.last_scan_pages)}ページ · watermark ${esc(scope.watermark || "なし")}</p>`).join("");
+  $("list").innerHTML = `<div class="notice"><strong>要確認 ${esc(data.open_count)}件</strong><p>${esc(data.coverage_note)}</p>${coverage || "<p>同期記録はありません。</p>"}</div>
+    <div class="meta-row">表示 ${state.introducedItems.length ? `${esc(data.offset + 1)}〜${esc(data.offset + state.introducedItems.length)}` : "0"} / ${esc(data.count)}件</div>
+    ${state.introducedItems.length ? state.introducedItems.map((item) => `<button class="card ${state.selected === item.id ? "selected" : ""}" data-introduced-id="${esc(item.id)}">
+      <span class="card-title"><strong>${esc(item.label || item.url || item.post_text?.slice(0, 65) || "URLなしの投稿")}</strong>${pill(introducedStatusLabels[item.status] || item.status, item.status === "open" ? "candidate" : "")}</span>
+      <span class="muted">${esc(introducedReasonLabels[item.reason] || item.reason || "照合済み")}</span>
+      <span class="muted">${esc(formatTimestamp(item.indexed_at))}</span>
+    </button>`).join("") : `<div class="empty-state"><p>表示する紹介投稿はありません。</p></div>`}
+    <div class="actions"><button id="introduced-prev" ${data.offset ? "" : "disabled"}>前のページ</button><button id="introduced-next" ${data.has_more ? "" : "disabled"}>次のページ</button></div>`;
+  $("introduced-prev").onclick = () => { state.introducedOffset = Math.max(0, state.introducedOffset - 100); state.selected = ""; syncUrl(); loadList(); };
+  $("introduced-next").onclick = () => { state.introducedOffset += 100; state.selected = ""; syncUrl(); loadList(); };
+  document.querySelectorAll("[data-introduced-id]").forEach((button) => button.onclick = () => selectIntroducedItem(button.dataset.introducedId));
+  const selected = state.introducedItems.find((item) => item.id === state.selected) || state.introducedItems[0];
+  if (selected) selectIntroducedItem(selected.id, {updateUrl:false});
+  else $("detail").innerHTML = `<div class="empty-state"><h2>紹介投稿の確認</h2><p>取得済み投稿に残った要確認項目を表示します。</p></div>`;
+}
+
+function selectIntroducedItem(id, {updateUrl = true} = {}) {
+  const item = state.introducedItems.find((entry) => entry.id === id);
+  if (!item) return;
+  state.selected = id;
+  document.querySelectorAll("[data-introduced-id]").forEach((card) => card.classList.toggle("selected", card.dataset.introducedId === id));
+  if (updateUrl) syncUrl();
+  document.body.classList.add("detail-open");
+  $("detail").innerHTML = `<div class="detail-header"><p class="eyebrow">紹介投稿の確認</p><h2>${esc(item.label || "取得済み投稿")}</h2>
+    <p>${pill(introducedStatusLabels[item.status] || item.status)} ${esc(introducedReasonLabels[item.reason] || item.reason || "")}</p></div>
+    <div class="detail-content"><p>${item.post_web_url ? externalLink(item.post_web_url, "元の投稿を開く ↗") : "投稿URLを再構成できません"}</p>
+    <p class="muted">${esc(formatTimestamp(item.indexed_at))}</p><p class="notice">${esc(item.post_text || "旧保留記録には投稿本文がありません。元の投稿を開いて確認してください。")}</p>
+    <dl class="kv"><dt>投稿中のURL</dt><dd>${item.url ? link(item.url) : "なし"}</dd><dt>URLの検出元</dt><dd>${esc(introducedSourceLabels[item.url_source] || item.url_source || "不明")}</dd>
+    <dt>抽出された識別子</dt><dd>${item.seed_type ? `${esc(item.seed_type)}: ${esc(item.seed_value)}` : "なし"}</dd>
+    <dt>一致したプロジェクト</dt><dd>${list(item.matched_project_keys).map(esc).join("、") || "なし"}</dd></dl>
+    ${item.status === "open" ? `<div class="actions"><button id="introduced-ignore" class="secondary">${item.url ? "このURLを対象外にする" : "この投稿を対象外にする"}</button>${item.seed_type && item.url_source !== "text" ? `<button id="introduced-recheck" class="secondary">再照合</button>` : ""}</div>
+      ${item.post_web_url ? `<div class="controls"><label>紐付け先の登録プロジェクトを検索<input id="introduced-project-query" type="search" placeholder="名前・URL・識別子"></label><button id="introduced-project-search">検索</button><div id="introduced-project-results"></div></div>` : ""}` : ""}
+    ${["ignored", "linked"].includes(item.status) ? `<div class="actions"><button id="introduced-reopen" class="secondary">判断を取り消す</button></div>` : ""}
+    </div>`;
+  $("introduced-ignore")?.addEventListener("click", () => confirmOperation("対象外として記録", `この項目を対象外として保存します。次回の同期でも要確認に戻りません。${item.auto_set_project_key ? ` この同期で ${item.auto_set_project_key} に設定した紹介URLは、同じ投稿の別URLによる一致がなければ外します。` : ""}`, () => introducedAction(item, "ignore")));
+  $("introduced-recheck")?.addEventListener("click", () => introducedAction(item, "recheck"));
+  $("introduced-reopen")?.addEventListener("click", () => confirmOperation("判断を取り消す", "手動判断を取り消して要確認に戻します。紐付け時に設定した紹介URLは、変更されていなければ元に戻します。", () => introducedAction(item, "reopen")));
+  $("introduced-project-search")?.addEventListener("click", () => searchIntroducedProjects(item));
+  $("introduced-project-query")?.addEventListener("keydown", (event) => { if (event.key === "Enter") searchIntroducedProjects(item); });
+}
+
+async function introducedAction(item, action, extra = {}) {
+  try {
+    await api("/api/introduced-review/action", {method:"POST", body:JSON.stringify({scope_key:item.scope_key, item_id:item.id, action, ...extra})});
+    status("紹介投稿の判断を保存しました。");
+    state.selected = "";
+    syncUrl({replace:true});
+    await loadList();
+  } catch (error) { status(error.message, true); }
+}
+
+async function searchIntroducedProjects(item) {
+  const query = $("introduced-project-query")?.value.trim();
+  if (!query) { status("検索語を入力してください。", true); return; }
+  const target = $("introduced-project-results");
+  target.textContent = "検索中…";
+  try {
+    const data = await api(`/api/projects?${new URLSearchParams({q:query, limit:20})}`);
+    target.innerHTML = list(data.items).length ? list(data.items).map((entry) => {
+      const project = entry.project || entry;
+      return `<button class="card" data-introduced-project="${esc(project.project_key)}" data-introduced-existing="${esc(project.introduced_url || "")}"><strong>${esc(project.name || project.project_key)}</strong><span class="muted">${esc(project.project_key)}</span>${project.introduced_url ? `<span class="muted">現在の紹介URL: ${esc(project.introduced_url)}</span>` : ""}</button>`;
+    }).join("") : "一致する登録プロジェクトはありません。";
+    target.querySelectorAll("[data-introduced-project]").forEach((button) => button.onclick = () => {
+      const projectKey = button.dataset.introducedProject;
+      const existing = button.dataset.introducedExisting;
+      const replace = Boolean(existing && existing !== item.post_web_url);
+      confirmOperation("紹介投稿を紐付け", `${projectKey} の紹介URLを ${item.post_web_url} に${replace ? "付け替えます" : "設定します"}か？${item.auto_set_project_key && item.auto_set_project_key !== projectKey ? ` この同期で ${item.auto_set_project_key} に設定した紹介URLは、同じ投稿の別URLによる一致がなければ外します。` : ""} 識別子の採用状態は変更しません。`, () => introducedAction(item, "link", {project_key:projectKey, replace}));
+    });
+  } catch (error) { target.textContent = error.message; }
+}
+
 function renderList(data) {
+  if (state.screen === "review" && state.reviewView === "introduced") {
+    renderIntroducedList(data);
+    return;
+  }
   const items = list(data.items);
   const count = data.count ?? items.length;
   const isPromotion = state.screen === "review" && state.reviewView === "promotion";

@@ -24,6 +24,7 @@ from project_registry_core import domain_policy as domain_policy_core
 from project_registry_core import http_transport
 from project_registry_core import identifiers as identifier_core
 from project_registry_core import identifier_storage
+from project_registry_core import introduced_review
 from project_registry_core import relations as relation_core
 from project_registry_core import repo_urls as repo_url_core
 from project_registry_core import repository_material as repository_material_core
@@ -556,133 +557,178 @@ def sync_introduced_entries(
 
     scan_complete = boundary_reached or exhausted
 
-    entries_by_seed: dict[tuple[str, str], dict[str, Any]] = {}
-    if incremental:
-        for item in stored_pending:
-            if not isinstance(item, dict):
-                continue
-            seed_type = str(item.get("seed_type") or "").strip()
-            seed_value = str(item.get("seed_value") or "").strip()
-            if not seed_type or not seed_value:
-                continue
-            entries_by_seed[(seed_type, seed_value)] = {
-                "seed_type": seed_type,
-                "seed_value": seed_value,
-                "labels": clean_string_list(item.get("labels", []), limit=20),
-                "post_web_urls": clean_string_list(item.get("post_web_urls", []), limit=20),
-            }
-    for key, item in collect_applog_entries(posts).items():
-        bucket = entries_by_seed.setdefault(
-            key,
-            {"seed_type": item["seed_type"], "seed_value": item["seed_value"], "labels": [], "post_web_urls": []},
-        )
-        bucket["labels"] = unique_list([*bucket.get("labels", []), *item.get("labels", [])])
-        bucket["post_web_urls"] = unique_list([*bucket.get("post_web_urls", []), *item.get("post_web_urls", [])])
-    updated = 0
-    already_introduced = 0
-    unmatched = 0
-    imported_project_keys: list[str] = []
-    matched_project_keys: list[str] = []
-    unmatched_entries: list[dict[str, Any]] = []
-    pending_entries: list[dict[str, Any]] = []
-
-    for item in entries_by_seed.values():
-        seed_type = str(item["seed_type"])
-        seed_value = str(item["seed_value"])
-        project_key = find_project_key_by_identifier(conn, seed_type, seed_value)
-        if project_key is None:
-            unmatched += 1
-            pending_entries.append(
-                {
-                    "seed_type": seed_type,
-                    "seed_value": seed_value,
-                    "labels": clean_string_list(item.get("labels", []), limit=20),
-                    "post_web_urls": clean_string_list(item.get("post_web_urls", []), limit=20),
-                }
-            )
-            unmatched_entries.append(
-                {
-                    "seed_type": seed_type,
-                    "seed_value": seed_value,
-                    "label": item["labels"][0] if item["labels"] else "",
-                    "introduced_url": item["post_web_urls"][0] if item["post_web_urls"] else "",
-                }
-            )
-            continue
-        project = fetch_project(conn, project_key)
-        if project is None:
-            unmatched += 1
-            continue
-        was_introduced = bool(project.get("introduced_url"))
-        if was_introduced:
-            already_introduced += 1
-        project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "bsky_introduced_sync")
-        if not project.get("introduced_url") and item["post_web_urls"]:
-            project["introduced_url"] = item["post_web_urls"][0]
-        project = finalize_project_shape(project)
-        project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
-        project["merge_recommendation"] = compute_merge_recommendation(project)
-        matched_project_keys.append(project["project_key"])
-        is_introduced_now = bool(project.get("introduced_url"))
-        if not was_introduced and is_introduced_now:
-            imported_project_keys.append(project["project_key"])
-        if execute:
-            save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
-        updated += 1
+    # Search runs outside the writer lock; all subsequent writes are atomic.
     if execute:
-        if incremental and scan_complete and newest_timestamp is not None:
-            write_sync_state(
-                conn,
-                "introduced",
-                scope,
-                {
-                    "timestamp": newest_timestamp.isoformat(),
-                    "pending_entries": pending_entries,
-                },
+        conn.execute("BEGIN IMMEDIATE")
+    try:
+        if execute:
+            state = read_sync_state(conn, "introduced", scope)
+            stored_pending = state.get("watermark", {}).get("pending_entries", [])
+            if not isinstance(stored_pending, list):
+                stored_pending = []
+
+        entries_by_seed: dict[tuple[str, str], dict[str, Any]] = {}
+        if incremental:
+            retry_items = list(stored_pending)
+            for review_item in state.get("watermark", {}).get("review_items", []):
+                if not isinstance(review_item, dict) or review_item.get("status") != "open" or review_item.get("url_source") == "text":
+                    continue
+                if not review_item.get("seed_type") or not review_item.get("seed_value"):
+                    continue
+                retry_items.append({"seed_type": review_item["seed_type"], "seed_value": review_item["seed_value"],
+                                    "labels": [review_item.get("label", "")],
+                                    "post_web_urls": [review_item.get("post_web_url", "")]})
+            for item in retry_items:
+                if not isinstance(item, dict):
+                    continue
+                seed_type = str(item.get("seed_type") or "").strip()
+                seed_value = str(item.get("seed_value") or "").strip()
+                if not seed_type or not seed_value:
+                    continue
+                bucket = entries_by_seed.setdefault((seed_type, seed_value), {
+                    "seed_type": seed_type, "seed_value": seed_value, "labels": [], "post_web_urls": [],
+                })
+                bucket["labels"] = unique_list([*bucket["labels"], *clean_string_list(item.get("labels", []), limit=20)])
+                bucket["post_web_urls"] = unique_list([*bucket["post_web_urls"], *clean_string_list(item.get("post_web_urls", []), limit=20)])
+        pending_before_count = len(entries_by_seed)
+        automatic_posts = introduced_review.posts_for_automatic_matching(
+            posts, state.get("watermark", {}).get("review_items", [])
+        )
+        for key, item in collect_applog_entries(automatic_posts).items():
+            bucket = entries_by_seed.setdefault(
+                key,
+                {"seed_type": item["seed_type"], "seed_value": item["seed_value"], "labels": [], "post_web_urls": []},
             )
-        elif incremental and scan_complete and saved_watermark is not None:
-            write_sync_state(
-                conn,
-                "introduced",
-                scope,
-                {
-                    "timestamp": saved_watermark.isoformat(),
-                    "pending_entries": pending_entries,
-                },
-            )
-        conn.commit()
+            bucket["labels"] = unique_list([*bucket.get("labels", []), *item.get("labels", [])])
+            bucket["post_web_urls"] = unique_list([*bucket.get("post_web_urls", []), *item.get("post_web_urls", [])])
+        updated = 0
+        already_introduced = 0
+        unmatched = 0
+        imported_project_keys: list[str] = []
+        auto_assignments: dict[tuple[str, str], tuple[str, str]] = {}
+        matched_project_keys: list[str] = []
+        unmatched_entries: list[dict[str, Any]] = []
+        pending_entries: list[dict[str, Any]] = []
 
-    state_updated = bool(execute and incremental and scan_complete and (newest_timestamp or saved_watermark))
+        for item in entries_by_seed.values():
+            seed_type = str(item["seed_type"])
+            seed_value = str(item["seed_value"])
+            project_key = find_project_key_by_identifier(conn, seed_type, seed_value)
+            if project_key is None:
+                unmatched += 1
+                pending_entries.append(
+                    {
+                        "seed_type": seed_type,
+                        "seed_value": seed_value,
+                        "labels": clean_string_list(item.get("labels", []), limit=20),
+                        "post_web_urls": clean_string_list(item.get("post_web_urls", []), limit=20),
+                    }
+                )
+                unmatched_entries.append(
+                    {
+                        "seed_type": seed_type,
+                        "seed_value": seed_value,
+                        "label": item["labels"][0] if item["labels"] else "",
+                        "introduced_url": item["post_web_urls"][0] if item["post_web_urls"] else "",
+                    }
+                )
+                continue
+            project = fetch_project(conn, project_key)
+            if project is None:
+                unmatched += 1
+                continue
+            was_introduced = bool(project.get("introduced_url"))
+            if was_introduced:
+                already_introduced += 1
+            project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "bsky_introduced_sync")
+            if not project.get("introduced_url") and item["post_web_urls"]:
+                project["introduced_url"] = item["post_web_urls"][0]
+            project = finalize_project_shape(project)
+            project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
+            project["merge_recommendation"] = compute_merge_recommendation(project)
+            matched_project_keys.append(project["project_key"])
+            is_introduced_now = bool(project.get("introduced_url"))
+            if not was_introduced and is_introduced_now:
+                imported_project_keys.append(project["project_key"])
+                auto_assignments[(seed_type, seed_value)] = (project["project_key"], str(item["post_web_urls"][0]))
+            if execute:
+                save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+            updated += 1
+        observed_review = introduced_review.observe_posts(conn, posts)
+        for review_item in observed_review:
+            assigned = auto_assignments.get((str(review_item.get("seed_type") or ""), str(review_item.get("seed_value") or "")))
+            if assigned and review_item.get("post_web_url") == assigned[1]:
+                review_item["auto_set_project_key"] = assigned[0]
+        review_items = introduced_review.merge_items(
+            list(state.get("watermark", {}).get("review_items", [])), observed_review
+        )
+        effective_timestamp = max((value for value in (newest_timestamp, saved_watermark) if value is not None), default=None)
+        if execute:
+            latest = read_sync_state(conn, "introduced", scope)
+            watermark = dict(latest["watermark"])
+            existing_review = list(watermark.get("review_items", []))
+            legacy_review = introduced_review.legacy_pending_items(watermark.get("pending_entries", []))
+            observed_urls = {(item.get("post_web_url"), item.get("seed_type"), item.get("seed_value")) for item in observed_review}
+            legacy_review = [item for item in legacy_review if
+                             (item.get("post_web_url"), item.get("seed_type"), item.get("seed_value")) not in observed_urls]
+            review_items = introduced_review.merge_items(existing_review, [*legacy_review, *observed_review])
+            for item in review_items:
+                if item.get("status") != "open" or item.get("url_source") == "text" or not item.get("seed_type"):
+                    continue
+                matches = introduced_review._matches(conn, (str(item["seed_type"]), str(item["seed_value"])))
+                item["matched_project_keys"] = matches
+                item["reason"] = introduced_review.reason_for_item(conn, item, matches)
+                if not item["reason"]:
+                    item["status"] = "auto_applied"
+            watermark["review_items"] = review_items
+            watermark.pop("pending_entries", None)
+            watermark["last_scan_complete"] = scan_complete
+            watermark["last_scan_at"] = iso_now()
+            watermark["last_scan_pages"] = pages
+            watermark["last_scan_fetched_posts"] = fetched_posts
+            if incremental and scan_complete:
+                effective_timestamp = max(
+                    (value for value in (effective_timestamp, sync_watermark_datetime(latest)) if value is not None),
+                    default=None,
+                )
+                if effective_timestamp is not None:
+                    watermark["timestamp"] = effective_timestamp.isoformat()
+            introduced_review.save_state(conn, latest, watermark, scan_complete=scan_complete)
+            conn.commit()
 
-    return {
-        "query": query,
-        "posts": len(posts),
-        "fetched_posts": fetched_posts,
-        "pages": pages,
-        "scan_complete": scan_complete,
-        "boundary_reached": boundary_reached,
-        "incremental": incremental and not all_history,
-        "state_updated": state_updated,
-        "watermark_before": saved_watermark.isoformat() if saved_watermark else "",
-        "watermark_after": (
-            newest_timestamp.isoformat()
-            if state_updated and newest_timestamp
-            else (saved_watermark.isoformat() if state_updated and saved_watermark else "")
-        ),
-        "fallback_lookback_days": lookback_days,
-        "pending_before": len(stored_pending) if incremental else 0,
-        "pending_after": len(pending_entries),
-        "entries": len(entries_by_seed),
-        "updated": updated,
-        "already_introduced": already_introduced,
-        "unmatched": unmatched,
-        "mode": "execute" if execute else "dry_run",
-        "imported_project_keys": imported_project_keys,
-        "matched_project_keys": matched_project_keys,
-        "unmatched_entries": unmatched_entries[:100],
-        "cancelled": cancelled,
-    }
+        state_updated = bool(execute and incremental and scan_complete and effective_timestamp)
 
+        return {
+            "query": query,
+            "posts": len(posts),
+            "fetched_posts": fetched_posts,
+            "pages": pages,
+            "scan_complete": scan_complete,
+            "boundary_reached": boundary_reached,
+            "incremental": incremental and not all_history,
+            "state_updated": state_updated,
+            "watermark_before": saved_watermark.isoformat() if saved_watermark else "",
+            "watermark_after": effective_timestamp.isoformat() if state_updated and effective_timestamp else "",
+            "fallback_lookback_days": lookback_days,
+            "pending_before": pending_before_count,
+            "pending_after": len(pending_entries),
+            "review_open_count": sum(item.get("status") == "open" for item in review_items),
+            "review_recorded_count": len(review_items),
+            "entries": len(entries_by_seed),
+            "updated": updated,
+            "already_introduced": already_introduced,
+            "unmatched": unmatched,
+            "mode": "execute" if execute else "dry_run",
+            "imported_project_keys": imported_project_keys,
+            "matched_project_keys": matched_project_keys,
+            "unmatched_entries": unmatched_entries[:100],
+            "cancelled": cancelled,
+        }
+
+    except BaseException:
+        if execute:
+            conn.rollback()
+        raise
 
 def github_search_query_with_defaults(query: str) -> str:
     cleaned = str(query or "").strip()
