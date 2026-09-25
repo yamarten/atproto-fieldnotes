@@ -20,7 +20,9 @@ repository解析では両構成とも根拠外ID・不正collection・保存前�
 
 固定入力の両処理を合わせるとrequest時間は234.11秒から196.93秒へ約16%短縮しました。ただし単一の短いcorpus、モデルごとの連続実行、cache、出力長の違いを含む構成比較であり、通常enrich全体の時間短縮率やSplash runtime単独の効果ではありません。Splashの配布packageは20.95 GBで現行20.43 GBより大きく、実使用memoryと他アプリへの影響は測定できていません。modelのロード時間も別に要し、role別切替には運用上の負担があります。
 
-固定入力の詳細reportは作業worktreeの`.tmp/splash-evaluation/`に一時保存しています。通常enrichの複製DB比較、紹介候補一覧への影響、実使用memory、長い入力、reasoning実効、正本DBでの少数試用は未実施です。現時点の退行を踏まえ、複製DBと正本DBへの試用には進みません。再検討するなら、まず再現した`confidence`欠落とcategory矛盾を小さい候補固有suffixで直し、別の未使用caseで確認します。その上で現行と同じcontext・並列・連続処理・memory条件、repository解析を含む通常enrichの複製DB結果を比較します。現行modelを一時退避していたLM Studioは評価後に元のcontext 183,296・parallel 4・TTL 3,600秒で再ロードしました。
+固定入力の選抜corpus、生report、比較report、後段triage reportと正本DBの直近500件の時間内訳は共通非公開保存先`$HOME/Library/Application Support/atproto-survey/llm-cases/audits/splash-20260925/`へ保全し、`manifest.json`に21ファイルのSHA-256を記録しました。全ファイルのhash・sizeを読戻し確認済みです。500件の時間内訳は`enrich-metrics-500.json`にrun ID、総時間、LLM用途別request件数・時間だけを保存し、固定corpusの短縮率を当てはめた約6.1%は実測ではなく仮試算と明記しています。採否を支えたHighport、openclaw-bluesky、Ozoneは、それぞれ両modelのrepeat 0を共通storeへ`splash-20260925-{highport,openclaw-bluesky,ozone}-{baseline,candidate}-r0`という6件のcase IDで固定保存しました。入力evidence・model出力・実行条件を読み戻し、`verify-llm-cases`で全2,068件の整合性を確認しました。事例に人間goldは付けず、評価時のrender済みprompt本文は保存されていないため、入力evidenceとprompt hashから参照します。大規模export全体は比較に使っていないため保全対象外です。保存先の長期backup復旧は未確認です。
+
+通常enrichの複製DB比較、紹介候補一覧への影響、実使用memory、長い入力、reasoning実効、正本DBでの少数試用は未実施です。現時点の退行を踏まえ、複製DBと正本DBへの試用には進みません。再検討するなら、まず再現した`confidence`欠落とcategory矛盾を小さい候補固有suffixで直し、別の未使用caseで確認します。その上で現行と同じcontext・並列・連続処理・memory条件、repository解析を含む通常enrichの複製DB結果を比較します。現行modelを一時退避していたLM Studioは評価後に元のcontext 183,296・parallel 4・TTL 3,600秒で再ロードしました。
 
 ## Gemmaによる通常enrichの置換試用
 
