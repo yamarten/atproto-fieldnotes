@@ -172,6 +172,8 @@ Webのproject一覧は`projects`を起点にnormalized identifier、relation、d
 - `project_registry_core/llm_transport.py`
   - command/OpenAI互換endpointの呼出し、response parser、timeout/error分類、request metricsを所有する
   - prompt/evidence構築とprojectへの適用はtransport外に残し、testはcommand/endpointをfakeへ差し替える
+- `project_registry_core/triage_reuse.py`
+  - triageの入力・実行条件・手動判断の照合と期限を担当し、成功出力の再利用を`enrichment_pipeline.py`から行う。検索・収集・出力適用・規則評価は省略しない
 
 ### 依存境界の制約
 

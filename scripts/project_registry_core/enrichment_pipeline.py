@@ -14,6 +14,7 @@ from project_registry_core import relations as relation_core
 from project_registry_core import collector_adapters as collector_adapter_core
 from project_registry_core import runtime_view
 from project_registry_core import llm_transport
+from project_registry_core import triage_reuse
 from project_registry_core import identifiers as identifier_core
 from project_registry_core import repo_urls as repo_url_core
 from project_registry_core import repository_analysis as repository_analysis_core
@@ -574,25 +575,53 @@ def enrich_project(
         0, round((time.perf_counter() - phase_started) * 1000)
     )
     phase_started = time.perf_counter()
+    triage_reuse_metrics: dict[str, Any] = {"status": "miss", "reason": "not_attempted"}
     try:
         prompt, evidence = build_triage_prompt(project)
         prompt, prompt_suffix_hash = append_triage_prompt_suffix(prompt, llm_triage_prompt_suffix)
-        payload, meta = llm_transport.run_llm_with_metrics(
-            prompt,
-            purpose="triage",
-            requests=llm_requests,
-            llm_endpoint=llm_endpoint,
-            llm_model=llm_model,
-            llm_api_key=llm_api_key,
-            llm_reasoning_effort=llm_reasoning_effort,
-            llm_api_style=llm_api_style,
-            llm_max_output_tokens=llm_max_output_tokens,
-            prompt_suffix_hash=prompt_suffix_hash,
-        )
+        options = {
+            "llm_endpoint": llm_endpoint,
+            "llm_model": llm_model,
+            "llm_api_key": llm_api_key,
+            "llm_reasoning_effort": llm_reasoning_effort,
+            "llm_api_style": llm_api_style,
+            "llm_max_output_tokens": llm_max_output_tokens,
+        }
+        reason = triage_reuse.eligibility_reason(**options)
+        fingerprint = triage_reuse.request_fingerprint(
+            prompt, evidence, **options,
+            collection_state={
+                "failures": [failure.to_dict() for failure in run_evidence.failures],
+                "errors": list(project.get("_run_errors", [])),
+            },
+        ) if not reason else ""
+        cached = None
+        if not reason:
+            cached, reason = triage_reuse.lookup(project, fingerprint, iso_now())
+        triage_reuse_metrics.update(status="hit" if cached else "miss", reason=reason)
+        # A failed new attempt must not leave an older successful cache usable.
+        triage_reuse.invalidate(project)
+        if cached:
+            payload, meta = cached
+        else:
+            payload, meta = llm_transport.run_llm_with_metrics(
+                prompt, purpose="triage", requests=llm_requests,
+                prompt_suffix_hash=prompt_suffix_hash, **options,
+            )
         if prompt_suffix_hash:
             meta["prompt_suffix_hash"] = prompt_suffix_hash
         apply_llm_output(project, payload, meta, evidence)
+        if cached:
+            # Keep the original generation input as provenance. The normal
+            # application above still consumes today's equivalent observation.
+            project["llm_source"]["evidence"] = copy.deepcopy(meta["evidence"])
+        triage_reuse.invalidate(project)
+        if fingerprint:
+            triage_reuse.remember(project, fingerprint)
+        triage_reuse_metrics["generated_at"] = str(meta.get("generated_at") or "")
     except Exception as exc:
+        triage_reuse.invalidate(project)
+        triage_reuse_metrics.update(status="miss", reason="triage_failed")
         note_failure(project, f"LLM review failed: {exc}")
 
     for repo_url in candidate_repo_trust_probe_urls(project):
@@ -643,6 +672,7 @@ def enrich_project(
             "total_ms": max(0, round((time.perf_counter() - run_clock_started) * 1000)),
             "phases": phase_timings,
             "llm_requests": llm_requests,
+            "triage_reuse": triage_reuse_metrics,
         },
     )
     project[runtime_view.RUNTIME_INVESTIGATION_RUN_ID] = run_id

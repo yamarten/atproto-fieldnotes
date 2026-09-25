@@ -349,10 +349,10 @@ bundled Chromiumが`ERR_SOCKET_NOT_CONNECTED`を返した場合だけ、HTTP/2�
 - LLM:
   - `ATPROTO_SURVEY_LLM_COMMAND` なら外部 request なし
     - command文字列は`subprocess`のshell modeで実行するため、project dataやWeb入力から組み立てず、operatorが設定したtrusted local commandだけを使います
-  - `ATPROTO_SURVEY_LLM_ENDPOINT` なら通常 2 POSTに加えて、revision未解析のconfirmed repositoryごとに1 POST
+  - `ATPROTO_SURVEY_LLM_ENDPOINT` なら通常 1〜2 POSTに加えて、revision未解析のconfirmed repositoryごとに1 POST
     - investigation plan
     - repository analysis（revision一致の保存済み結果があれば省略）
-    - triage
+    - triage（下記の再利用条件が揃えば省略）
   - `enrich --llm-max-output-tokens`を指定した場合、planning、repository analysis、triageの全POSTへ同じ出力上限を渡す。省略時はendpoint既定値
   - endpoint fallback が走ると chat/responses/completions を順に試すので、失敗時はこれより増えます
   - 実装済み: LLM endpoint は operator が明示設定する trusted endpoint として扱い、LAN / localhost 宛てでも POST を許可します
@@ -391,6 +391,24 @@ OpenAI Responsesの`output`にreasoningとmessageが併存する場合はmessage
 
 command/endpoint方式の1 attemptのtimeoutは`ATPROTO_SURVEY_LLM_TIMEOUT`で指定し、既定は`300`秒です。auto API styleの別payload/endpoint試行は、HTTP 400/404/405/415/422/501でendpointがrequestを拒否した場合だけ行います。timeout、接続失敗、rate limit、server error、response envelope/content JSON不良では、serverが処理中または既に生成済みの可能性がある同じpromptを再送しません。明示`chat`はcompletion endpointへfallbackしません。
 
+### Triageの再利用
+
+通常enrichでは、同じprojectの成功したtriage出力を、元の生成から30日未満に限り再利用します。検索計画の生成、検索・収集、収集失敗の記録、候補repoのtrust確認、LLM出力の適用と最終規則評価は毎回実行します。生成日時は再利用によって延長しません。初回導入時や旧runには再利用用の照合値がなく、保存済み出力を無条件に流用しません。
+
+照合対象は、追加規則を含む実際のprompt、容量制限後のevidence、model、endpoint、認証設定、API style、reasoning effort、出力上限、timeout、prompt版、収集失敗とエラー内容です。本文・資料の順序・識別子・候補・根拠ID・revision・stale・実record内の日付を維持し、次の直接fieldだけを照合から外します。元のevidenceや観測記録自体からは削除しません。
+
+- `description_sources[].observed_at`
+- `summary_candidates[].added_at` / `tagline_candidates[].added_at`
+- `lexicon_resolution_entries[].resolved_at`
+
+手動判断、説明の編集制御・見送り・operator更新、category、保存済みLLM出力の変更も再利用を無効にします。収集が成功から失敗へ変わる時、復旧時、失敗内容が変わる時は再推論します。同じ根拠と同じ失敗が続く場合は再利用できますが、取得を省略したり失敗を解消扱いにしたりしません。LLMまたはその適用が失敗した場合は照合値を消し、次回は再試行します。空出力や有効なcategoryのない出力は再利用用に登録しません。
+
+prompt・根拠に現れる規則変更は実入力の差で無効化します。transportと再利用判定の実装、category enumも照合します。後段の適用・評価規則は再利用時にも現行実装を通します。入力やtransportに現れない推論契約を変更する場合は`triage_reuse.py`も更新し、照合値を無効化します。同じmodel IDの中身や接続先の隠れた既定値の変更は検出できないため、明示再生成か30日の期限で更新します。
+
+対象はendpointとmodelを明示したendpoint方式です。任意のfile・環境に依存し得るcommand方式では再利用しません。`ATPROTO_SURVEY_TRIAGE_REUSE=0`を指定した実行では必ず再生成し、照合値を残しません。通常の独立したLLM評価commandはこの再利用経路を通りません。
+
+再利用用の入力hashと適用状態hashは`llm_source.triage_reuse`へ保存します。新たにprompt本文や認証情報を保存しません。`llm_source.evidence`・`generated_at`・`last_llm_review_at`は元の生成時の記録を保持し、再利用時の最新観測を「実際に送信した入力」として上書きしません。説明更新案や規則評価の適用には、今回収集した同等なevidenceを使います。
+
 ## Run observability
 
 新しく保存するproject一件のenrich調査履歴には、次の実経過時間をmillisecondで記録します。
@@ -408,6 +426,8 @@ collectorのnetwork取得とevidence適用は現行pipelineで交互に行うた
 planningとtriageの各LLM requestには、purpose、success/failure、error category、duration、UTF-8 prompt bytes、response JSON bytes、設定された1 attempt当たりtimeout、model/API style等の非secret metadataを残します。prompt本文、endpoint、command、API keyは保存しません。token数はprovider共通に取得できないため未接続です。`timeout`は明示的なtimeout例外または既存clientが返すtimeout errorから分類し、transport failure、endpoint incompatible、rate limit、その他HTTP error、invalid responseと分けます。endpoint互換性エラー以外では同じpromptを自動再送しません。
 
 旧runでmetricsが欠落する場合は未記録として扱います。保存先は`evaluation_json._run_metrics`ですが、load時はsemantic `evaluation`と`metrics`に分けます。そのため非決定的な時間値はreplay diffやfixture exportへ入りません。Webのlatest run、run list、run detailから確認できます。
+
+`metrics.triage_reuse`には`status`（`hit` / `miss`）、理由、利用した出力の生成日時を記録します。hitは実LLM requestへ数えず、`llm_requests`とその集計には実際の呼出しだけを載せます。`triage_ms`は再利用の照合と通常適用・trust確認を含み、hitでも0秒とは限りません。
 
 ## 正本と保存
 

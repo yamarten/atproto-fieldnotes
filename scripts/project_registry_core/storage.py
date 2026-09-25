@@ -285,13 +285,19 @@ def normalize_run_metrics(value: dict[str, Any] | None) -> dict[str, Any]:
         aggregate["success_count" if item.get("status") == "success" else "failure_count"] += 1
         for field_name in ("duration_ms", "prompt_bytes", "response_bytes"):
             aggregate[field_name] += max(0, int(item.get(field_name) or 0))
-    return {
+    result = {
         "version": RUN_METRICS_VERSION,
         "total_ms": max(0, int(value.get("total_ms") or 0)),
         "phases": phases,
         "llm_requests": requests,
         "llm_request_summary": request_summary,
     }
+    reuse = value.get("triage_reuse")
+    if isinstance(reuse, dict):
+        result["triage_reuse"] = {
+            key: str(reuse[key]) for key in ("status", "reason", "generated_at") if key in reuse
+        }
+    return result
 
 
 def update_run_metrics_phase(

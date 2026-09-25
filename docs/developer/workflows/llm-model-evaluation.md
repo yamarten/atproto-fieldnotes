@@ -85,6 +85,8 @@ model比較に限らず、通常の調査・不具合修正・利用者からの
 
 通常`enrich`が複数の処理でLLMを使う場合、入力と出力schemaが異なる処理を一つの成績へまとめません。現在の`evaluate-llm-corpus`が固定しているのはproject-level triageです。repository analysisは、revisionへ固定したrepository material、出力内の根拠位置、観測、capability、collectionを別の固定caseで確認します。category用のmodel別suffixはrepository analysisへ適用しません。
 
+通常`enrich`経由でtriageの新規生成時間・反復差を比較する場合は、`ATPROTO_SURVEY_TRIAGE_REUSE=0`を指定し、run metricsの実request数も確認します。`evaluate-llm-corpus`などの独立した生成評価はtriage再利用経路を通りません。キャッシュの効果を評価する場合は、生成時間の比較とは分けてhit/missと適用結果を確認します。
+
 比較で実際に使った現行Qwen向けsuffixは[`prompts/model-rules/qwen-3.6-35b-a3b.txt`](../../../prompts/model-rules/qwen-3.6-35b-a3b.txt)に置きます。現行Qwenのmodel IDでは、通常`enrich`と定期jobがこのファイルを自動選択します。CLIの`--llm-triage-prompt-suffix-file`、環境変数`ATPROTO_SURVEY_LLM_TRIAGE_PROMPT_SUFFIX_FILE`、model IDによる既定値の順に優先します。別modelにはQwen用規則を適用せず、そのmodelの調整用caseとprompt固定後の確認用caseを経てから別の追加規則を明示します。
 
 repository analysisを含む二段階の確認では、`evaluate-llm-corpus --repository-analysis-report REPORT`を使います。completeなrepository analysis reportのrepeat 0にある正規化済み結果を、同じproject keyのtriage caseへ一時的に重ねます。正本DBと元corpusは変更しません。report hash、上流model、適用case数をtriage reportへ記録します。
