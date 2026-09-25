@@ -2,7 +2,25 @@
 
 通常enrichの置換候補と、低優先度処理用の常駐候補について、試用を止めた理由と再開に必要な確認を記します。
 
-以下の保留は2026-07月の比較に基づきます。試用再開には、現行のmodel・runtime・repository解析契約で改めて固定入力の反復評価が必要です。
+GemmaとAgents A1の保留は2026-07月の比較に基づきます。試用再開には、現行のmodel・runtime・repository解析契約で改めて固定入力の反復評価が必要です。
+
+## Qwen 3.6 35B A3B Splashによる通常enrichの置換
+
+2026-09-25の固定入力比較では、`incoai/Qwen3.6-35B-A3B-Splash`の通常modelへの置換は見送ります。LLM request時間は短くなりましたが、triageの保存前検査と分類の一貫性が悪化し、紹介候補の判断・説明を良くする根拠は得られていません。正本DB、通常model設定、promptは変更していません。
+
+比較したのは現行`qwen/qwen3.6-35b-a3b`（`lmstudio-community`のMLX 4bit、LM Studio 0.4.25+1、選択済みMLX runtime 1.11.0）とSplash（Inco AIのpacked Q4 targetとDFlash 2 draft、同じLM StudioのSplash runtime 0.0.5）です。Splashのtargetは`mlx-community`由来で、現行packageと重みの同一性は確認していません。両方ともResponses API、reasoning `none`要求、最大2,048出力token、共通production promptを使用し、triageには現行Qwen用suffixを明示しました。repository解析は現行`repository-analysis-v16`、triageは元profileなしです。現行modelのcontextは183,296・parallel 4、Splashは32,768・parallel 4を要求し、APIでcontext 32,768を確認しましたがparallel実効値は取得できませんでした。両modelとも出力のreasoning tokenは0で、runtimeが要求を適用したかは未確認です。選んだ入力は最大約9,000 tokenで、今回のSplash側context上限には達していません。
+
+| 固定入力、各2回 | 現行MLX | Splash | 読み方 |
+| --- | ---: | ---: | --- |
+| repository解析、6件×2回 | 保存前検査12/12、83.96秒 | 保存前検査12/12、72.09秒 | 合計14%短縮。2巡目の合計は26.89秒と26.91秒でほぼ同じ |
+| triage、7件×2回 | 保存前検査13/14、150.15秒 | 保存前検査10/14、124.83秒 | 合計17%短縮。ただしSplashはHighportの`confidence`を2回とも欠き、openclaw-blueskyを2回とも説明と矛盾する`library`へ分類 |
+| repository解析結果を重ねた後段triage、共通の3件×1回 | 保存前検査3/3、92.17秒 | 保存前検査2/3、43.18秒 | Splashでopenclaw-blueskyの同じ矛盾が再発。1巡だけの時間差は速度の安定した推定には使わない |
+
+repository解析では両構成とも根拠外ID・不正collection・保存前に除かれるclaimは0でした。観測・collectionの大部分は一致しましたが、文章の情報量はcaseと反復によって入れ替わり、Splashの一貫した品質向上は見つかっていません。triageのHighportは出力上限に達しておらず、Splash側の2回の欠落は切断によるものではありません。OzoneではSplashが入力根拠の乏しい状態でバックアップやPDS・Relayの運用機能まで説明しました。Chiveは両構成が陶器販売サイトとレシピrecordを同一対象とみなしており、schema検査を通っても意味上の正しさは保証されません。これらの保存済みcategoryは人間goldではありません。
+
+固定入力の両処理を合わせるとrequest時間は234.11秒から196.93秒へ約16%短縮しました。ただし単一の短いcorpus、モデルごとの連続実行、cache、出力長の違いを含む構成比較であり、通常enrich全体の時間短縮率やSplash runtime単独の効果ではありません。Splashの配布packageは20.95 GBで現行20.43 GBより大きく、実使用memoryと他アプリへの影響は測定できていません。modelのロード時間も別に要し、role別切替には運用上の負担があります。
+
+固定入力の詳細reportは作業worktreeの`.tmp/splash-evaluation/`に一時保存しています。通常enrichの複製DB比較、紹介候補一覧への影響、実使用memory、長い入力、reasoning実効、正本DBでの少数試用は未実施です。現時点の退行を踏まえ、複製DBと正本DBへの試用には進みません。再検討するなら、まず再現した`confidence`欠落とcategory矛盾を小さい候補固有suffixで直し、別の未使用caseで確認します。その上で現行と同じcontext・並列・連続処理・memory条件、repository解析を含む通常enrichの複製DB結果を比較します。現行modelを一時退避していたLM Studioは評価後に元のcontext 183,296・parallel 4・TTL 3,600秒で再ロードしました。
 
 ## Gemmaによる通常enrichの置換試用
 

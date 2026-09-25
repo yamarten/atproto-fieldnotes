@@ -74,7 +74,7 @@ OAuth scopeは公式SDKで解析し、通常の収集・保存・replay・Web詳
 
 記録上の既定modelはQwen 3.6 35B A3Bです。通常enrichと定期jobでmodelに応じた追加規則を使用します。固定evidenceでprofile有無を分け、project全体の説明・分類を補うtriageの評価と、repository解析からtriageへの二段階評価を利用できます。比較reportは機械検査・反復差・文章確認等を区別し、通常modelを自動変更しません。
 
-Gemmaは比較時のrepository解析でJSON失敗が再現し、通常処理への置換試用を停止しています。Qwenを維持していますが、解析内容の品質は引き続き評価対象です。後続のclosed candidate契約での確認と旧契約の結果も区別します。Agents A1の低優先度処理への試用も、比較時の速度・Qwenとの自動切替時の共存条件から停止しています。低優先度modelの通常自動切替と、同じ処理を実行した時のmemory・swap・入力処理（prefill）・出力生成（decode）の自動計測は未接続です。[評価手順](workflows/llm-model-evaluation.md)、[候補固有の保留・再開材料](../notes/llm-model-evaluation.md)を参照してください。
+Gemmaは比較時のrepository解析でJSON失敗が再現し、通常処理への置換試用を停止しています。Qwenを維持していますが、解析内容の品質は引き続き評価対象です。後続のclosed candidate契約での確認と旧契約の結果も区別します。Splash版Qwen 3.6 35B A3Bは固定入力でLLM requestが約16%短くなった一方、triageの保存前検査と分類の一貫性が悪化したため通常modelへの置換を見送っています。複製DBの通常enrich、紹介候補一覧、実使用memoryへの影響は未確認です。Agents A1の低優先度処理への試用も、比較時の速度・Qwenとの自動切替時の共存条件から停止しています。低優先度modelの通常自動切替と、同じ処理を実行した時のmemory・swap・入力処理（prefill）・出力生成（decode）の自動計測は未接続です。[評価手順](workflows/llm-model-evaluation.md)、[候補固有の保留・再開材料](../notes/llm-model-evaluation.md)を参照してください。
 
 ## JobとWeb運用
 
