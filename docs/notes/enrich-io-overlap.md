@@ -1,6 +1,6 @@
-# Enrichの先行取得: 比較と受理待ち
+# Enrichの先行取得: 比較と統合待ち
 
-次の一件の初期収集を現在projectのLLM呼出し中に実行する方式を、Codexの技術判断として採用推奨する。固定応答では調査対象・候補・保存結果・調査履歴の意味を保ち、triage再利用hitでもplanningの待ち時間を利用できた。現状はこのbranchの実装・検証までで、human-review受理、母艦への集約送信、主checkout統合、実運用反映は未実施。実週次の短縮率は未測定であり、下の模擬時間の短縮率を本番予測には使わない。
+次の一件の初期収集を現在projectのLLM呼出し中に実行する方式を、Codexの技術判断として採用推奨し、2026-09-26のユーザーのGOでhuman-review受理と母艦への集約送信の承認を得た。固定応答では調査対象・候補・保存結果・調査履歴の意味を保ち、triage再利用hitでもplanningの待ち時間を利用できた。このbranchで実装・検証済みで、主checkout統合と実運用反映は未実施。実週次の短縮率は未測定であり、下の模擬時間の短縮率を本番予測には使わない。
 
 ## 技術判断
 
@@ -46,7 +46,7 @@ project全体を複数threadで実行する案は採らない。現状はDBを�
 - 母艦: 統括スレッドを運用、`01a050d2-495b-7fc0-85f5-3fb214fd1c9f`
 - 開始点: `c9307e4d`、branch: `codex/enrich-io-overlap`
 - 主要判断: ユーザーが一件程度の先行取得と品質・保存契約の維持をGOで承認。具体的な初期収集境界・join方式・技術的採用推奨は子タスクCodexの判断。受理方式はhuman-review。
-- 変更commit: このbranchの実装commit。最終hashは受理依頼と集約文に記載する。
-- 未commit変更・成果の処分: この作業の差分は実装commitへ含める。比較script・固定fixture・比較JSONはGit管理に残す。一時DB・書き捨て計測script・生ログは清掃し、正本DBの複製は作成していない。worktreeの既存依存`node_modules/`は再検証用にGit管理外で保持する。
-- 集約可否: 内容は集約可能だが、受理と集約内容・送信承認を得るまでは母艦へ送らない。母艦が受理commitをcherry-pickし、統合検証と可視な記録を残した後にarchiveする。
+- 変更commit: 実装・検証は`99f31e8a`。受理記録は後続の文書commitに分け、両方を集約文に記載する。
+- 成果の処分: 実装差分はcommit済み。比較script・固定fixture・比較JSONはGit管理に残す。一時DB・書き捨て計測script・生ログは清掃し、正本DBの複製は作成していない。worktreeの既存依存`node_modules/`は再検証用にGit管理外で保持する。
+- 集約可否: 2026-09-26のユーザーのGOで受理と集約内容・送信を承認済み。母艦が実装と受理記録のcommitをcherry-pickし、統合検証と可視な記録を残した後に子タスクをarchiveする。
 - 本番反映: DB migrationは不要。主checkoutへの統合後に新規起動するCLI・workerが先行方式を読む。既存jobへ割込みは不要。Web serverのコードも変更する操作ではなくworker側の変更であり、この目的だけのWeb再起動は不要。本番jobを意図的に開始して確認する操作は別承認。
