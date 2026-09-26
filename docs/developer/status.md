@@ -28,7 +28,7 @@ Tangled同期のowner確認はBluesky profileからDID・handleの双方向検�
 
 通常enrichは収集処理（collector）の観測を統合し、規則による評価とLLM補助、現在状態と調査履歴の保存を行います。Webから失敗・保存上限内の根拠・処理段階ごとの時間・LLM requestの情報を確認し、保存した調査実行記録（investigation run）を読み取り専用で再評価（replay）できます。collectorの部分失敗と再試行分類、一時DBのenrich→save→fetch、保存した調査実行記録のreplayを確認した記録があります。HTML/READMEの履歴をすべて保存・表示する機能はありません。古い調査実行記録で計測値が欠けている場合は未記録として扱います。
 
-将来改善の比較用に、通常enrichの検索計画の実入力・整形前後の出力、検索候補の既知／新出と最終採用、purpose別token、収集操作時間、triage変更fieldを圧縮履歴へ保存する経路を実装しています。欠落・秘匿除去・上限超過を区別し、read-onlyの開発用reportで集計できます。一時DBの通常保存・読戻し、replay/export非干渉、cleanup後の保持を確認しました。正本の旧履歴200件のread-only確認と保存量proxyの計測は済み、主checkoutへの統合・新規観測の実週次蓄積はhuman-review待ちです。検索計画再利用は有効化していません。[初回評価・統合境界](../notes/enrich-observation-review.md)、[集計手順](workflows/enrich-observation-review.md)を参照してください。
+将来改善の比較用に、通常enrichの検索計画の実入力・整形前後の出力、検索候補の既知／新出と最終採用、purpose別token、収集操作時間、triage変更fieldを圧縮履歴へ保存する経路を実装しています。欠落・秘匿除去・上限超過を区別し、read-onlyの開発用reportで集計できます。一時DBの通常保存・読戻し、replay/export非干渉、cleanup後の保持を確認しました。正本の旧履歴200件のread-only確認と保存量proxyの計測を経て、利用者が実装の受理と母艦への送信を承認しました。主checkoutへの統合と新規観測の実週次蓄積は未実施です。検索計画再利用は有効化していません。[初回評価・統合境界](../notes/enrich-observation-review.md)、[集計手順](workflows/enrich-observation-review.md)を参照してください。
 
 endpoint方式の通常enrichには、入力・実行条件・手動判断・収集失敗が同じ場合のtriage再利用を接続しています。検索計画と収集・規則評価は毎回続け、元の生成から30日未満に限って要約・分類の再推論を省きます。一時DBの通常経路、変更・失敗・復旧・期限の条件と、保存済み実例40件の同じ出力の適用差分0を確認しました。直近履歴からの約17%短縮は設定不変を仮定した見積りで、旧prompt変更を含む当時の削減実績ではありません。利用者の受理後に主checkoutへ統合し、全unit testを確認済みです。次回起動するCLI・enrich workerから利用でき、初回は照合値を作るため通常生成します。統合確認のための本番enrich・Web再起動は実施せず、実週次でのhit率と短縮実績は未確認です。[再利用仕様](specs/investigation.md#triageの再利用)、[運用効果の確認材料](../notes/enrich-triage-reuse.md)を参照してください。
 
