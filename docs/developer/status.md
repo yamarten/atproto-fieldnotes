@@ -28,7 +28,7 @@ Tangled同期のowner確認はBluesky profileからDID・handleの双方向検�
 
 通常enrichは収集処理（collector）の観測を統合し、規則による評価とLLM補助、現在状態と調査履歴の保存を行います。Webから失敗・保存上限内の根拠・処理段階ごとの時間・LLM requestの情報を確認し、保存した調査実行記録（investigation run）を読み取り専用で再評価（replay）できます。collectorの部分失敗と再試行分類、一時DBのenrich→save→fetch、保存した調査実行記録のreplayを確認した記録があります。HTML/READMEの履歴をすべて保存・表示する機能はありません。古い調査実行記録で計測値が欠けている場合は未記録として扱います。
 
-一括enrichでは、LLM呼出し中に次の一件の初期収集を進める経路を実装しています。LLM・保存を直列に保ち、project間のcollector同時実行を増やさず、使用前に最新snapshotを照合します。固定応答による一時DBの逐次比較と通常CLI・実workerの取消し／再開・別接続の更新を確認し、未使用成果は未反映履歴へ保持します。human-review受理と母艦への集約送信は承認済みで、主checkout統合待ちです。実週次の短縮率・API負荷・大きなprojectの追加メモリは未測定です。[比較と統合待ち](../notes/enrich-io-overlap.md)、[仕様](specs/investigation.md#一括調査の先行取得)を参照してください。
+一括enrichでは、LLM呼出し中に次の一件の初期収集を進めます。LLM・保存を直列に保ち、project間のcollector同時実行を増やさず、使用前に最新snapshotを照合します。固定応答による一時DBの逐次比較と通常CLI・実workerの取消し／再開・別接続の更新を確認し、未使用成果は未反映履歴へ保持します。human-review受理後に主checkoutへ統合し、統合後の全unit testも成功しています。新規起動する一括CLI・workerでは既定で有効になり、この変更のためのWeb再起動は不要です。実運用での実行確認、実週次の短縮率・API負荷・大きなprojectの追加メモリは未測定です。[比較と実運用の確認待ち](../notes/enrich-io-overlap.md)、[仕様](specs/investigation.md#一括調査の先行取得)を参照してください。
 
 将来改善の比較用に、通常enrichの検索計画の実入力・整形前後の出力、検索候補の既知／新出と最終採用、purpose別token、収集操作時間、triage変更fieldを圧縮履歴へ保存する経路を実装しています。欠落・秘匿除去・上限超過を区別し、read-onlyの開発用reportで集計できます。一時DBの通常保存・読戻し、replay/export非干渉、cleanup後の保持を確認しました。正本の旧履歴200件のread-only確認と保存量proxyの計測を経て利用者が受理し、主checkoutへ統合後の全unit testも成功しました。次回起動するCLI・enrich workerから記録し、実週次の蓄積・負荷は未確認です。Webの新しい履歴readerはserver reload後に反映されますが、今回再起動はしていません。検索計画再利用は有効化していません。[初回評価・統合境界](../notes/enrich-observation-review.md)、[集計手順](workflows/enrich-observation-review.md)を参照してください。
 
