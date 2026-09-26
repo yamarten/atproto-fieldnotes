@@ -151,6 +151,11 @@ Webのproject一覧は`projects`を起点にnormalized identifier、relation、d
   - `database.py` / `runtime_view.py`と専門moduleを利用し、`registry.py`へ依存しない
 - `project_registry_core/storage.py` / `replay.py`
   - investigation run保存、network-free replay、fixture benchmark
+- `project_registry_core/enrich_observations.py`
+  - 通常enrichの将来比較用snapshot、容量制限、候補の前後照合、操作時間を担当する。判断・再利用条件は変更しない
+  - `scripts/enrich_observation_report.py`が保存履歴をread-onlyで集計し、欠落・実測・既存概算の範囲を分ける
+- `project_registry_core/private_data.py`
+  - 個別LLM事例と将来比較用snapshotに共通の認証情報除去。外部送信は行わない
 
 ### 共通の正規化・外部接続
 

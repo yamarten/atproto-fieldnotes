@@ -14,7 +14,7 @@ from project_registry_core import relations as relation_core
 from project_registry_core import collector_adapters as collector_adapter_core
 from project_registry_core import runtime_view
 from project_registry_core import llm_transport
-from project_registry_core import triage_reuse
+from project_registry_core import triage_reuse, enrich_observations
 from project_registry_core import identifiers as identifier_core
 from project_registry_core import repo_urls as repo_url_core
 from project_registry_core import repository_analysis as repository_analysis_core
@@ -118,10 +118,13 @@ def enrich_project(
     phase_started = run_clock_started
     phase_timings: dict[str, int] = {}
     llm_requests: list[dict[str, Any]] = []
+    observations: dict[str, Any] = {}
+    operation_timer = enrich_observations.OperationTimer()
     project = ensure_project_shape(project)
     run_started_at = iso_now()
     run_input_project = copy.deepcopy(project)
     run_evidence = EvidenceBundle(project_key=str(project.get("project_key") or ""), collected_at=run_started_at)
+    start_inventory = enrich_observations.candidate_inventory(project)
     previous_status = str(project.get("status") or "draft")
     project["_run_errors"] = []
     reset_investigation_state(project)
@@ -131,7 +134,7 @@ def enrich_project(
         with ThreadPoolExecutor(max_workers=min(ENRICH_IO_MAX_WORKERS, len(initial_nsids))) as executor:
             lexicon_futures = {
                 nsid: executor.submit(
-                    fetch_lexicon_record,
+                    operation_timer.call, "fetch_lexicon_record", fetch_lexicon_record,
                     nsid,
                     dns_timeout=REQUEST_TIMEOUT_LEXICON_DNS,
                     http_timeout=REQUEST_TIMEOUT_LEXICON_HTTP,
@@ -156,7 +159,7 @@ def enrich_project(
             collections = unique_list(project.get("resolved_nsids", []) + project.get("input_nsids", []))[:6]
             sample_evidence = collector_adapter_core.collect_record_samples(
                 str(project.get("project_key") or ""), collections,
-                fetch_recent_record_samples(collections, timeout=REQUEST_TIMEOUT_LEXICON_HTTP), iso_now(),
+                operation_timer.call("fetch_recent_record_samples", fetch_recent_record_samples, collections, timeout=REQUEST_TIMEOUT_LEXICON_HTTP), iso_now(),
             )
             apply_collector_snapshot_evidence(project, sample_evidence)
             run_evidence.extend(sample_evidence)
@@ -177,7 +180,7 @@ def enrich_project(
             if normalized_repo_url:
                 collected_github_repo_urls.add(normalized_repo_url)
             try:
-                repo_evidence = collect_github_repo_evidence(project, repo_url)
+                repo_evidence = operation_timer.call("collect_github_repo_evidence", collect_github_repo_evidence, project, repo_url)
                 apply_github_repo_evidence(project, repo_evidence)
                 run_evidence.extend(repo_evidence)
                 collected_repo_evidence[repo_url_core.canonical_repo_url(repo_url)] = repo_evidence
@@ -190,7 +193,7 @@ def enrich_project(
         elif normalized_tangled_repo_url := repo_url_core.normalize_tangled_repo_url(repo_url):
             collected_tangled_repo_urls.add(normalized_tangled_repo_url)
             try:
-                repo_evidence = collect_tangled_repo_evidence(project, repo_url)
+                repo_evidence = operation_timer.call("collect_tangled_repo_evidence", collect_tangled_repo_evidence, project, repo_url)
                 apply_tangled_evidence(project, repo_evidence)
                 run_evidence.extend(repo_evidence)
                 collected_repo_evidence[normalized_tangled_repo_url] = repo_evidence
@@ -203,7 +206,7 @@ def enrich_project(
         elif repo_url_core.infer_repo_provider(repo_url) == "codeberg.org":
             normalized_repo_url = repo_url_core.canonical_repo_url(repo_url)
             try:
-                repo_evidence = collect_codeberg_repo_evidence(project, normalized_repo_url)
+                repo_evidence = operation_timer.call("collect_codeberg_repo_evidence", collect_codeberg_repo_evidence, project, normalized_repo_url)
                 run_evidence.extend(repo_evidence)
                 collected_repo_evidence[normalized_repo_url] = repo_evidence
             except Exception as exc:
@@ -255,7 +258,7 @@ def enrich_project(
         with ThreadPoolExecutor(max_workers=min(ENRICH_IO_MAX_WORKERS, len(initial_service_urls))) as executor:
             service_futures = {
                 service_url: executor.submit(
-                    probe_service_url,
+                    operation_timer.call, "probe_service_url", probe_service_url,
                     service_url,
                     timeout=service_probe_timeout_for_project(project, service_url),
                 )
@@ -284,7 +287,7 @@ def enrich_project(
                     probe_result = probe_results[service_url]
                     if is_authority_probe and normalized_service_url not in selected_authority_probe_urls:
                         continue
-                    service_evidence = collect_service_evidence_with_followups(project, service_url, probe_result, lane=lane)
+                    service_evidence = operation_timer.call("collect_service_evidence_with_followups", collect_service_evidence_with_followups, project, service_url, probe_result, lane=lane)
                     apply_service_evidence(project, service_evidence)
                     if lane == "authority":
                         apply_authority_service_probe_result(project, service_url, probe_result)
@@ -298,7 +301,7 @@ def enrich_project(
                         str(probe_result.get("html") or ""),
                     ):
                         try:
-                            oauth_evidence = collect_oauth_metadata_evidence(project, metadata_url)
+                            oauth_evidence = operation_timer.call("collect_oauth_metadata_evidence", collect_oauth_metadata_evidence, project, metadata_url)
                             apply_investigation_evidence(project, oauth_evidence)
                             run_evidence.extend(oauth_evidence)
                         except Exception as exc:
@@ -320,9 +323,9 @@ def enrich_project(
         provider = repo_url_core.infer_repo_provider(repo_url)
         try:
             if provider == "github":
-                trust_evidence = collect_github_repo_evidence(project, repo_url, trust_only=True)
+                trust_evidence = operation_timer.call("collect_github_repo_evidence:trust_inspect", collect_github_repo_evidence, project, repo_url, trust_only=True)
             elif provider == "tangled":
-                trust_evidence = collect_tangled_repo_evidence(project, repo_url, trust_only=True)
+                trust_evidence = operation_timer.call("collect_tangled_repo_evidence:trust_inspect", collect_tangled_repo_evidence, project, repo_url, trust_only=True)
             else:
                 continue
             run_evidence.extend(trust_evidence)
@@ -340,11 +343,11 @@ def enrich_project(
                 continue
             if provider == "github":
                 collected_github_repo_urls.add(repo_url_core.canonical_repo_url(repo_url))
-                repo_evidence = collect_github_repo_evidence(project, repo_url)
+                repo_evidence = operation_timer.call("collect_github_repo_evidence", collect_github_repo_evidence, project, repo_url)
                 apply_github_repo_evidence(project, repo_evidence, confirm_repo_snapshot=False)
             else:
                 collected_tangled_repo_urls.add(repo_url_core.normalize_tangled_repo_url(repo_url) or repo_url)
-                repo_evidence = collect_tangled_repo_evidence(project, repo_url)
+                repo_evidence = operation_timer.call("collect_tangled_repo_evidence", collect_tangled_repo_evidence, project, repo_url)
                 apply_tangled_evidence(project, repo_evidence)
             run_evidence.extend(repo_evidence)
             collected_repo_evidence[repo_url_core.canonical_repo_url(repo_url)] = repo_evidence
@@ -363,7 +366,7 @@ def enrich_project(
     ]
     for repo_url in secondary_repo_urls:
         try:
-            repo_evidence = collect_github_repo_evidence(project, repo_url)
+            repo_evidence = operation_timer.call("collect_github_repo_evidence", collect_github_repo_evidence, project, repo_url)
             apply_github_repo_evidence(project, repo_evidence)
             run_evidence.extend(repo_evidence)
             collected_repo_evidence[repo_url_core.canonical_repo_url(repo_url)] = repo_evidence
@@ -380,7 +383,7 @@ def enrich_project(
     ]
     for repo_url in secondary_tangled_repo_urls:
         try:
-            repo_evidence = collect_tangled_repo_evidence(project, repo_url)
+            repo_evidence = operation_timer.call("collect_tangled_repo_evidence", collect_tangled_repo_evidence, project, repo_url)
             apply_tangled_evidence(project, repo_evidence)
             run_evidence.extend(repo_evidence)
             collected_repo_evidence[repo_url_core.normalize_tangled_repo_url(repo_url) or repo_url] = repo_evidence
@@ -463,13 +466,13 @@ def enrich_project(
             result = probe_results[url]
         else:
             try:
-                result = probe_service_url(url, timeout=service_probe_timeout_for_project(project, url))
+                result = operation_timer.call("probe_service_url", probe_service_url, url, timeout=service_probe_timeout_for_project(project, url))
             except Exception as exc:
                 run_evidence.extend(failed_collector_bundle(
                     project, source="service_repository_homepage", operation="probe", target=url, exc=exc,
                 ))
                 continue
-        evidence = collect_service_evidence_with_followups(project, url, result, lane="repository_homepage")
+        evidence = operation_timer.call("collect_service_evidence_with_followups", collect_service_evidence_with_followups, project, url, result, lane="repository_homepage")
         apply_service_evidence(project, evidence)
         run_evidence.extend(evidence)
         homepage_results[url] = result
@@ -480,7 +483,7 @@ def enrich_project(
         if value.get("lane") in {"repository_homepage_browser", "repository_homepage_protocol"}
     }
     for url in sorted(homepage_results, key=lambda value: (previous_homepage_browser_order.get(value, -1), value)):
-        role_evidence = collect_homepage_role_evidence(
+        role_evidence = operation_timer.call("collect_homepage_role_evidence", collect_homepage_role_evidence,
             conn, project, url, homepage_results[url], allow_browser=not homepage_browser_attempted,
         )
         homepage_browser_attempted = homepage_browser_attempted or bool(role_evidence.collector_results)
@@ -512,7 +515,7 @@ def enrich_project(
     if deep_investigation:
         try:
             resource_evidence = collector_adapter_core.collect_resource_page_patch(
-                project, enrich_from_resource_pages, iso_now()
+                project, lambda value: operation_timer.call("enrich_from_resource_pages", enrich_from_resource_pages, value), iso_now()
             )
             apply_collector_snapshot_evidence(project, resource_evidence)
             run_evidence.extend(resource_evidence)
@@ -533,6 +536,8 @@ def enrich_project(
     phase_timings["initial_collection_ms"] = max(0, round((time.perf_counter() - phase_started) * 1000))
     phase_started = time.perf_counter()
 
+    before_search_inventory = enrich_observations.candidate_inventory(project)
+    observations["planning"] = {"policy": enrich_observations.planning_policy()}
     investigation_plan = plan_investigation_queries(
         project,
         llm_endpoint=llm_endpoint,
@@ -541,6 +546,7 @@ def enrich_project(
         llm_reasoning_effort=llm_reasoning_effort,
         llm_api_style=llm_api_style,
         llm_max_output_tokens=llm_max_output_tokens,
+        observation=observations["planning"],
         llm_runner=lambda prompt, **kwargs: llm_transport.run_llm_with_metrics(
             prompt, purpose="planning", requests=llm_requests, **kwargs
         ),
@@ -555,7 +561,8 @@ def enrich_project(
     )
     phase_timings["planning_ms"] = max(0, round((time.perf_counter() - phase_started) * 1000))
     phase_started = time.perf_counter()
-    investigation_evidence = collect_investigation_evidence(project, investigation_plan)
+    observations["search_execution"] = {}
+    investigation_evidence = operation_timer.call("collect_investigation_evidence", collect_investigation_evidence, project, investigation_plan, observation=observations["search_execution"])
     apply_investigation_evidence(project, investigation_evidence)
     run_evidence.extend(investigation_evidence)
 
@@ -567,7 +574,7 @@ def enrich_project(
             if isinstance(item, dict) and str(item.get("handle") or "")
         ])[:2]
         for handle in confirmed_handles:
-            tangled_evidence = collect_tangled_account_evidence(project, handle)
+            tangled_evidence = operation_timer.call("collect_tangled_account_evidence", collect_tangled_account_evidence, project, handle)
             apply_tangled_evidence(project, tangled_evidence)
             run_evidence.extend(tangled_evidence)
 
@@ -578,6 +585,7 @@ def enrich_project(
     triage_reuse_metrics: dict[str, Any] = {"status": "miss", "reason": "not_attempted"}
     try:
         prompt, evidence = build_triage_prompt(project)
+        observations["triage_changes"] = enrich_observations.triage_changes(project, evidence)
         prompt, prompt_suffix_hash = append_triage_prompt_suffix(prompt, llm_triage_prompt_suffix)
         options = {
             "llm_endpoint": llm_endpoint,
@@ -588,12 +596,19 @@ def enrich_project(
             "llm_max_output_tokens": llm_max_output_tokens,
         }
         reason = triage_reuse.eligibility_reason(**options)
+        collection_state = {
+            "failures": [failure.to_dict() for failure in run_evidence.failures],
+            "errors": list(project.get("_run_errors", [])),
+        }
+        components = enrich_observations.triage_components(prompt, evidence, options, collection_state)
+        previous_components = ((project.get("llm_source") or {}).get(triage_reuse.CACHE_KEY) or {}).get("observation_components")
+        observations["triage_changes"]["previous_components_available"] = isinstance(previous_components, dict)
+        if isinstance(previous_components, dict):
+            observations["triage_changes"]["changed_components"] = [
+                key for key in sorted(components.keys() | previous_components.keys())
+                if components.get(key) != previous_components.get(key)]
         fingerprint = triage_reuse.request_fingerprint(
-            prompt, evidence, **options,
-            collection_state={
-                "failures": [failure.to_dict() for failure in run_evidence.failures],
-                "errors": list(project.get("_run_errors", [])),
-            },
+            prompt, evidence, **options, collection_state=collection_state,
         ) if not reason else ""
         cached = None
         if not reason:
@@ -618,6 +633,8 @@ def enrich_project(
         triage_reuse.invalidate(project)
         if fingerprint:
             triage_reuse.remember(project, fingerprint)
+            if triage_reuse.CACHE_KEY in project["llm_source"]:
+                project["llm_source"][triage_reuse.CACHE_KEY]["observation_components"] = components
         triage_reuse_metrics["generated_at"] = str(meta.get("generated_at") or "")
     except Exception as exc:
         triage_reuse.invalidate(project)
@@ -631,9 +648,9 @@ def enrich_project(
         provider = repo_url_core.infer_repo_provider(repo_url)
         try:
             if provider == "github":
-                trust_evidence = collect_github_repo_evidence(project, repo_url, trust_only=True)
+                trust_evidence = operation_timer.call("collect_github_repo_evidence:trust_inspect", collect_github_repo_evidence, project, repo_url, trust_only=True)
             elif provider == "tangled":
-                trust_evidence = collect_tangled_repo_evidence(project, repo_url, trust_only=True)
+                trust_evidence = operation_timer.call("collect_tangled_repo_evidence:trust_inspect", collect_tangled_repo_evidence, project, repo_url, trust_only=True)
             else:
                 continue
             run_evidence.extend(trust_evidence)
@@ -660,6 +677,10 @@ def enrich_project(
     project = apply_promotion_state(project)
     project = record_promotion_transition(project, previous_status)
     phase_timings["evaluation_ms"] = max(0, round((time.perf_counter() - phase_started) * 1000))
+    observations["operations"] = operation_timer.rows
+    observations["search_outcomes"] = enrich_observations.search_outcomes(
+        investigation_evidence, start_inventory, before_search_inventory, project)
+    observations["planning"]["request"] = next((dict(item) for item in llm_requests if item.get("purpose") == "planning"), {})
     run_id = investigation_storage.stage_investigation_run(
         project,
         project_key=str(project.get("project_key") or ""),
@@ -668,6 +689,7 @@ def enrich_project(
         input_project=run_input_project,
         output_project=project,
         bundle=run_evidence,
+        observations=enrich_observations.pack(observations),
         run_metrics={
             "total_ms": max(0, round((time.perf_counter() - run_clock_started) * 1000)),
             "phases": phase_timings,

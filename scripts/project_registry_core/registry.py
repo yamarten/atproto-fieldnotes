@@ -7411,6 +7411,7 @@ def seed_investigation_queries(project: dict[str, Any]) -> dict[str, list[str]]:
 def plan_investigation_queries(
     project: dict[str, Any],
     *,
+    observation: dict[str, Any] | None = None,
     llm_endpoint: str | None = None,
     llm_model: str | None = None,
     llm_api_key: str | None = None,
@@ -7426,6 +7427,7 @@ def plan_investigation_queries(
             run_llm=llm_runner or llm_transport.run_local_llm,
             note_failure=note_failure,
         ),
+        observation=observation,
         llm_endpoint=llm_endpoint,
         llm_model=llm_model,
         llm_api_key=llm_api_key,
@@ -7464,7 +7466,7 @@ def merge_investigation_results(project: dict[str, Any], *, source: str, urls: l
         project_record.record_developer_handle(project, handle, source)
 
 
-def collect_investigation_evidence(project: dict[str, Any], plan: dict[str, Any]) -> EvidenceBundle:
+def collect_investigation_evidence(project: dict[str, Any], plan: dict[str, Any], *, observation: dict[str, Any] | None = None) -> EvidenceBundle:
     github_request_metrics = github_api.GitHubRequestMetrics()
     return investigation_core.collect_investigation_evidence(
         project,
@@ -7484,6 +7486,7 @@ def collect_investigation_evidence(project: dict[str, Any], plan: dict[str, Any]
             timeout=REQUEST_TIMEOUT_DISCOVERY_SEARCH,
             github_request_metrics=github_request_metrics,
         ),
+        observation=observation,
     )
 
 

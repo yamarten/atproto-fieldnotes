@@ -11,66 +11,17 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+
+from .private_data import redact as _redact
 
 from . import registry
 
 SCHEMA_VERSION = 1
 CASE_ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}\Z")
-URL = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
-BEARER = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*")
-INLINE_SECRET = re.compile(r"(?i)\b(api[_-]?key|access[_-]?token|password|secret)\s*[:=]\s*[^\s,;&]+")
-SECRET_KEYS = {"authorization", "cookie", "cookies", "set_cookie", "password", "secret", "api_key", "access_token", "refresh_token", "private_key"}
 
 
 def _json_bytes(value: Any) -> bytes:
     return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
-
-
-def _redact(value: Any, at: str, changed: list[str]) -> Any:
-    if isinstance(value, dict):
-        result = {}
-        for key, item in value.items():
-            if not isinstance(key, str):
-                raise ValueError(f"non-string JSON key at {at}")
-            path = f"{at}.{key}"
-            lowered = key.lower().replace("-", "_")
-            if lowered in SECRET_KEYS or lowered.endswith(("_api_key", "_password", "_secret", "_token")):
-                result[key] = "[redacted]"
-                if item != "[redacted]":
-                    changed.append(path)
-            else:
-                result[key] = _redact(item, path, changed)
-        return result
-    if isinstance(value, list):
-        return [_redact(item, f"{at}[{index}]", changed) for index, item in enumerate(value)]
-    if not isinstance(value, str):
-        return value
-
-    def clean_url(match: re.Match[str]) -> str:
-        raw = match.group(0)
-        trailing = raw[len(raw.rstrip(".,;!?)")):]
-        raw = raw.rstrip(".,;!?)")
-        try:
-            parsed = urlsplit(raw)
-            if not parsed.hostname:
-                return match.group(0)
-            host = parsed.hostname
-            if ":" in host:
-                host = f"[{host}]"
-            if parsed.port:
-                host = f"{host}:{parsed.port}"
-            cleaned = urlunsplit((parsed.scheme, host, parsed.path, "", ""))
-            return cleaned + trailing
-        except ValueError:
-            return match.group(0)
-
-    result = URL.sub(clean_url, value)
-    result = BEARER.sub("Bearer [redacted]", result)
-    result = INLINE_SECRET.sub(lambda match: match.group(1) + "=[redacted]", result)
-    if result != value:
-        changed.append(at)
-    return result
 
 
 def _nonempty_text(value: Any, name: str) -> str:

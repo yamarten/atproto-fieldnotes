@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import urllib.error
 import urllib.parse
 from dataclasses import dataclass, field
@@ -208,6 +209,7 @@ def plan_investigation_queries(
     project: dict[str, Any],
     dependencies: PlanningDependencies,
     *,
+    observation: dict[str, Any] | None = None,
     llm_endpoint: str | None = None,
     llm_model: str | None = None,
     llm_api_key: str | None = None,
@@ -215,9 +217,12 @@ def plan_investigation_queries(
     llm_api_style: str | None = None,
     llm_max_output_tokens: int | None = None,
 ) -> dict[str, Any]:
+    observation = observation if observation is not None else {}
     seed_plan = seed_investigation_queries(project)
+    observation["seed_plan"] = seed_plan
     try:
         prompt, evidence = dependencies.build_prompt(project)
+        observation.update(prompt=prompt, evidence=evidence)
         payload, meta = dependencies.run_llm(
             prompt,
             llm_endpoint=llm_endpoint,
@@ -227,7 +232,8 @@ def plan_investigation_queries(
             llm_api_style=llm_api_style,
             llm_max_output_tokens=llm_max_output_tokens,
         )
-        return {
+        observation.update(llm_output=payload, status="success")
+        plan = {
             "repo_search_queries": unique_strings(
                 [clean_search_query(item) for item in clean_string_list(payload.get("repo_search_queries"), limit=6) if clean_search_query(item)]
             ) or seed_plan["repo_search_queries"],
@@ -241,9 +247,23 @@ def plan_investigation_queries(
             "reason": str(payload.get("reason") or "").strip(),
             "llm_source": {**meta, "evidence": evidence},
         }
+        observation["plan"] = {key: value for key, value in plan.items() if key != "llm_source"}
+        observation["search_queries"] = execution_queries(plan)
+        return plan
     except Exception as exc:
         dependencies.note_failure(project, f"investigation planning failed: {exc}")
-        return {**seed_plan, "reason": "fallback deterministic plan", "llm_source": {}}
+        from .llm_transport import classify_llm_request_error
+        plan = {**seed_plan, "reason": "fallback deterministic plan", "llm_source": {}}
+        observation.update(status="fallback", error_category=classify_llm_request_error(exc),
+                           plan={key: value for key, value in plan.items() if key != "llm_source"})
+        observation["search_queries"] = execution_queries(plan)
+        return plan
+
+
+def execution_queries(plan: dict[str, Any]) -> dict[str, list[str]]:
+    return {"github_search": build_github_repo_search_queries(plan),
+            "bsky_actor_search": build_bsky_search_queries(plan, "actor_search_queries", max_queries=2),
+            "bsky_post_search": build_bsky_search_queries(plan, "post_search_queries", max_queries=2)}
 
 
 @dataclass(frozen=True)
@@ -345,6 +365,7 @@ def collect_investigation_evidence(
     project: dict[str, Any],
     plan: dict[str, Any],
     dependencies: SearchCollectorDependencies,
+    observation: dict[str, Any] | None = None,
 ) -> EvidenceBundle:
     bundle = EvidenceBundle(
         project_key=str(project.get("project_key") or ""),
@@ -358,6 +379,26 @@ def collect_investigation_evidence(
             raise RuntimeError("request budget exhausted")
         return operation()
 
+    observation = observation if observation is not None else {}
+    observation.update(github_request_budget=dependencies.github_request_budget,
+                       bluesky_request_budget=dependencies.bluesky_request_budget,
+                       timeout_seconds=dependencies.timeout,
+                       retry_policy={"max_attempts": dependencies.retry_policy.max_attempts,
+                                     "base_delay": dependencies.retry_policy.base_delay,
+                                     "max_delay": dependencies.retry_policy.max_delay},
+                       operations=[])
+
+    def observed_retry(source: str, target: str, operation: Callable[[], Any], **kwargs: Any) -> Any:
+        row = {"source": source, "target": target, "status": "failed", "attempts": 0, "retry_wait_ms": 0}
+        started = time.perf_counter()
+        try:
+            result = run_with_retry(operation, metrics=row, **kwargs)
+            row["status"] = "success"
+            return result
+        finally:
+            row["duration_ms"] = round((time.perf_counter() - started) * 1000, 3)
+            observation["operations"].append(row)
+
     for query in build_github_repo_search_queries(plan):
         observed_at = dependencies.now()
         bundle.add_record(evidence_record(
@@ -368,7 +409,7 @@ def collect_investigation_evidence(
             value=query,
         ))
         try:
-            repos, _attempts = run_with_retry(
+            repos, _attempts = observed_retry("github_search", query,
                 lambda: budgeted(github_budget, lambda: dependencies.search_github_repositories(query, limit=5, timeout=dependencies.timeout)),
                 policy=dependencies.retry_policy,
             )
@@ -435,7 +476,7 @@ def collect_investigation_evidence(
             value=query,
         ))
         try:
-            actors, _attempts = run_with_retry(
+            actors, _attempts = observed_retry("bsky_actor_search", query,
                 lambda: budgeted(bluesky_budget, lambda: dependencies.search_bsky_actors(query, limit=5, timeout=dependencies.timeout)),
                 policy=dependencies.retry_policy,
             )
@@ -493,7 +534,7 @@ def collect_investigation_evidence(
             value=query,
         ))
         try:
-            posts, _attempts = run_with_retry(
+            posts, _attempts = observed_retry("bsky_post_search", query,
                 lambda: budgeted(bluesky_budget, lambda: dependencies.search_bsky_posts(query, limit=5, timeout=dependencies.timeout)),
                 policy=dependencies.retry_policy,
             )
@@ -548,7 +589,7 @@ def collect_investigation_evidence(
     for handle in ([] if bluesky_rate_limited else unique_strings(actor_handles_to_probe)[:2]):
         observed_at = dependencies.now()
         try:
-            feed, _attempts = run_with_retry(
+            feed, _attempts = observed_retry("bsky_author_feed", handle,
                 lambda: budgeted(bluesky_budget, lambda: dependencies.fetch_bsky_author_feed(handle, limit=8, timeout=dependencies.timeout)),
                 policy=dependencies.retry_policy,
             )

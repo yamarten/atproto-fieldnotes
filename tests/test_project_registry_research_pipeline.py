@@ -1000,7 +1000,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             conn.close()
         self.assertIsNotNone(run)
         assert run is not None
-        self.assertEqual(run["metrics"]["version"], 2)
+        self.assertEqual(run["metrics"]["version"], 3)
         self.assertEqual(
             set(run["metrics"]["phases"]),
             {

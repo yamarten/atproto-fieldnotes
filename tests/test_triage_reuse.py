@@ -28,7 +28,7 @@ class TriageReuseTest(TempRegistryDbTestCase):
         self.stack.enter_context(mock.patch.object(enrichment_pipeline, "load_config", return_value={"tangled_repo_discovery": {"enabled": False}}))
         self.bundle = EvidenceBundle(project_key="proj:reuse", collected_at=self.now)
         self.collection = self.stack.enter_context(mock.patch.object(
-            enrichment_pipeline, "collect_investigation_evidence", side_effect=lambda *_: self.bundle))
+            enrichment_pipeline, "collect_investigation_evidence", side_effect=lambda *_, **__: self.bundle))
         self.requests = []
         self.project_number = 0
         self.payload = {"category": "name_only", "why_keep": "No implementation evidence yet."}
@@ -75,6 +75,13 @@ class TriageReuseTest(TempRegistryDbTestCase):
         self.assertEqual(project["last_llm_review_at"], generated)
         self.assertEqual(project["llm_output"], self.payload)
         self.assertTrue(run["evaluation"])
+        self.assertTrue(run["observations"]["planning"]["complete"])
+        plan = run["observations"]["planning"]["data"]
+        self.assertIn("planning a focused investigation", plan["prompt"])
+        self.assertEqual(plan["llm_output"]["repo_search_queries"], ["Example"])
+        self.assertIn("actor_search_queries", plan["plan"])
+        self.assertEqual(run["observations"]["operations"]["data"]["collect_investigation_evidence"]["calls"], 1)
+        self.assertEqual(run["observations"]["triage_changes"]["data"]["changed_components"], [])
 
     def test_changed_material_and_manual_decisions_recompute(self):
         for mutation in (
@@ -133,6 +140,7 @@ class TriageReuseTest(TempRegistryDbTestCase):
         self.bundle.add_collector_result(CollectorResult(source="github", operation="search", status="failed", observed_at=self.now))
         project, run = self.run_saved(project)
         self.assertEqual(run["metrics"]["triage_reuse"]["reason"], "input_or_policy_changed")
+        self.assertTrue(run["observations"]["triage_changes"]["data"]["previous_components_available"])
         self.assertEqual(run["metrics"]["llm_request_summary"]["triage"]["count"], 1)
         project, run = self.run_saved(project)
         self.assertEqual(run["metrics"]["triage_reuse"]["status"], "hit")

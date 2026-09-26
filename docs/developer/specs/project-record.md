@@ -425,6 +425,18 @@ run timingとLLM request metadataは`evaluation_json._run_metrics`、実際のtr
 
 未反映履歴はcurrent stateを変更せず、`latest_investigation_run`の成功結果にも選びません。入力・出力・根拠を通常と同じbudget/codecで保持し、Webの履歴一覧・詳細・service比較で未反映と表示します。保存失敗で履歴も残せなかった場合は一般障害として扱います。再試行は現在状態から再調査し、古い出力を自動再適用しません。
 
+### 将来比較用観測の保存
+
+`evaluation_json._enrich_observations` version 1は通常enrichの比較用記録です。共通readerは`observations`として取り出し、semantic evaluationから除きます。replay差分・公開fixture exportにpromptや観測時間を加えません。table・DB schema versionは増やしません。新規保存では同じzlib codecを使い、cleanupはこの値を再構成・縮約せず保持します。
+
+sectionごとの上限は、空白なしJSONのUTF-8でplanning 96 KiB、search outcomes 48 KiB、operations・search execution・triage changesが各16 KiBです。合計上限は192 KiBと小さなenvelopeで、任意の生データ全量保存ではありません。sectionには`complete`、`redacted`、`omitted`、秘匿除去後の`original_bytes`と`limit_bytes`を付けます。超過時はsection本文を省略して未完と示し、JSONやpromptを途中で切って完全記録と見せません。認証用field、Bearer、URL内のuserinfoや認証parameter等を除去し、通常のURL query/fragmentは保ちます。除去したsectionも完全入力比較から除きます。認証設定・command本文は取得対象に含めません。
+
+`complete`はそのsectionの保存上の完全性です。planning evidenceはLLMへ渡す前に既存budgetで絞られ、そこでの省略は`evidence_budget`に残ります。LLM失敗ではstatus/fallback計画と生成前に得た入力を保持し、返らなかった出力はありません。不正JSONは本文全量ではなく既存のhash・byte数等をrequest metricsに残します。検索失敗・途中のtriage失敗後も通常のrun保存へ到達すれば観測を保持し、競合時は未反映履歴へ同じpayloadを保存します。process強制終了や保存前の未捕捉例外ではrun自体がなく、専用の逐次永続ログは作りません。
+
+LLM request metrics version 3は個別行を16件まで保持し、planning/triageを優先します。全件のpurpose別集計とtoken field別の報告件数、個別行の省略件数を、保存・phase更新・読戻し後も維持します。設定別分析は残った個別行の範囲です。version 2以前に失われた集計やusageを復元しません。triageのusageは旧`llm_source`にも残る場合がありますが、生成出力の来歴であり、hitしたrunの新しいrequest消費量ではありません。
+
+追加観測もrunの一部として90日以内／project最新3 runの既存retentionと未解決unappliedの保護に従います。個別事例として残す必要がある入力は、履歴削除前に既存の[LLM事例保存手順](../workflows/llm-model-evaluation.md#作業中に得た事例の保存)で選別します。自動archive、周期job、監視processは追加しません。
+
 ### Merge / Splitの履歴
 
 mergeは存続先targetの保存、マージ元sourceのalias作成、第三projectの`separate_project`参照更新、source削除を1 transactionで行います。途中で失敗した場合は全変更をrollbackします。source keyで保存済みの調査実行記録はalias familyの履歴としてtargetの調査一覧へ表示します。

@@ -423,11 +423,25 @@ prompt・根拠に現れる規則変更は実入力の差で無効化します�
 
 collectorのnetwork取得とevidence適用は現行pipelineで交互に行うため、前半2つのcollection区間をnetwork時間だけと見なしません。transaction commit待ち時間も未計測です。`total_ms`は上記のenrich開始からproject SQL書込みまでで、process job全体、複数projectの待ち時間、operator review時間ではありません。
 
-planningとtriageの各LLM requestには、purpose、success/failure、error category、duration、UTF-8 prompt bytes、response JSON bytes、設定された1 attempt当たりtimeout、model/API style等の非secret metadataを残します。prompt本文、endpoint、command、API keyは保存しません。token数はprovider共通に取得できないため未接続です。`timeout`は明示的なtimeout例外または既存clientが返すtimeout errorから分類し、transport failure、endpoint incompatible、rate limit、その他HTTP error、invalid responseと分けます。endpoint互換性エラー以外では同じpromptを自動再送しません。
+planning・repository analysis・triageの各LLM requestには、purpose、success/failure、error category、duration、UTF-8 prompt bytes、response JSON bytes、設定された1 attempt当たりtimeout、model/API style・出力上限・接続先hash等の非secret metadataを残します。endpointが返したinput/output/total token数と、存在すればcached input/reasoning token数を保存します。usageがなければ未記録とし、文字数から推定しません。解釈不能なmodel JSONでもendpoint JSONのusageが読めれば保持します。command方式や通信失敗等では未記録になります。成功時のHTTP試行数とpayload variantはtransportから保存しますが、最終失敗までの全HTTP試行の個別履歴は保存しません。request metricsにはprompt本文、endpoint、command、API keyを含めません。`timeout`は明示的なtimeout例外または既存clientが返すtimeout errorから分類し、transport failure、endpoint incompatible、rate limit、その他HTTP error、invalid responseと分けます。endpoint互換性エラー以外では同じpromptを自動再送しません。
 
 旧runでmetricsが欠落する場合は未記録として扱います。保存先は`evaluation_json._run_metrics`ですが、load時はsemantic `evaluation`と`metrics`に分けます。そのため非決定的な時間値はreplay diffやfixture exportへ入りません。Webのlatest run、run list、run detailから確認できます。
 
 `metrics.triage_reuse`には`status`（`hit` / `miss`）、理由、利用した出力の生成日時を記録します。hitは実LLM requestへ数えず、`llm_requests`とその集計には実際の呼出しだけを載せます。`triage_ms`は再利用の照合と通常適用・trust確認を含み、hitでも0秒とは限りません。
+
+### 将来比較用の記録
+
+通常enrichでは、検索計画を生成する時点のprompt・容量制限後のevidence・deterministic seed、整形前の解析済みLLM JSON、整形／fallback後のrepo・actor・post検索語、focus・reasonと、実行用に束ねた検索語を保存します。入力は初期収集後の実値です。容量制限前の全projectやwire response全文を複製する契約ではありません。planning requestの設定と、計画／収集の主要module内容hashも対応づけます。module hashの差は変更範囲を保守的に示し、その差だけで生成や採用への影響を断定しません。
+
+検索の実行順、query、result/accepted count、候補、失敗は既存EvidenceBundleを使います。追加の`search_execution`はrequest budget、timeout、retry policyと、source/target別の試行回数・retry待機・経過時間です。attemptはbudget確認を含むcollector呼出しの試行で、HTTP request数ではありません。cache hitでも呼出しは数え、budget拒否の試行も含みます。待機はretry wrapperの実測で、別の内部retryやrate-limit待機は操作全体の経過時間へ含まれます。
+
+検索が候補として残したrepository・handle・参照URLには、run開始時の既知状態、検索直前の既知状態、run終了時の保持・confirmed状態を対応づけます。照合するのはcurrentのrepository、developer account/handle、evidence/resource/source repo URL、Website、service/site URLの保存fieldです。「検索時に初めて見えた」は、このcurrent範囲に存在しなかった意味で、全過去履歴・外部世界での初発見ではありません。reference URLはrepo canonicalization後に照合します。confirmedはrepositoryまたはdeveloper accountへの最終採用状態で、検索が採用の原因だった証明ではありません。関連度filterで捨てた全検索結果、投稿本文全量は追加保存せず、result countと候補として保持した範囲を区別します。author feedの候補はsourceのhandleから検索で選んだactorに接続します。
+
+主要な収集操作（Lexicon・record sample・repository・service・OAuth・追加page・検索・Tangled account）の呼出し回数、例外終了回数、経過時間を記録します。cache、内部retry、解析を含む呼出し全体の実測です。並行probeや別の計測区間と重なるため、時間を合算してwall timeやnetwork時間としません。collectorの`request_count`には従来から固定値やlog由来の値が混ざり、既存cache/rate-limit fieldにも情報源ごとの計測範囲があります。reportはこれらを既存記録値として表示し、すべて実測HTTP件数とは扱いません。
+
+triageは前回生成evidenceと今回evidenceの差があるtop-level fieldを保存します。再利用規則と同じ明示された観測時刻だけを比較から除きます。加えてtemplate・非secret設定・policy・収集失敗・errorの成分hashを成功出力のreuse entryに保持し、次回の差がある成分名を記録します。これはmiss診断の補助であり、再利用条件を変更しません。旧entry、前回失敗、認証設定変更など、成分比較で説明できない場合もあります。手動編集・採用判断によるguard拒否は既存の`application_state_changed`で区別します。失敗時の最終reasonは`triage_failed`となる場合があり、変化fieldが再生成の唯一の原因とは限りません。
+
+物理保存先、容量上限、欠落、retentionは[Project record](project-record.md#将来比較用観測の保存)を参照してください。通常履歴からの比較は[集計workflow](../workflows/enrich-observation-review.md)を使います。新旧計画を同時期・同予算で実行していないため、過去計画で得られたはずの候補や取りこぼしをこの記録だけから証明できません。
 
 ## 正本と保存
 

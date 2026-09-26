@@ -35,6 +35,7 @@ class LLMResponseError(ValueError):
 
 LLM_RESPONSE_DIAGNOSTIC_FIELDS = {
     "response_stage",
+    "usage",
     "response_content_bytes",
     "response_content_sha256",
     "json_error_line",
@@ -271,6 +272,49 @@ def classify_llm_request_error(exc: Exception) -> str:
     return "request_error"
 
 
+def token_usage(value: Any) -> dict[str, int]:
+    """Only provider-reported integer counts; absence is never zero."""
+    if not isinstance(value, dict):
+        return {}
+    result = {}
+    for target, keys in {"input_tokens": ("input_tokens", "prompt_tokens"),
+                         "output_tokens": ("output_tokens", "completion_tokens"),
+                         "total_tokens": ("total_tokens",)}.items():
+        for key in keys:
+            raw = value.get(key)
+            if type(raw) is int and raw >= 0:
+                result[target] = raw
+                break
+    for target, keys, field in (
+        ("cached_input_tokens", ("input_tokens_details", "prompt_tokens_details"), "cached_tokens"),
+        ("reasoning_tokens", ("output_tokens_details", "completion_tokens_details"), "reasoning_tokens"),
+    ):
+        if type(value.get(target)) is int and value[target] >= 0:
+            result[target] = value[target]
+            continue
+        for key in keys:
+            raw = value.get(key)
+            count = raw.get(field) if isinstance(raw, dict) else None
+            if type(count) is int and count >= 0:
+                result[target] = count
+                break
+    return result
+
+
+def request_settings(options: dict[str, Any]) -> dict[str, Any]:
+    endpoint = (options.get("llm_endpoint") or os.getenv("ATPROTO_SURVEY_LLM_ENDPOINT", "")).strip()
+    return {
+        "transport": "command" if os.getenv("ATPROTO_SURVEY_LLM_COMMAND", "").strip() else "openai_compatible_endpoint",
+        "endpoint_hash": hashlib.sha256(endpoint.encode()).hexdigest() if endpoint else "",
+        "model": (options.get("llm_model") or os.getenv("ATPROTO_SURVEY_LLM_MODEL", "")).strip(),
+        "requested_api_style": normalize_llm_api_style(options.get("llm_api_style") or os.getenv("ATPROTO_SURVEY_LLM_API_STYLE", "auto")),
+        "reasoning_effort": normalize_llm_reasoning_effort(options.get("llm_reasoning_effort") or os.getenv("ATPROTO_SURVEY_LLM_REASONING_EFFORT", "")),
+        "max_output_tokens": int(options.get("llm_max_output_tokens") or 0),
+        "timeout_seconds": llm_timeout_seconds(),
+        "prompt_version": os.getenv("ATPROTO_SURVEY_LLM_PROMPT_VERSION", DEFAULT_LLM_PROMPT_VERSION).strip(),
+    }
+
+
 def run_llm_with_metrics(
     prompt: str,
     *,
@@ -282,6 +326,7 @@ def run_llm_with_metrics(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     started = time.perf_counter()
     request_metrics: dict[str, Any] = {
+        **request_settings(kwargs),
         "purpose": purpose,
         "status": "failed",
         "error_category": "request_error",
@@ -289,7 +334,10 @@ def run_llm_with_metrics(
         "prompt_bytes": len(prompt.encode("utf-8")),
         "response_bytes": 0,
         "timeout_seconds": llm_timeout_seconds(),
+        "usage_status": "missing",
     }
+    if prompt_version:
+        request_metrics["prompt_version"] = prompt_version
     if prompt_suffix_hash:
         request_metrics["prompt_suffix_hash"] = prompt_suffix_hash
     try:
@@ -306,10 +354,18 @@ def run_llm_with_metrics(
             "reasoning_effort": str(meta.get("reasoning_effort") or ""),
             "prompt_version": str(meta.get("prompt_version") or ""),
         })
+        for key in ("request_variant", "temperature", "http_attempts"):
+            if key in meta:
+                request_metrics[key] = meta[key]
+        usage = token_usage(meta.get("usage"))
+        if usage:
+            request_metrics.update(usage=usage, usage_status="endpoint_reported")
         return payload, meta
     except Exception as exc:
         request_metrics["error_category"] = classify_llm_request_error(exc)
         request_metrics.update(safe_response_diagnostics(exc))
+        if request_metrics.get("usage"):
+            request_metrics["usage_status"] = "endpoint_reported"
         raise
     finally:
         request_metrics["duration_ms"] = max(0, round((time.perf_counter() - started) * 1000))
@@ -372,6 +428,7 @@ def run_local_llm_via_endpoint(
         for payload in responses_payloads:
             payload["reasoning"] = {"effort": normalized_effort}
     errors: list[str] = []
+    http_attempts = 0
 
     for url, endpoint_kind in endpoint_urls:
         if endpoint_kind == "chat":
@@ -380,7 +437,8 @@ def run_local_llm_via_endpoint(
             payloads = responses_payloads
         else:
             payloads = [completion_payload]
-        for payload in payloads:
+        for variant, payload in enumerate(payloads):
+            http_attempts += 1
             try:
                 response_payload, _ = request_json_post_raw(
                     url,
@@ -419,7 +477,7 @@ def run_local_llm_via_endpoint(
             except Exception as exc:
                 raise LLMResponseError(
                     f"{url} returned unusable model content: {exc}",
-                    diagnostics={"response_stage": "extract_content"},
+                    diagnostics={"response_stage": "extract_content", "usage": token_usage(response_payload.get("usage"))},
                 ) from exc
             content = strip_json_fence(raw_content)
             try:
@@ -427,10 +485,14 @@ def run_local_llm_via_endpoint(
             except json.JSONDecodeError as exc:
                 raise LLMResponseError(
                     f"{url} returned unusable model content: {exc}",
-                    diagnostics=invalid_json_diagnostics(content, exc, stage="model_json"),
+                    diagnostics={**invalid_json_diagnostics(content, exc, stage="model_json"),
+                                 "usage": token_usage(response_payload.get("usage"))},
                 ) from exc
             meta = {
                 "transport": "openai_compatible_endpoint",
+                "request_variant": f"{endpoint_kind}:{variant}",
+                "temperature": 0.2,
+                "http_attempts": http_attempts,
                 "endpoint": endpoint,
                 "resolved_endpoint": url,
                 "api_style": endpoint_kind,

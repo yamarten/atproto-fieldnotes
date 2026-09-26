@@ -44,10 +44,13 @@ def run_with_retry(
     *,
     policy: RetryPolicy = RetryPolicy(),
     sleep: Callable[[float], None] = time.sleep,
+    metrics: dict[str, Any] | None = None,
 ) -> tuple[T, int]:
     attempts = 0
     while True:
         attempts += 1
+        if metrics is not None:
+            metrics["attempts"] = attempts
         try:
             return operation(), attempts
         except Exception as exc:
@@ -58,7 +61,12 @@ def run_with_retry(
                 policy.max_delay,
                 policy.base_delay * (2 ** (attempts - 1)),
             )
-            sleep(delay)
+            started = time.perf_counter()
+            try:
+                sleep(delay)
+            finally:
+                if metrics is not None:
+                    metrics["retry_wait_ms"] = metrics.get("retry_wait_ms", 0) + round((time.perf_counter() - started) * 1000, 3)
 
 
 class TTLCache:

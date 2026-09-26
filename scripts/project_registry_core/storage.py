@@ -8,13 +8,13 @@ import zlib
 from typing import Any
 
 from .evidence import CollectorResult, EvidenceBundle
-from . import database, llm_transport, runtime_view, concurrency
+from . import database, llm_transport, runtime_view, concurrency, enrich_observations
 from .runtime_view import sanitize_runtime_snapshot
 
 
 EVALUATION_VERSION = "investigation-evaluation-v2"
 RUN_METRICS_KEY = "_run_metrics"
-RUN_METRICS_VERSION = 2
+RUN_METRICS_VERSION = 3
 RUN_PHASE_NAMES = {
     "initial_collection_ms",
     "planning_ms",
@@ -39,6 +39,8 @@ LLM_REQUEST_FIELDS = {
     "reasoning_effort",
     "prompt_version",
     "prompt_suffix_hash",
+    "request_variant", "temperature", "http_attempts",
+    "endpoint_hash", "requested_api_style", "max_output_tokens", "usage", "usage_status",
 } | llm_transport.LLM_RESPONSE_DIAGNOSTIC_FIELDS
 HISTORY_JSON_COMPRESSION_HEADER = b"project-registry:zlib-json:v1\0"
 HISTORY_JSON_COLUMNS = (
@@ -285,12 +287,21 @@ def normalize_run_metrics(value: dict[str, Any] | None) -> dict[str, Any]:
         aggregate["success_count" if item.get("status") == "success" else "failure_count"] += 1
         for field_name in ("duration_ms", "prompt_bytes", "response_bytes"):
             aggregate[field_name] += max(0, int(item.get(field_name) or 0))
+        for field_name, count in llm_transport.token_usage(item.get("usage")).items():
+            aggregate[field_name] = aggregate.get(field_name, 0) + count
+            coverage = field_name + "_reported_count"
+            aggregate[coverage] = aggregate.get(coverage, 0) + 1
+    # A previously normalized value contains totals for omitted request rows.
+    # Preserve them through save/update/load instead of recalculating from 16 rows.
+    if value.get("version") in {2, RUN_METRICS_VERSION} and isinstance(value.get("llm_request_summary"), dict):
+        request_summary = value["llm_request_summary"]
     result = {
         "version": RUN_METRICS_VERSION,
         "total_ms": max(0, int(value.get("total_ms") or 0)),
         "phases": phases,
         "llm_requests": requests,
         "llm_request_summary": request_summary,
+        "llm_request_rows_omitted": int(value.get("llm_request_rows_omitted", max(0, sum(item.get("count", 0) for item in request_summary.values()) - len(requests)))),
     }
     reuse = value.get("triage_reuse")
     if isinstance(reuse, dict):
@@ -361,6 +372,7 @@ def save_investigation_run(
     bundle: EvidenceBundle,
     evaluation: dict[str, Any] | None = None,
     run_metrics: dict[str, Any] | None = None,
+    observations: dict[str, Any] | None = None,
     evaluation_version: str = EVALUATION_VERSION,
     run_id: str | None = None,
     application_status: str = "applied",
@@ -376,6 +388,8 @@ def save_investigation_run(
     metrics_payload = normalize_run_metrics(run_metrics)
     if metrics_payload:
         evaluation_payload[RUN_METRICS_KEY] = metrics_payload
+    if observations:
+        evaluation_payload[enrich_observations.STORAGE_KEY] = observations
     conn.execute(
         """
         INSERT INTO investigation_runs(
@@ -425,6 +439,7 @@ def load_investigation_run(conn: sqlite3.Connection, run_id: str) -> dict[str, A
         row["evaluation_json"], context=f"investigation run {run_id} evaluation_json"
     )
     metrics = normalize_run_metrics(evaluation.pop(RUN_METRICS_KEY, None))
+    observations = evaluation.pop(enrich_observations.STORAGE_KEY, {})
     return {
         "run_id": str(row["run_id"]),
         "application_status": str(row["application_status"]),
@@ -443,6 +458,7 @@ def load_investigation_run(conn: sqlite3.Connection, run_id: str) -> dict[str, A
         ),
         "evaluation": evaluation,
         "metrics": metrics,
+        "observations": observations,
         "bundle": EvidenceBundle.from_json(decode_history_json_text(
             row["bundle_json"], context=f"investigation run {run_id} bundle_json"
         )),
