@@ -1,6 +1,6 @@
-# 週次enrichのtriage再利用：受理・統合待ち
+# 週次enrichのtriage再利用：運用効果の確認
 
-最終triageの成功出力を再利用する変更を分離worktreeの通常enrichへ接続した。検索計画と外部収集は毎回継続する。正本DBへの適用、主checkoutへの統合、実運用job・Webへの反映は未実施。受理方式はhuman-reviewであり、利用者が完成した変更を了承した後に母艦向け集約案を示し、送信承認を受けてから送る。
+最終triageの成功出力を再利用する変更は、利用者の受理と母艦への送信承認を経て主checkoutへ統合済み。検索計画と外部収集は毎回継続する。次に確認するのは実運用のhit/miss理由と短縮効果。統合時に正本DBへの書込み、jobの開始・変更、Web再起動は行っていない。
 
 ## 実装と採否
 
@@ -41,8 +41,8 @@
 
 観測日時だけの差分例は`inv:1633f21dc363417da7a1a06eac033e66`（Lexicon解決日時）、`inv:196197a64f10456693ce51d74629149a`（説明根拠の観測日時）、`inv:fa71fef079ee4fefa693631053466548`（両方）。個別LLM出力の正誤は判定せず、人手goldや新しい調整用事例にはしていない。事例保存手順を確認し、今回の入力同一性・適用比較については追加のLLM case登録を行わなかった。
 
-## 統合・運用で残る確認
+## 運用で残る確認
 
-母艦は`01a050d2-495b-7fc0-85f5-3fb214fd1c9f`（local）。子タスクは`01a0d9ad-afd0-7d30-8653-b7e7c95c4703`、開始点は`53cb70c9`、branchは`codex/enrich-inference-reuse`。子タスクでcommitを作り、受理後に母艦がcherry-pickと統合検証を行う。主checkout、通常model設定、実行中job、実運用Webは変更しない。
+母艦は`01a050d2-495b-7fc0-85f5-3fb214fd1c9f`（local）、子タスクは`01a0d9ad-afd0-7d30-8653-b7e7c95c4703`。開始点`53cb70c9`のbranch `codex/enrich-inference-reuse`で作成した`25fe5de9`を、母艦が`2b1f25a0`として統合し、主checkoutでも全1,057 test成功を確認した。新しく起動するCLI・enrich workerは統合後の実装を読み込む。既に実行中のworkerは切り替えず、通常model設定・本番Webも変更していない。
 
-統合後の初回enrichは照合値を作るため通常どおり生成する。次回以降の実運用runで`metrics.triage_reuse`のhit/miss理由、実triage request数と時間、収集失敗と新しい候補の扱いを確認する。実週次全体の短縮率と、同じmodel IDの中身・接続先既定設定の変更検知は未検証。後者は自動検知できず、必要時の明示再生成を利用する。今回の受理後に母艦へ送る集約案と送信承認は未完了。
+統合後の初回enrichは照合値を作るため通常どおり生成する。次回以降の実運用runで`metrics.triage_reuse`のhit/miss理由、実triage request数と時間、収集失敗と新しい候補の扱いを確認する。実週次全体の短縮率は未検証で、追加最適化は実際のmiss理由から判断する。同じmodel IDの中身・接続先既定設定の変更は自動検知対象外であり、必要時の明示再生成を利用する。
