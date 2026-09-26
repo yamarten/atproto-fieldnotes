@@ -394,8 +394,8 @@ probe単体では404/410やparkedを`dead`、アクセス制限を`private`に�
 - `evidence_schema_version`, `evaluation_version`
 - `input_project_json`, `output_project_json`
 - `evaluation_json`, `bundle_json`
-- `application_status`: `applied`（現在状態へ反映）または`unapplied`（競合により未反映）
-- `conflict_reason`, `resolved_at`: 競合理由と再試行解消時刻
+- `application_status`: `applied`（現在状態へ反映）または`unapplied`（競合または先行収集の未使用）
+- `conflict_reason`, `resolved_at`: 未反映理由と再試行解消時刻
 
 4つのJSON列は論理上JSONですが、新規runでは`project-registry:zlib-json:v1` header付きのzlib BLOBとして保存します。通常reader、Investigation viewer、replay、fixture/model evaluation export、storage maintenanceは共通codecでdecodeします。圧縮前のTEXT rowも移行完了までは同じreaderで読めます。header不明、zlib/UTF-8/JSON破損はrun IDと列名を含むdecode errorとして停止し、空payloadや部分的なrunへ置き換えません。
 
@@ -424,6 +424,8 @@ run timingとLLM request metadataは`evaluation_json._run_metrics`、実際のtr
 `llm_source.triage_reuse`は同じprojectの成功出力を再利用するための入力・適用状態のhashです。元の生成入力・生成日時を保持し、再利用の有無はrun metricsへ分離します。再利用条件、無効化、最新観測の適用は[triageの再利用](investigation.md#triageの再利用)を参照してください。専用tableやschema移行はありません。
 
 未反映履歴はcurrent stateを変更せず、`latest_investigation_run`の成功結果にも選びません。入力・出力・根拠を通常と同じbudget/codecで保持し、Webの履歴一覧・詳細・service比較で未反映と表示します。保存失敗で履歴も残せなかった場合は一般障害として扱います。再試行は現在状態から再調査し、古い出力を自動再適用しません。
+
+先行収集を本処理で使えなかった場合も同じtable・codecで保持します。`conflict_reason=prefetch_incomplete:<reason>`、`evaluation.incomplete=true`により、初期収集だけの成果であることを明示します。入力・途中snapshot・collectorの観測と失敗・操作時間を保持しますが、planningやLLM・最終評価を完了した履歴とは扱いません。current stateや成功履歴の選択には影響せず、未解決履歴のretention・再調査時の解消は通常の未反映履歴と共通です。
 
 ### 将来比較用観測の保存
 

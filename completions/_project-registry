@@ -179,6 +179,7 @@ case "$cmd" in
       '--resume-run[Resume this checkpoint run ID]:run id:' \
       '--checkpoint-path[Override the checkpoint JSON path]:path:_files' \
       '--no-checkpoint[Disable resumable checkpoint writing]' \
+      '--no-prefetch[Use sequential initial collection for comparison]' \
       '--deep-investigation[Probe discovered resource or docs pages before LLM review]' \
       "--llm-endpoint[OpenAI-compatible LLM endpoint or base URL]:endpoint:" \
       "--llm-model[Model name for the LLM endpoint]:model:" \

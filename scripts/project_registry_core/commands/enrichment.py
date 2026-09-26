@@ -37,6 +37,7 @@ def request_from_args(args: argparse.Namespace) -> OperationRequest:
             "no_checkpoint": bool(args.no_checkpoint),
             "resume_run": str(args.resume_run or ""),
             "deep_investigation": bool(args.deep_investigation),
+            "prefetch": not bool(args.no_prefetch),
             "llm_endpoint": str(args.llm_endpoint or ""),
             "llm_model": str(args.llm_model or ""),
             "llm_api_key": str(args.llm_api_key or ""),

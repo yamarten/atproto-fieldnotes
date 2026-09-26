@@ -77,6 +77,8 @@ bulk enrichは一般障害を記録して既定で後続projectを処理し、�
 - collectorや外部requestを途中で破棄しない。停止までの上限は各sourceのtimeoutに依存する
 - 完了済みprojectは再開時に再実行しない
 
+一括enrichの先行取得は一件までです。停止要求後に新たな先行取得を開始せず、既に動いている初期収集は回収します。現在projectだけを通常どおり保存・完了とし、未処理の先行成果は初期収集だけの未反映履歴へ残して停止します。checkpointに先行projectを完了として追加せず、再開時に最新状態から調査します。先行収集の詳細と停止までの待ちは[investigation](investigation.md#一括調査の先行取得)を参照してください。
+
 anonymous browser verificationはproject境界で停止します。syncは進行中HTTP requestを強制中断せず、introducedはpage、GitHub/Sembleはqueryまたはitem、Tangledはevent、collection inventoryはfetch/import境界でcancelを確認します。reviewは次candidateの前で停止します。境界までに完了したDB更新は取り消しません。sync/review自体のcheckpoint再開は未接続です。
 
 CLIの最初のCtrl+Cはこの停止要求へ変換します。checkpointを保存した後、終了コード`130`で終了します。
@@ -99,6 +101,10 @@ project処理中に対象keyがmergeされてaliasになった場合や更新番
 競合だけが残った一括実行は`retry_wait`で終了します。CLIは終了コード`2`とresume commandを返し、Webは再試行待ちとResumeを表示します。単体enrich・`--no-checkpoint`は競合一覧と未反映履歴を残しますがcheckpointによる再開はなく、同じ対象を明示的に再実行します。自動再試行や再試行時刻の予約はしません。
 
 checkpointは再開の正本です。event履歴やWeb表示状態の正本ではありません。project commitとcheckpoint file更新は一つのtransactionではないため、その間でprocessを失った場合のexactly-once実行は保証しません。
+
+先行取得を使う場合も各件開始時の最新読込みと選択条件の検査は維持します。先行snapshotのcanonical key・revisionが一致すればその収集結果を使い、異なれば未反映履歴へ退避して最新状態から再取得します。LLM処理・保存中の変更は従来の保存時revision検査で拒否します。先行収集の例外は現在projectのLLM失敗に転嫁せず、その先行projectの通常処理順で一般障害として扱います。
+
+cancel・fail-fast・snapshot変更・対象外化等で使えなかった先行成果は、`prefetched_runs`へproject key・run ID・理由を記録します。これらは完了・失敗・競合project件数には加算しません。後続の再調査成功またはcheckpoint対象外処理で未反映履歴を解消します。途中停止した元processの計測値は`execution`に残り、再開後の値は新processの実績へ置換します。先行有無はcheckpointの`options.prefetch`へ保存し、再開時にも保持します。
 
 ## Scheduled preset
 

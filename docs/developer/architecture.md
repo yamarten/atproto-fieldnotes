@@ -39,6 +39,7 @@ LLMの個別事例は[非公開事例の固定保存](specs/llm-case-store.md)�
 - `application/sync.py`は`source_sync.py`を呼び、source別の取得、watermark、既存projectへの接続を実行する
 - `introduced_review.py`は取得済み紹介投稿のURL別要確認記録、旧保留の投影、手動解消を担当し、`source_sync.py`とWeb APIから利用する。project本体の紹介URL保存は`project_record.py`を使い、判断は同じqueryの`sync_state`へ置く
 - `application/enrichment.py`は`enrichment_pipeline.py`を呼び、1 projectのcollector、LLM、保存前のcurrent state更新を実行する
+- `application/enrich_prefetch.py`は一括enrichのLLM区間中に次の一件の`collect_initial`を実行し、使用前のsnapshot照合・未使用成果の保持・batch計測を担当する。DBとLLMはcaller threadに残し、先行collectorの終了前にcallerの取得処理へ戻らない
 - `commands/queue_interaction.py`はreview/promotion queueのinteractive入出力を担当し、queue policy自体は`registry.py`に残す
 - `project_record.py`はproject shape、保存payload、fetch/list/save、normalized exact lookup、project key allocationを所有する
 - `registry.py`はcollectorの適用と評価の取りまとめ、保存前の整形・評価を行うfinalize、マージ候補・レビュー候補の選定規則を担当する

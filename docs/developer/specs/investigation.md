@@ -39,6 +39,16 @@ serviceの稼働状態とNSID ownershipを確認するレビュー表示も、�
 7. local LLM による summary / category / status 補完
 8. 再度finalizeし、重複候補・マージ推奨・情報充足の判定（[昇格ゲート](project-evaluation.md#昇格ゲート)）を更新
 
+### 一括調査の先行取得
+
+一括enrichは既定で、現在projectの最初のLLM呼出し中に、選択順で直後のproject一件の初期収集を進めます。初期収集はLexicon・record sample・既知repository・service・candidate repositoryの帰属確認を含み、repository analysisより前で止めます。通常の逐次経路も同じ`collect_initial`を使い、取得対象・検索予算・prompt・model・適用規則は変えません。triage再利用hitでも、repository analysisやplanningに実呼出しがあればその区間を利用します。
+
+先行threadには所有するproject snapshotだけを渡し、DB接続・LLM・保存・checkpointは渡しません。LLM呼出しが先に終わった場合は先行収集の完了を待ってから現在projectの後続取得へ戻ります。このため、project内の既存取得並列数は維持し、project間でcollectorが同時実行されることはありません。process-local cacheへのproject間同時アクセスや同じURLへの競合fetchを増やさず、LLM同時実行も一件です。検索のrequest budgetとGitHub request metricsは従来どおりcollector単位です。
+
+最大保持量は現在projectに加えて先行一件のsnapshot・収集結果です。取得の完了が早くても次のprojectへ先読みを延ばしません。cancel済みなら新たに先行取得せず、開始済みの初期収集はその区間を完了して回収します。停止までには現在projectの完了時間と、先行一件の初期収集残時間がかかり得ます。使用直前のrevision・alias・選択条件の再確認と、未使用成果・再開の扱いは[background jobs](background-jobs.md#enrich-checkpoint)を参照してください。
+
+同じ固定応答では調査の意味を揃えますが、project間の取得順と観測時刻は変わります。実外部情報の更新、cacheの期限、共有APIの残quotaが変化する場合は、どのprojectが新しい情報やrate limitを観測するかも変わり得ます。総request数が同じでも単位時間のrequest数は増え得ます。逐次比較にはCLIの`--no-prefetch`（requestの`prefetch=false`）を使います。
+
 ## 根拠と調査状態
 
 ### Evidence classification
@@ -422,6 +432,10 @@ prompt・根拠に現れる規則変更は実入力の差で無効化します�
 - 調査後のproject現在状態の正規化・シリアライズ・SQL書込み
 
 collectorのnetwork取得とevidence適用は現行pipelineで交互に行うため、前半2つのcollection区間をnetwork時間だけと見なしません。transaction commit待ち時間も未計測です。`total_ms`は上記のenrich開始からproject SQL書込みまでで、process job全体、複数projectの待ち時間、operator review時間ではありません。
+
+`metrics.initial_collection.duration_ms`はrepository analysis前の初期収集区間、`prefetched`はその区間を先行したかを示します。既存の`phases.initial_collection_ms`にはrepository analysis等も含まれ、同じ区間ではありません。先行結果を保持して順番を待つ時間は当該projectの`total_ms`から除きますが、現在projectがLLM後に先行収集を待つ時間はそのphaseへ含まれます。LLM requestのdurationはこのjoin待ちを含みません。
+
+一括結果とcheckpointの`execution`には、方式、先行開始・使用・未使用・失敗件数、先行収集時間、join待ち時間、未反映run ID、application開始からの`batch_elapsed_ms`を記録します。batch経過時間はproject commitとcheckpoint更新を含み、worker起動・終了と最後の計測値の書込み自体は含みません。短縮率は同じ入力のbatch経過時間で比較し、重なりのあるper-project時間やoperation時間の合算を短縮実績としません。
 
 planning・repository analysis・triageの各LLM requestには、purpose、success/failure、error category、duration、UTF-8 prompt bytes、response JSON bytes、設定された1 attempt当たりtimeout、model/API style・出力上限・接続先hash等の非secret metadataを残します。endpointが返したinput/output/total token数と、存在すればcached input/reasoning token数を保存します。usageがなければ未記録とし、文字数から推定しません。解釈不能なmodel JSONでもendpoint JSONのusageが読めれば保持します。command方式や通信失敗等では未記録になります。成功時のHTTP試行数とpayload variantはtransportから保存しますが、最終失敗までの全HTTP試行の個別履歴は保存しません。request metricsにはprompt本文、endpoint、command、API keyを含めません。`timeout`は明示的なtimeout例外または既存clientが返すtimeout errorから分類し、transport failure、endpoint incompatible、rate limit、その他HTTP error、invalid responseと分けます。endpoint互換性エラー以外では同じpromptを自動再送しません。
 

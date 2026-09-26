@@ -308,6 +308,12 @@ def normalize_run_metrics(value: dict[str, Any] | None) -> dict[str, Any]:
         result["triage_reuse"] = {
             key: str(reuse[key]) for key in ("status", "reason", "generated_at") if key in reuse
         }
+    initial = value.get("initial_collection")
+    if isinstance(initial, dict):
+        result["initial_collection"] = {
+            "duration_ms": max(0, int(initial.get("duration_ms") or 0)),
+            "prefetched": bool(initial.get("prefetched")),
+        }
     return result
 
 

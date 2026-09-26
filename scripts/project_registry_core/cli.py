@@ -81,6 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
     enrich_parser.add_argument("--checkpoint-path", help="Override the enrich run checkpoint JSON path.")
     enrich_parser.add_argument("--no-checkpoint", action="store_true", help="When used with --all, disable resumable checkpoint writing.")
     enrich_parser.add_argument("--deep-investigation", action="store_true", help="Probe discovered resource/docs pages as additional evidence before LLM review.")
+    enrich_parser.add_argument("--no-prefetch", action="store_true", help="Use sequential collection for comparison; by default bulk enrich overlaps one initial collection with LLM work.")
     enrich_parser.add_argument("--llm-endpoint", help="OpenAI-compatible LLM endpoint or base URL.")
     enrich_parser.add_argument("--llm-model", help="Model name for the LLM endpoint.")
     enrich_parser.add_argument("--llm-api-key", help="Optional API key for the LLM endpoint.")

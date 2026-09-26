@@ -6,6 +6,8 @@ import copy
 import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Any
 
 from project_registry_core import CollectorResult, EvidenceBundle
@@ -101,31 +103,32 @@ def record_repository_collection_failure(project: dict[str, Any], repo_url: str)
     )
 
 
-def enrich_project(
-    conn: sqlite3.Connection,
-    project: dict[str, Any],
-    *,
-    llm_endpoint: str | None = None,
-    llm_model: str | None = None,
-    llm_api_key: str | None = None,
-    llm_reasoning_effort: str | None = None,
-    llm_api_style: str | None = None,
-    llm_max_output_tokens: int | None = None,
-    llm_triage_prompt_suffix: str | None = None,
-    deep_investigation: bool = False,
-) -> dict[str, Any]:
-    run_clock_started = time.perf_counter()
-    phase_started = run_clock_started
-    phase_timings: dict[str, int] = {}
-    llm_requests: list[dict[str, Any]] = []
-    observations: dict[str, Any] = {}
-    operation_timer = enrich_observations.OperationTimer()
+@dataclass
+class InitialCollection:
+    """Owned, DB/LLM-free state before repository analysis; never a completed run."""
+
+    project: dict[str, Any]
+    input_project: dict[str, Any]
+    started_at: str
+    elapsed_seconds: float
+    evidence: EvidenceBundle
+    operation_timer: enrich_observations.OperationTimer
+    initial_repo_urls: list[str]
+    collected_repo_evidence: dict[str, EvidenceBundle]
+    trust_inspected_repo_urls: set[str]
+    initial_service_urls: list[str]
+    probe_results: dict[str, dict[str, Any]]
+    homepage_results: dict[str, dict[str, Any]]
+
+
+def collect_initial(project: dict[str, Any]) -> InitialCollection:
+    """Collect on an owned snapshot. No connection, LLM, save or checkpoint access."""
+    started = time.perf_counter()
     project = ensure_project_shape(project)
     run_started_at = iso_now()
     run_input_project = copy.deepcopy(project)
     run_evidence = EvidenceBundle(project_key=str(project.get("project_key") or ""), collected_at=run_started_at)
-    start_inventory = enrich_observations.candidate_inventory(project)
-    previous_status = str(project.get("status") or "draft")
+    operation_timer = enrich_observations.OperationTimer()
     project["_run_errors"] = []
     reset_investigation_state(project)
 
@@ -241,7 +244,6 @@ def enrich_project(
     authority_probe_urls = set(authority_probe_all_urls(authority_probe_chains))
     authority_probe_urls.update(derived_authority_probe_urls(project))
     homepage_probe_urls = set(repository_homepage_probe_urls(project))
-    homepage_browser_attempted = False
     homepage_results: dict[str, dict[str, Any]] = {}
     initial_page_urls = (
         ([project.get("website_url")] if project.get("website_url") else [])
@@ -254,6 +256,7 @@ def enrich_project(
         identifier_core.normalize_url(url) for url in initial_page_urls
         if identifier_core.normalize_url(url)
     )
+    probe_results: dict[str, dict[str, Any]] = {}
     if initial_service_urls:
         with ThreadPoolExecutor(max_workers=min(ENRICH_IO_MAX_WORKERS, len(initial_service_urls))) as executor:
             service_futures = {
@@ -264,7 +267,6 @@ def enrich_project(
                 )
                 for service_url in initial_service_urls
             }
-            probe_results: dict[str, dict[str, Any]] = {}
             probe_errors: dict[str, Exception] = {}
             for service_url in initial_service_urls:
                 try:
@@ -394,6 +396,51 @@ def enrich_project(
                 project, source="tangled_repo", operation="inspect", target=repo_url, exc=exc,
             ))
 
+    return InitialCollection(
+        project, run_input_project, run_started_at, time.perf_counter() - started,
+        run_evidence, operation_timer, initial_repo_urls, collected_repo_evidence,
+        trust_inspected_repo_urls, initial_service_urls, probe_results, homepage_results,
+    )
+
+
+def enrich_project(
+    conn: sqlite3.Connection,
+    project: dict[str, Any],
+    *,
+    llm_endpoint: str | None = None,
+    llm_model: str | None = None,
+    llm_api_key: str | None = None,
+    llm_reasoning_effort: str | None = None,
+    llm_api_style: str | None = None,
+    llm_max_output_tokens: int | None = None,
+    llm_triage_prompt_suffix: str | None = None,
+    deep_investigation: bool = False,
+    initial_collection: InitialCollection | None = None,
+    llm_runner: Callable[..., Any] | None = None,
+) -> dict[str, Any]:
+    initial = initial_collection if initial_collection is not None else collect_initial(project)
+    # Exclude time sitting in the one-item prefetch slot from per-project timings.
+    run_clock_started = time.perf_counter() - initial.elapsed_seconds
+    phase_started = run_clock_started
+    phase_timings: dict[str, int] = {}
+    llm_requests: list[dict[str, Any]] = []
+    observations: dict[str, Any] = {}
+    operation_timer = initial.operation_timer
+    project = initial.project
+    run_started_at = initial.started_at
+    run_input_project = initial.input_project
+    run_evidence = initial.evidence
+    start_inventory = enrich_observations.candidate_inventory(run_input_project)
+    previous_status = str(run_input_project.get("status") or "draft")
+    initial_repo_urls = initial.initial_repo_urls
+    collected_repo_evidence = initial.collected_repo_evidence
+    trust_inspected_repo_urls = initial.trust_inspected_repo_urls
+    initial_service_urls = initial.initial_service_urls
+    probe_results = initial.probe_results
+    homepage_results = initial.homepage_results
+    homepage_browser_attempted = False
+    run_llm = llm_runner or llm_transport.run_llm_with_metrics
+
     for repo_url, repo_evidence in collected_repo_evidence.items():
         observed_at = iso_now()
         material = repository_analysis_core.build_material(repo_url, repo_evidence)
@@ -420,7 +467,7 @@ def enrich_project(
             ))
             continue
         try:
-            payload, meta = llm_transport.run_llm_with_metrics(
+            payload, meta = run_llm(
                 repository_analysis_core.build_prompt(project, material),
                 purpose="repository_analysis",
                 requests=llm_requests,
@@ -547,7 +594,7 @@ def enrich_project(
         llm_api_style=llm_api_style,
         llm_max_output_tokens=llm_max_output_tokens,
         observation=observations["planning"],
-        llm_runner=lambda prompt, **kwargs: llm_transport.run_llm_with_metrics(
+        llm_runner=lambda prompt, **kwargs: run_llm(
             prompt, purpose="planning", requests=llm_requests, **kwargs
         ),
     )
@@ -619,7 +666,7 @@ def enrich_project(
         if cached:
             payload, meta = cached
         else:
-            payload, meta = llm_transport.run_llm_with_metrics(
+            payload, meta = run_llm(
                 prompt, purpose="triage", requests=llm_requests,
                 prompt_suffix_hash=prompt_suffix_hash, **options,
             )
@@ -695,6 +742,10 @@ def enrich_project(
             "phases": phase_timings,
             "llm_requests": llm_requests,
             "triage_reuse": triage_reuse_metrics,
+            "initial_collection": {
+                "duration_ms": round(initial.elapsed_seconds * 1000),
+                "prefetched": initial_collection is not None,
+            },
         },
     )
     project[runtime_view.RUNTIME_INVESTIGATION_RUN_ID] = run_id

@@ -14,6 +14,7 @@ from .. import database as registry_database
 from .. import enrichment_pipeline, registry as core, storage, concurrency
 from ..jobs import CancellationToken, EventKind, EventSink, OperationEvent, OperationRequest, OperationResult
 from project_registry_core import project_record
+from .enrich_prefetch import InitialPrefetch
 
 
 DEFAULT_TRIAGE_RULES_BY_MODEL = {
@@ -55,6 +56,7 @@ class EnrichmentOptions:
     no_checkpoint: bool = False
     resume_run: str = ""
     deep_investigation: bool = False
+    prefetch: bool = True
     llm_endpoint: str = ""
     llm_model: str = ""
     llm_api_key: str = ""
@@ -86,6 +88,7 @@ class EnrichmentOptions:
             "retry_failures",
             "continue_on_error",
             "deep_investigation",
+            "prefetch",
             "llm_endpoint",
             "llm_model",
             "llm_api_style",
@@ -273,7 +276,7 @@ def _mark_completed(checkpoint: dict[str, Any], project_key: str) -> None:
 def _resolve_conflicts(conn: sqlite3.Connection, checkpoint: dict[str, Any] | None, source_keys: list[str]) -> None:
     if not checkpoint:
         return
-    run_ids = [str(item.get("run_id") or "") for item in checkpoint.get("conflicted_projects", []) if item.get("project_key") in source_keys]
+    run_ids = [str(item.get("run_id") or "") for item in checkpoint.get("conflicted_projects", []) + checkpoint.get("prefetched_runs", []) if item.get("project_key") in source_keys]
     if run_ids:
         conn.executemany("UPDATE investigation_runs SET resolved_at=? WHERE run_id=? AND application_status='unapplied'", [(project_record.iso_now(), key) for key in run_ids if key])
         conn.commit()
@@ -322,6 +325,49 @@ def run(
     emit: EventSink | None = None,
     cancellation: CancellationToken | None = None,
 ) -> OperationResult:
+    cancellation = cancellation or CancellationToken()
+    prefetch = InitialPrefetch(conn, cancellation)
+    try:
+        result = _run(conn, request, emit=emit, cancellation=cancellation, prefetch=prefetch)
+        result.data["execution"] = prefetch.summary()
+        return result
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        prefetch.discard("batch_stopped")
+
+
+def _skip_reason(project, options: EnrichmentOptions, processed_keys: set[str]) -> str:
+    if project is None:
+        return "project_missing"
+    if str(project["project_key"]) in processed_keys:
+        return "canonical_project_already_processed"
+    if options.all_projects:
+        states = _tracking_states(options)
+        if states is not None and project.get("tracking_state") not in states:
+            return "tracking_state_changed"
+        if options.new_only and project.get("last_enriched_at"):
+            return "already_enriched"
+        if options.retry_failures and not project.get("last_run_errors"):
+            return "no_collector_failures"
+    return ""
+
+
+def _read_current(conn, project_key: str):
+    with concurrency.read_snapshot(conn):
+        alias_target = registry_database.project_key_alias_target(conn, project_key)
+        return project_record.fetch_project(conn, alias_target or project_key)
+
+
+def _run(
+    conn: sqlite3.Connection,
+    request: OperationRequest,
+    *,
+    emit: EventSink | None,
+    cancellation: CancellationToken,
+    prefetch: InitialPrefetch,
+) -> OperationResult:
     options = EnrichmentOptions.from_request(request)
     if options.llm_max_output_tokens < 0:
         raise ValueError("llm_max_output_tokens must be zero or greater")
@@ -365,6 +411,11 @@ def run(
             written_path = write_checkpoint(checkpoint, options.checkpoint_path)
 
     llm_triage_prompt_suffix = ""
+    if checkpoint is not None:
+        def record_prefetched_run(item):
+            checkpoint.setdefault("prefetched_runs", []).append(item)
+            write_checkpoint(checkpoint, options.checkpoint_path)
+        prefetch.on_unapplied = record_prefetched_run
     if options.llm_triage_prompt_suffix_file:
         suffix_path = Path(options.llm_triage_prompt_suffix_file).expanduser()
         llm_triage_prompt_suffix = suffix_path.read_text(encoding="utf-8").strip()
@@ -372,6 +423,7 @@ def run(
             raise ValueError(f"LLM triage prompt suffix file is empty: {suffix_path}")
 
     selected_total = len(checkpoint.get("selected_project_keys", [])) if checkpoint else len(projects)
+    prefetch.metrics["mode"] = "prefetch_one" if options.all_projects and options.prefetch else "sequential"
     completed_before = len({str(item) for item in checkpoint.get("completed_project_keys", []) if str(item)}) if checkpoint else 0
     run_started = dt.datetime.now(dt.timezone.utc)
     promoted_now: list[dict[str, Any]] = []
@@ -431,24 +483,11 @@ def run(
         enriched = None
         try:
             # Selection fixes ordering, not the snapshot used by a later item.
-            with concurrency.read_snapshot(conn):
-                alias_target = registry_database.project_key_alias_target(conn, project_key)
-                project = project_record.fetch_project(conn, alias_target or project_key)
-            reason = ""
-            if project is None:
-                reason = "project_missing"
-            elif str(project["project_key"]) in processed_keys:
-                reason = "canonical_project_already_processed"
-            elif options.all_projects:
-                states = _tracking_states(options)
-                if states is not None and project.get("tracking_state") not in states:
-                    reason = "tracking_state_changed"
-                elif options.new_only and project.get("last_enriched_at"):
-                    reason = "already_enriched"
-                elif options.retry_failures and not project.get("last_run_errors"):
-                    reason = "no_collector_failures"
+            project = _read_current(conn, project_key)
+            reason = _skip_reason(project, options, processed_keys)
             if reason:
-                _resolve_conflicts(conn, checkpoint, checkpoint_source_keys)
+                prefetch.discard(reason)
+                _resolve_conflicts(conn, checkpoint, checkpoint_source_keys + ([str(project["project_key"])] if project else []))
                 for key in checkpoint_source_keys:
                     skipped = {"project_key": key, "reason": reason}
                     skipped_projects.append(skipped)
@@ -461,6 +500,15 @@ def run(
                 publish("item_skipped", {"project_key": project_key, "reason": reason})
                 continue
             project_key = str(project["project_key"])
+            initial = prefetch.take(project)
+
+            def load_next():
+                candidate = _read_current(conn, str(projects[offset]["project_key"]))
+                if _skip_reason(candidate, options, processed_keys | {project_key}):
+                    return None
+                return candidate
+
+            prefetch.load_next = load_next if options.all_projects and options.prefetch and offset < len(projects) else None
             enriched = enrichment_pipeline.enrich_project(
                 conn,
                 project,
@@ -472,6 +520,8 @@ def run(
                 llm_max_output_tokens=options.llm_max_output_tokens or None,
                 llm_triage_prompt_suffix=llm_triage_prompt_suffix or None,
                 deep_investigation=options.deep_investigation,
+                initial_collection=initial,
+                llm_runner=prefetch.run_llm,
             )
             project_record.save_project(conn, enriched, enriched=True)
             conn.commit()
@@ -506,7 +556,9 @@ def run(
             publish("failed", {"error": error, "continuing": bool(options.all_projects and options.continue_on_error)})
             if options.all_projects and options.continue_on_error:
                 continue
+            prefetch.discard("fail_fast")
             if checkpoint:
+                checkpoint["execution"] = prefetch.summary()
                 checkpoint["status"] = "failed"
                 checkpoint["completed_at"] = project_record.iso_now()
                 written_path = write_checkpoint(checkpoint, options.checkpoint_path)
@@ -522,6 +574,7 @@ def run(
                 "conflicted_project_count": len(conflicted_projects),
                 "skipped_projects": skipped_projects,
                 "skipped_project_count": len(skipped_projects),
+                "execution": prefetch.summary(),
                 **(
                     {"resume_command": resume_command(checkpoint["run_id"], options.checkpoint_path)}
                     if checkpoint else {}
@@ -553,6 +606,9 @@ def run(
         if cancellation.cancel_requested:
             break
 
+    prefetch.discard("cancelled" if cancellation.cancel_requested else "batch_finished")
+    if checkpoint:
+        checkpoint["execution"] = prefetch.summary()
     if cancellation.cancel_requested:
         if checkpoint:
             checkpoint["status"] = "interrupted"
@@ -572,7 +628,8 @@ def run(
         else:
             payload = {"summary": "enrich", "interrupted": True, "cancel_reason": cancellation.reason}
         payload.update({"conflicted_projects": conflicted_projects, "conflicted_project_count": len(conflicted_projects),
-                        "skipped_projects": skipped_projects, "skipped_project_count": len(skipped_projects)})
+                        "skipped_projects": skipped_projects, "skipped_project_count": len(skipped_projects),
+                        "execution": prefetch.summary()})
         publish("cancelled", payload)
         return OperationResult(request.operation_id, request.operation, "cancelled", started_at, project_record.iso_now(), payload)
 
@@ -595,6 +652,7 @@ def run(
         "skipped_projects": skipped_projects,
         "promoted_now_count": len(promoted_now),
         "promoted_now": promoted_now,
+        "execution": prefetch.summary(),
     }
     if failed_projects:
         if checkpoint:
