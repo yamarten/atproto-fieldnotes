@@ -46,6 +46,8 @@ README公開先の候補化と、帰属・逆参照・Web/protocol実在確認�
 
 ## 帰属・信頼・Projectの統合と分離
 
+同じ現行構成要素のidentifierがcandidateとconfirmedに分かれているpairを、個別ページとmoderate/broadのマージ候補へ接続しました。一致値・役割・双方の採用状態を表示し、採用前に比較できます。相互最上位条件は一覧で維持し、この一致だけでは自動マージ可能にしません。一時DBのAPI・guard・採用状態不変と、開発Webの主要導線を確認しています。正本のread-only差分と候補品質のレビュー材料、未受理・未反映の境界は[候補一致レビュー](../notes/candidate-confirmed-merge-review.md)を参照してください。
+
 現在のpage↔repositoryの関係（relation）から信頼グラフの接続（edge）を導出し、候補URLの確認、信頼評価、Explain（判定理由の表示）、shadow比較へ接続しています。serviceの採用には、公開先が担う役割を検証するrole policyを通します。旧保存edgeのarchive・除去は実運用反映済みで、保存済みの過去採用を新規評価だけで一律に取り消しません。適用時に判定用graph・現行relation・登録URL・採用判断・調査履歴が変わらないことと、DB整合性・Web API応答を確認しています。
 
 通常のマージレビュー、分割（split）・別project指定（separate）、マージ元keyを存続先へ解決するaliasによる履歴参照を利用できます。merge/split/separateの原子的保存と、merge前に始まった古いenrichによるalias元keyの再作成拒否を確認しています。merge時のsourceのconfirm判断・identifier metadata・採用来歴の保持、連続merge／再保存での採用originの維持、明示判断・非現行状態の衝突拒否を架空DBの通常入口とAPIで確認し、実運用Webへ反映済みです。Substratumの1claimは別承認の限定復元で元2採用来歴を保持して復旧し、正本の全table差分とWeb GETを確認しました。過去の消失操作と、通常保存で`lexicon_count`を0へ投影する周辺問題は未解明・未修正です。[復旧確認と残る問題](../notes/identifier-merge-recovery.md)を参照してください。

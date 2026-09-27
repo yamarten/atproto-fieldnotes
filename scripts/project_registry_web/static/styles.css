@@ -171,6 +171,8 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .merge-project .kv dt { margin-top: 4px; }
 .merge-project .kv dt:first-child { margin-top: 0; }
 .merge-identifiers { min-width: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
+.merge-identifier-matches { min-width: 0; grid-column: 1 / -1; display: grid; gap: 6px; margin: 6px 0; }
+.merge-identifier-match { min-width: 0; display: grid; gap: 4px; padding: 8px; border-left: 3px solid var(--warning); border-radius: 7px; background: var(--panel-soft); overflow-wrap: anywhere; }
 .suffix-suggestion { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px; padding: 9px; border-left: 3px solid var(--warning); border-radius: 7px; background: var(--panel-soft); }
 .suffix-suggestion-main { min-width: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
 .notice { padding: 10px; border-left: 3px solid var(--warning); background: var(--warning-soft); border-radius: 7px; }

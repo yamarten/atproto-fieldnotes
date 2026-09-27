@@ -717,13 +717,15 @@ merge実行時の統合後`duplicate_candidates`は、削除予定sourceと置�
   - `github_repo_urls`
   - `candidate_project_repository_urls`
   - `service_urls`
-    - `website_url` もここに含めます
+  - `website_urls`: `website_url`の値
+  - `candidate_component_identifiers` / `confirmed_component_identifiers`: 現行構成要素の`kind + value + role`
   - `recorded_lexicon_namespaces`
   - `record_creators`
   - `authority_service_families`
   - `domain_identity_tokens`
   - `merge_aliases`
 - これらの値ごとに inverted index を作り、どれか 1 つでも共有する相手だけを候補集合に入れます
+- 構成要素のidentifierはcandidate側からconfirmed側、confirmed側からcandidate側のindexを引きます。同じ採用状態同士の一般的なidentifier照合は追加しません
 - `github_repo_urls`は保存fieldではなく、`project_repository_urls`からGitHub providerだけを導出したduplicate比較用の内部keyです
 - duplicate / merge 用の `authority_service_families` と `domain_identity_tokens` は、確認済みのservice/manual service、operator confirmed domain、manual/confirmed/trust-policy confirmed collectionから導いたauthorityだけを使います
   - `input_nsids` / `lexicons` / `authority_domains` / `service_url_candidates` のような候補・観測fieldだけでは、merge用のdomain/family根拠にしません
@@ -751,6 +753,11 @@ merge実行時の統合後`duplicate_candidates`は、削除予定sourceと置�
 - `record_creators` 単独では merge 理由にしません
   - namespace lineage が同時に必要です
 - `candidate_project_repository_urls` は confirmed repo より弱い根拠ですが、duplicate 候補の入口には使います
+- `candidate_confirmed_identifiers`は、現行の同じ`kind + value + role`が一方candidate、他方confirmedの場合の比較根拠です
+  - `identifier_storage.COMPONENT_ROLES`を使い、service、project site、project repository、owned NSID、project account/handle、brand DIDを対象にします。developer account/handle/DID、利用・参照したcollection、Website scalar、derived domain、未知roleはこの根拠にしません
+  - `runtime_view.project_identifiers()`にある現行claimだけを照合し、former/non-production、derived/heuristic classification、片方でもblockまたは有効なdeferに該当する値は使いません。期限切れdeferは通常の評価へ戻ります
+  - 正規化済みの値を完全一致で比較します。NSIDの大小文字は区別し、URLのhost共有・prefix一致・異なるkind/role間の一致へ広げません
+  - 共有resourceの一致は同一projectの確定ではありません。候補には`identifier_matches`としてkind・role・一致値・比較元と相手のclassificationを付け、Webの個別ページ・候補一覧・比較画面で表示します。候補計算はidentifierや採用判断を保存しません
 
 ### score と confidence
 
@@ -765,6 +772,7 @@ merge実行時の統合後`duplicate_candidates`は、削除予定sourceと置�
   - `domain_identity_tokens`: 5
   - `collection_first_record_creator_dids`: 6
   - `merge_aliases`: 3
+  - `candidate_confirmed_identifiers`: 一致数にかかわらず5（候補repoと同じ重みを1回だけ加算）
 - `merge_confidence` / `auto_merge_ready` は score だけではなく理由の組み合わせで決まります
   - `service_urls` があれば `high` かつ `auto_merge_ready=true`
   - confirmed repo overlap と alias/domain/family/namespace の複合なら `high`
@@ -772,6 +780,7 @@ merge実行時の統合後`duplicate_candidates`は、削除予定sourceと置�
   - creator DID + namespace lineage は `high`
   - domain token + alias だけなら `medium`
   - score だけ高くても、理由の質が弱ければ `medium` や `low` に留まります
+- candidate↔confirmed一致による追加点は順位にだけ使い、`auto_merge_ready`の判定からは除きます。この一致単独では`medium` / `false`です。alias等との加算で閾値を超えても自動マージ可能へ昇格しません。他の既存理由だけで自動マージ可能だったpairは、その判定を維持します
 
 ### merge recommendation の作り方
 
@@ -809,6 +818,7 @@ merge実行時の統合後`duplicate_candidates`は、削除予定sourceと置�
     - operator-confirmed service host overlap
   - `moderate`
     - strict 条件に加えて
+    - 現行構成要素のcandidate↔confirmed完全一致（比較して人が判断する候補）
     - confirmed service overlap
     - candidate repo + alias overlap
     - creator DID + namespace lineage
@@ -817,6 +827,9 @@ merge実行時の統合後`duplicate_candidates`は、削除予定sourceと置�
     - service root domain + alias overlap
     - website root domain + alias overlap
 - safe overlap が無い pair は recommendation があっても batch では落とします
+- `broad`はmoderateと既存recommendation理由を許容する表示条件です。候補抽出自体を広げるものではありません
+- moderateへの追加でも相互最上位条件と`ignore`の除外を維持します。新しい根拠で順位が変われば、以前のpairが相互最上位でなくなり一覧から外れる場合があります。個別ページの候補抽出にはこの相互最上位条件を課しません
+- このplanはWebの比較候補一覧です。表示されたpairを無条件に一括実行する入口ではなく、比較後に1組ずつmergeまたはseparateを選びます
 
 ### merge 方向の決め方
 

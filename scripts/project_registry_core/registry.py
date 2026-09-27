@@ -7106,11 +7106,16 @@ def merge_score_from_reasons(reasons: dict[str, list[str]]) -> int:
     }
     score = 0
     for key, values in reasons.items():
-        score += weights.get(key, 1) * max(1, len(values))
+        # Many shared candidate claims still represent one unconfirmed signal.
+        score += 5 if key == "candidate_confirmed_identifiers" else weights.get(key, 1) * max(1, len(values))
     return score
 
 
 def merge_confidence_from_reasons(reasons: dict[str, list[str]], score: int) -> tuple[str, bool]:
+    if "candidate_confirmed_identifiers" in reasons:
+        established = {key: values for key, values in reasons.items() if key != "candidate_confirmed_identifiers"}
+        confidence, ready = merge_confidence_from_reasons(established, merge_score_from_reasons(established))
+        return ("medium" if confidence == "low" else confidence), ready
     if "service_urls" in reasons:
         return "high", True
     if any(key in reasons for key in {"project_repository_urls", "github_repo_urls"}) and (
@@ -9602,6 +9607,9 @@ def duplicate_candidate_for_pair(
     target_profile = project_profile or duplicate_profile(project)
     candidate_profile = other_profile or duplicate_profile(other)
     reasons: dict[str, list[str]] = {}
+    identifier_matches = candidate_confirmed_identifier_matches(target_profile, candidate_profile)
+    if identifier_matches:
+        reasons["candidate_confirmed_identifiers"] = identifier_match_values(identifier_matches)
     source_overlap = sorted(target_profile["project_repository_urls"] & candidate_profile["project_repository_urls"])
     if source_overlap:
         reasons["project_repository_urls"] = source_overlap
@@ -9645,6 +9653,7 @@ def duplicate_candidate_for_pair(
         "score": score,
         "merge_confidence": confidence,
         "auto_merge_ready": auto_merge_ready,
+        "identifier_matches": identifier_matches,
     }
 
 
@@ -9663,7 +9672,11 @@ def compute_duplicate_candidates(
     target_profile = duplicate_profile(project)
     candidate_keys: set[str] = set()
     for field, values in target_profile.items():
-        field_index = duplicate_index.get(field, {})
+        opposite_field = {
+            "candidate_component_identifiers": "confirmed_component_identifiers",
+            "confirmed_component_identifiers": "candidate_component_identifiers",
+        }.get(field, field)
+        field_index = duplicate_index.get(opposite_field, {})
         for value in values:
             candidate_keys.update(field_index.get(str(value), set()))
     candidate_keys.discard(str(project.get("project_key") or ""))
@@ -9711,8 +9724,40 @@ def compute_merge_recommendation(project: dict[str, Any]) -> dict[str, Any]:
     return recommendation
 
 
+def component_identifier_profile(project: dict[str, Any]) -> dict[str, set[str]]:
+    profile: dict[str, set[str]] = {
+        "candidate_component_identifiers": set(),
+        "confirmed_component_identifiers": set(),
+    }
+    for item in runtime_view.project_identifiers(project):
+        if item.role not in identifier_storage.COMPONENT_ROLES or item.classification not in {"candidate", "confirmed"}:
+            continue
+        if identifier_is_blocked(project, item.kind, item.value) or identifier_is_deferred(project, item.kind, item.value):
+            continue
+        profile[f"{item.classification}_component_identifiers"].add(json.dumps([item.kind, item.value, item.role]))
+    return profile
+
+
+def candidate_confirmed_identifier_matches(
+    project_profile: dict[str, set[str]], other_profile: dict[str, set[str]],
+) -> list[dict[str, str]]:
+    matches = []
+    for classification, other_classification in (("candidate", "confirmed"), ("confirmed", "candidate")):
+        overlap = project_profile[f"{classification}_component_identifiers"] & other_profile[f"{other_classification}_component_identifiers"]
+        for claim in sorted(overlap):
+            kind, value, role = json.loads(claim)
+            matches.append({"kind": kind, "value": value, "role": role,
+                            "project_classification": classification, "other_classification": other_classification})
+    return matches
+
+
+def identifier_match_values(matches: list[dict[str, str]]) -> list[str]:
+    return sorted({f"{item['kind']}: {item['value']} ({item['role']})" for item in matches})
+
+
 def duplicate_profile(project: dict[str, Any]) -> dict[str, set[str]]:
     return {
+        **component_identifier_profile(project),
         "project_repository_urls": set(project_record.project_repository_url_values(project)),
         "github_repo_urls": set(project_record.provider_repo_url_values(project, "github")),
         "candidate_project_repository_urls": set(project.get("candidate_project_repository_urls", [])),
@@ -9752,6 +9797,8 @@ def namespace_lineage_overlap(project_a: dict[str, Any], project_b: dict[str, An
 def build_duplicate_candidate_index(projects: list[dict[str, Any]]) -> tuple[dict[str, dict[str, set[str]]], dict[str, dict[str, set[str]]]]:
     profiles: dict[str, dict[str, set[str]]] = {}
     index: dict[str, dict[str, set[str]]] = {
+        "candidate_component_identifiers": {},
+        "confirmed_component_identifiers": {},
         "project_repository_urls": {},
         "github_repo_urls": {},
         "candidate_project_repository_urls": {},
@@ -9917,6 +9964,10 @@ def batch_moderate_overlap(
         reasons["website_root_domain_and_alias"] = [domain_policy_core.root_domain(website_host_a)]
         reasons["alias_overlap"] = alias_overlap
 
+    identifier_matches = candidate_confirmed_identifier_matches(component_identifier_profile(project_a), component_identifier_profile(project_b))
+    if identifier_matches:
+        reasons["candidate_confirmed_identifiers"] = identifier_match_values(identifier_matches)
+
     return reasons
 
 
@@ -10079,6 +10130,7 @@ def build_batch_merge_plan(
             "target_name": target_project.get("name", ""),
             "reasons": safe_reasons,
             "recommendation": recommendation,
+            "identifier_matches": candidate_confirmed_identifier_matches(duplicate_profiles[source["project_key"]], duplicate_profiles[target_project["project_key"]]),
         }
         existing = selected.get(pair_key)
         if existing is None or int(recommendation.get("score", 0) or 0) > int(existing["recommendation"].get("score", 0) or 0):

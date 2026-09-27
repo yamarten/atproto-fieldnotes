@@ -1090,6 +1090,45 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("merge_recommendation", analysis)
         self.assertNotEqual(analysis["explanation"]["conclusion"], "pending")
 
+    def test_candidate_confirmed_merge_analysis_pair_and_moderate_are_read_only(self) -> None:
+        source, target = "proj:crosssource", "proj:crosstarget"
+        value = "https://github.com/cross/one-resource"
+        with contextlib.closing(registry.open_db()) as conn:
+            left = self.make_project(source, "repo_url", "https://github.com/left/alpha")
+            right = self.make_project(target, "repo_url", "https://github.com/right/beta")
+            left["candidate_project_repository_urls"] = [value]
+            right["project_repository_urls"] = [value]
+            project_record.save_project(conn, left)
+            project_record.save_project(conn, right)
+            conn.commit()
+            before = list(conn.iterdump())
+        for key, other, classification in ((source, target, "candidate"), (target, source, "confirmed")):
+            status, analysis, _ = self.request(f"/api/projects/{key}/merge-analysis")
+            self.assertEqual(status, 200)
+            candidate = next(item for item in analysis["duplicates"] if item["project_key"] == other)
+            self.assertFalse(candidate["auto_merge_ready"])
+            self.assertEqual(candidate["identifier_matches"][0]["value"], value)
+            self.assertEqual(candidate["identifier_matches"][0]["project_classification"], classification)
+            status, pair, _ = self.request(f"/api/merge-pair?source_project_key={key}&target_project_key={other}")
+            self.assertEqual(status, 200)
+            self.assertEqual(pair["source_pair_candidate"]["identifier_matches"], candidate["identifier_matches"])
+        for mode, expected in (("strict", False), ("moderate", True), ("broad", True)):
+            status, plans, _ = self.request(f"/api/merge-batch?mode={mode}")
+            self.assertEqual(status, 200)
+            matches = [item for item in plans["items"] if {item["source_project_key"], item["target_project_key"]} == {source, target}]
+            self.assertEqual(bool(matches), expected)
+            if matches:
+                self.assertEqual(matches[0]["identifier_matches"][0]["value"], value)
+        with contextlib.closing(registry.open_db()) as conn:
+            self.assertEqual(list(conn.iterdump()), before)
+            left = project_record.fetch_project(conn, source)
+            left["separate_project_keys"] = [target]
+            project_record.save_project(conn, left)
+            conn.commit()
+        status, analysis, _ = self.request(f"/api/projects/{source}/merge-analysis")
+        self.assertEqual(status, 200)
+        self.assertNotIn(target, [item["project_key"] for item in analysis["duplicates"]])
+
     def test_service_and_ownership_review_uses_saved_evidence(self) -> None:
         status, detail, _ = self.request("/api/projects/proj:111111111111")
         self.assertEqual(status, 200)
