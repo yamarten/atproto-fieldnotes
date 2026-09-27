@@ -46,7 +46,7 @@ README公開先の候補化と、帰属・逆参照・Web/protocol実在確認�
 
 ## 帰属・信頼・Projectの統合と分離
 
-同じ現行構成要素のidentifierがcandidateとconfirmedに分かれているpairを、個別ページとmoderate/broadのマージ候補へ接続しました。一致値・役割・双方の採用状態を表示し、採用前に比較できます。相互最上位条件は一覧で維持し、この一致だけでは自動マージ可能にしません。一時DBのAPI・guard・採用状態不変と、開発Webの主要導線を確認しています。正本のread-only差分と候補品質のレビュー材料、未受理・未反映の境界は[候補一致レビュー](../notes/candidate-confirmed-merge-review.md)を参照してください。
+同じ現行構成要素のidentifierがcandidateとconfirmedに分かれているpairを、個別ページとmoderate/broadのマージ候補へ接続しました。一致値・役割・双方の採用状態を表示し、採用前に比較できます。相互最上位条件は一覧で維持し、この一致だけでは自動マージ可能にしません。一時DBのAPI・guard・採用状態不変と、開発Webの主要導線を確認しています。ユーザーが比較候補を表示する機能として受理し、主checkoutへ統合済みです。個々のpairのmerge可否の承認ではなく、実運用Webへの反映には別途server reloadが必要です。正本のread-only差分、候補品質への留保と反映境界は[候補一致レビュー](../notes/candidate-confirmed-merge-review.md)を参照してください。
 
 現在のpage↔repositoryの関係（relation）から信頼グラフの接続（edge）を導出し、候補URLの確認、信頼評価、Explain（判定理由の表示）、shadow比較へ接続しています。serviceの採用には、公開先が担う役割を検証するrole policyを通します。旧保存edgeのarchive・除去は実運用反映済みで、保存済みの過去採用を新規評価だけで一律に取り消しません。適用時に判定用graph・現行relation・登録URL・採用判断・調査履歴が変わらないことと、DB整合性・Web API応答を確認しています。
 
