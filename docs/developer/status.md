@@ -46,7 +46,7 @@ README公開先の候補化と、帰属・逆参照・Web/protocol実在確認�
 
 ## 帰属・信頼・Projectの統合と分離
 
-同じ現行構成要素のidentifierがcandidateとconfirmedに分かれたpairを、個別ページとmoderate/broadのマージ候補に表示します。一致値・役割・双方の採用状態を比較でき、一覧の相互最上位条件を維持し、この一致だけでは自動マージ可能にしません。一時DBのAPI・guard・採用状態不変、開発Webの主要導線を確認しています。実運用Webにはserver reloadが必要で、反映は未確認です。保存済みreview queueの派生候補の全件更新も行っていません。機能の受理は各pairのmerge承認ではありません。[一致の契約](specs/project-boundaries.md#candidate-の根拠)、[個別の同一性への留保](../notes/temporal-project-relations.md#candidateとconfirmedの一致に残る同一性の留保)を参照してください。
+同じ現行構成要素のidentifierがcandidateとconfirmedに分かれたpairを、個別ページとmoderate/broadのマージ候補に表示します。一致値・役割・双方の採用状態を比較でき、一覧の相互最上位条件を維持し、この一致だけでは自動マージ可能にしません。一時DBのAPI・guard・採用状態不変、開発Webの主要導線を確認しています。実運用Webのserver reloadで反映済みですが、本番ブラウザの表示は未再検証です。保存済みreview queueの派生候補の全件更新も行っていません。機能の受理は各pairのmerge承認ではありません。[一致の契約](specs/project-boundaries.md#candidate-の根拠)、[個別の同一性への留保](../notes/temporal-project-relations.md#candidateとconfirmedの一致に残る同一性の留保)を参照してください。
 
 現在のpage↔repositoryの関係（relation）から信頼グラフの接続（edge）を導出し、候補URLの確認、信頼評価、Explain（判定理由の表示）、shadow比較へ接続しています。serviceの採用には、公開先が担う役割を検証するrole policyを通します。旧保存edgeのarchive・除去は実運用反映済みで、保存済みの過去採用を新規評価だけで一律に取り消しません。適用時に判定用graph・現行relation・登録URL・採用判断・調査履歴が変わらないことと、DB整合性・Web API応答を確認しています。
 
@@ -86,9 +86,9 @@ Gemmaは比較時のrepository解析でJSON失敗が再現し、通常処理へ�
 
 ## JobとWeb運用
 
-詳細から離れると、その詳細・マージ候補のfetchを取り消し、サーバーはmerge analysisの接続切断を読込み・索引作成・候補比較・SQLの確認点で検知して終了します。loopbackの開発Webと実ブラウザで連続選択・一覧／別画面への移動・履歴移動・別タブの独立性を確認し、一時DBで候補同値・DB不変・stale保護を検証しています。正本のread-onlyサービス比較でも不要計算の停止による競合減少を確認しました。取消しは主checkoutへ統合済みで、実運用への反映とTailscale Serve経由の切断伝播は未確認です。反映にはserver reload・ページ再読込が必要です。[読込みと取消しの境界](architecture.md#cliwebとapplication-service)を参照してください。
+詳細から離れると、その詳細・マージ候補のfetchを取り消し、サーバーはmerge analysisの接続切断を読込み・索引作成・候補比較・SQLの確認点で検知して終了します。loopbackの開発Webと実ブラウザで連続選択・一覧／別画面への移動・履歴移動・別タブの独立性を確認し、一時DBで候補同値・DB不変・stale保護を検証しています。正本のread-onlyサービス比較でも不要計算の停止による競合減少を確認しました。2026-09-27に実運用Webへ反映し、このMacからTailscale Serve経由のHTTPS接続を中断すると約0.3秒で499終了することを確認しました。本番ブラウザの画面遷移と別端末からの取消しは未再検証です。開いているページには再読込が必要です。[読込みと取消しの境界](architecture.md#cliwebとapplication-service)を参照してください。
 
-単発のマージ候補計算は、比較に必要なfieldと子行だけを同一snapshotから読み、キャッシュなしで索引を構築します。正本5,142件のread-only比較では、全projectの候補・順序・根拠が完全復元経路と一致し、代表projectの反復では約6.8〜7.3秒から約2.2〜2.6秒へ短縮しました。temp DBで同時更新・取消し・部分viewの保存拒否、開発Webの実ブラウザで候補あり／なし・比較・連続選択を確認しています。主checkoutへ統合済みで、実運用Webへの反映は未確認です。同時収集下・冷えたOS cache・Tailscaleを含む画面全体の待ち時間は測っておらず、全負荷条件で3秒未満を保証するものではありません。
+単発のマージ候補計算は、比較に必要なfieldと子行だけを同一snapshotから読み、キャッシュなしで索引を構築します。正本5,142件のread-only比較では、全projectの候補・順序・根拠が完全復元経路と一致し、代表projectの反復では約6.8〜7.3秒から約2.2〜2.6秒へ短縮しました。temp DBで同時更新・取消し・部分viewの保存拒否、開発Webの実ブラウザで候補あり／なし・比較・連続選択を確認しています。実運用Webへ反映済みです。このMacからのHTTPS API確認では再起動後の最初の完走が5.74秒、別対象と同対象の再計測は2.33〜2.53秒でした。初回差の原因は未特定です。同時収集下・冷えたOS cacheの統制・画面全体の待ち時間は未検証で、全負荷条件で3秒未満を保証するものではありません。
 
 Web UIは日本語を基本とし、JSON等の馴染みのある技術ラベルは原表記も使います。API・CLI・DBの名前と保存値は維持し、識別子・引用・JSON・診断原文は改変しません。日本語化は実運用HTTPSで静的ファイルの一致まで確認済みです。静的ファイルはリクエストごとに読み込まれるためサーバー再起動は不要で、開いているページの再読込で反映されます。正本での更新操作は再検証していません。
 
