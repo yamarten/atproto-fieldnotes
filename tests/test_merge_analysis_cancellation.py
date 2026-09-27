@@ -89,7 +89,7 @@ vm.runInContext(part('async function api(', 'function restoreStateFromUrl(') +
 
     def test_cancellation_stops_hydration_index_and_pair_comparison(self):
         for stage, module, name in (
-            ('hydrate', project_record, '_project_from_snapshot_row'),
+            ('hydrate', project_record, '_duplicate_project_from_rows'),
             ('index', registry, 'duplicate_profile'),
             ('pairs', registry, 'duplicate_candidate_for_pair'),
         ):
@@ -145,7 +145,7 @@ vm.runInContext(part('async function api(', 'function restoreStateFromUrl(') +
         stopped = threading.Event()
         completed = threading.Event()
         visited = {}
-        original_hydrate = project_record._project_from_snapshot_row
+        original_hydrate = project_record._duplicate_project_from_rows
         original_analysis = presentation.project_merge_analysis
         def hydrate(*args, **kwargs):
             ident = threading.get_ident()
@@ -161,7 +161,7 @@ vm.runInContext(part('async function api(', 'function restoreStateFromUrl(') +
             except RequestCancelled:
                 stopped.set()
                 raise
-        with mock.patch('project_registry_web.server.JobManager'), mock.patch.object(project_record, '_project_from_snapshot_row', side_effect=hydrate), mock.patch.object(presentation, 'project_merge_analysis', side_effect=analysis):
+        with mock.patch('project_registry_web.server.JobManager'), mock.patch.object(project_record, '_duplicate_project_from_rows', side_effect=hydrate), mock.patch.object(presentation, 'project_merge_analysis', side_effect=analysis):
             server = RegistryWebServer(('127.0.0.1', 0), token='test', db_path=self.db_path)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()

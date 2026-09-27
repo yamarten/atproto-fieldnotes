@@ -1416,6 +1416,68 @@ def list_projects(
 
 
 @concurrency.consistent_read
+def list_duplicate_projects(
+    conn: sqlite3.Connection, *, check_cancelled: Callable[[], None] | None = None,
+) -> list[dict[str, Any]]:
+    """Read-only inputs for duplicate matching, never a saveable runtime view.
+
+    Keep the scalar identity, creator evidence, trust policy, current identifier
+    rows and operator decisions. Descriptions, observations and relation evidence
+    do not participate in duplicate_profile or duplicate_candidate_for_pair.
+    All tables are read in one snapshot, including caller-owned transactions.
+    """
+    if check_cancelled:
+        check_cancelled()
+    children: dict[str, dict[str, list[sqlite3.Row]]] = {}
+    for table in ("project_identifiers", "project_decisions", "project_identifier_adoptions"):
+        grouped: dict[str, list[sqlite3.Row]] = {}
+        order = "created_at, adoption_id" if table == "project_identifier_adoptions" else "ordinal"
+        for row in conn.execute(f"SELECT * FROM {table} ORDER BY project_key, {order}"):
+            if check_cancelled:
+                check_cancelled()
+            grouped.setdefault(str(row["project_key"]), []).append(row)
+        children[table] = grouped
+    projects = []
+    rows = conn.execute("""
+        SELECT project_key, name, website_url,
+               json_extract(state_json, '$.ops.status') AS status,
+               json_extract(state_json, '$.evidence.record_creators') AS record_creators,
+               json_extract(state_json, '$.evidence.trust_graph') AS trust_graph
+        FROM projects ORDER BY last_seen_at DESC, project_key ASC
+    """)
+    for row in rows:
+        if check_cancelled:
+            check_cancelled()
+        key = str(row["project_key"])
+        projects.append(_duplicate_project_from_rows(
+            row,
+            identifier_rows=children["project_identifiers"].pop(key, []),
+            decision_rows=children["project_decisions"].pop(key, []),
+            adoption_rows=children["project_identifier_adoptions"].pop(key, []),
+        ))
+    return projects
+
+
+def _duplicate_project_from_rows(
+    row: sqlite3.Row, *, identifier_rows: list[sqlite3.Row],
+    decision_rows: list[sqlite3.Row], adoption_rows: list[sqlite3.Row],
+) -> dict[str, Any]:
+    payload = dict(row)
+    payload["record_creators"] = load_json(row["record_creators"] or "[]")
+    payload["trust_graph"] = load_json(row["trust_graph"] or "{}")
+    payload = runtime_view.hydrate(
+        payload, identifier_rows=identifier_rows, decision_rows=decision_rows,
+        adoption_rows=adoption_rows, relation_rows=(), load_json=registry_database._load_json,
+    )
+    # Reuse normalization and identifier baselines so the original stored
+    # kind/value/role/classification survives legacy field projection exactly as
+    # in a full read. The partial input must not pass the update completeness gate.
+    payload = runtime_view.refresh_baselines(ensure_project_shape(payload))
+    payload.pop(runtime_view.RUNTIME_VIEW_MARKER, None)
+    return payload
+
+
+@concurrency.consistent_read
 def list_projects_with_decision(
     conn: sqlite3.Connection,
     decision_kind: str,

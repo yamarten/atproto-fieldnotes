@@ -712,6 +712,8 @@ merge実行時の統合後`duplicate_candidates`は、削除予定sourceと置�
 
 ### duplicate candidate の作り方
 
+DBから比較集合を読む単発計算では、名前・Website・status、record creator・trust graph、現行identifier・decision・adoptionだけを同一snapshotから復元します。完全なproject読込みと同じ正規化・identifier解釈で下記profileを作り、候補の順位・根拠・採用抑止を評価します。保存済み説明や収集結果、relation全体は比較入力に含めません。既に比較集合が渡された場合はその集合を使い、未保存の変更やmerge時のsource除外を維持します。profileと索引は計算ごとに作り直し、結果をcacheしません。
+
 - まず各 project から duplicate profile を作ります
   - `project_repository_urls`
   - `github_repo_urls`

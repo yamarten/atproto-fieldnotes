@@ -9669,7 +9669,7 @@ def compute_duplicate_candidates(
     candidates: list[dict[str, Any]] = []
     if check_cancelled:
         check_cancelled()
-    all_projects = projects if projects is not None else project_record.list_projects(conn, check_cancelled=check_cancelled)
+    all_projects = projects if projects is not None else project_record.list_duplicate_projects(conn, check_cancelled=check_cancelled)
     if duplicate_profiles is None or duplicate_index is None:
         duplicate_profiles, duplicate_index = build_duplicate_candidate_index(all_projects, check_cancelled=check_cancelled)
     target_profile = duplicate_profile(project)
