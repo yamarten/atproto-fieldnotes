@@ -9664,11 +9664,14 @@ def compute_duplicate_candidates(
     projects: list[dict[str, Any]] | None = None,
     duplicate_profiles: dict[str, dict[str, set[str]]] | None = None,
     duplicate_index: dict[str, dict[str, set[str]]] | None = None,
+    check_cancelled: Callable[[], None] | None = None,
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
-    all_projects = projects if projects is not None else project_record.list_projects(conn)
+    if check_cancelled:
+        check_cancelled()
+    all_projects = projects if projects is not None else project_record.list_projects(conn, check_cancelled=check_cancelled)
     if duplicate_profiles is None or duplicate_index is None:
-        duplicate_profiles, duplicate_index = build_duplicate_candidate_index(all_projects)
+        duplicate_profiles, duplicate_index = build_duplicate_candidate_index(all_projects, check_cancelled=check_cancelled)
     target_profile = duplicate_profile(project)
     candidate_keys: set[str] = set()
     for field, values in target_profile.items():
@@ -9687,6 +9690,8 @@ def compute_duplicate_candidates(
         if str(item.get("project_key") or "")
     }
     for other_key in sorted(candidate_keys):
+        if check_cancelled:
+            check_cancelled()
         other = project_lookup.get(other_key)
         if other is None:
             continue
@@ -9794,7 +9799,9 @@ def namespace_lineage_overlap(project_a: dict[str, Any], project_b: dict[str, An
     return sorted(overlap)
 
 
-def build_duplicate_candidate_index(projects: list[dict[str, Any]]) -> tuple[dict[str, dict[str, set[str]]], dict[str, dict[str, set[str]]]]:
+def build_duplicate_candidate_index(
+    projects: list[dict[str, Any]], *, check_cancelled: Callable[[], None] | None = None,
+) -> tuple[dict[str, dict[str, set[str]]], dict[str, dict[str, set[str]]]]:
     profiles: dict[str, dict[str, set[str]]] = {}
     index: dict[str, dict[str, set[str]]] = {
         "candidate_component_identifiers": {},
@@ -9811,6 +9818,8 @@ def build_duplicate_candidate_index(projects: list[dict[str, Any]]) -> tuple[dic
         "merge_aliases": {},
     }
     for project in projects:
+        if check_cancelled:
+            check_cancelled()
         project_key = str(project.get("project_key") or "")
         if not project_key:
             continue

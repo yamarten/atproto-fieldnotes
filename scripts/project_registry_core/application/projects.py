@@ -3,7 +3,7 @@ from __future__ import annotations
 from .. import editorial
 
 import sqlite3
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from .. import registry as core
 from .. import identifiers
@@ -144,8 +144,10 @@ def select_projects(
     raise ValueError("choose one of project_key, seed, or all_projects")
 
 
-def prepare_project_view(conn: sqlite3.Connection, project: dict[str, Any]) -> dict[str, Any]:
-    duplicate_candidates = core.compute_duplicate_candidates(conn, project)
+def prepare_project_view(
+    conn: sqlite3.Connection, project: dict[str, Any], *, check_cancelled: Callable[[], None] | None = None,
+) -> dict[str, Any]:
+    duplicate_candidates = core.compute_duplicate_candidates(conn, project, check_cancelled=check_cancelled)
     prepared = dict(project, duplicate_candidates=duplicate_candidates)
     prepared["merge_recommendation"] = core.compute_merge_recommendation(prepared)
     return core.apply_promotion_state(prepared)

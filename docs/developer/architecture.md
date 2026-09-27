@@ -60,6 +60,10 @@ Explain serviceは`project_registry_core.application.explain`をCLIとWebで共�
 
 Webの初期detailは全project hydrateを行わず、merge candidateだけを`/api/projects/{key}/merge-analysis`で非同期計算します。同service内では重複候補（duplicate candidate）の計算を1回だけ行い、その結果をマージ推奨（merge recommendation）とExplainの両方へ渡します。マージ解析対象projectの変更検出値（revision）が計算中に変化した場合は結果を破棄し、計算済みviewはDBへ追加しません。
 
+詳細の切替・選択解除・画面遷移・pagehideでは、ブラウザが詳細とmerge analysisのfetchをAbortControllerで取り消します。request世代とproject/revisionの照合も維持し、取消しと応答完了が競合しても古い結果を描画せず、AbortErrorを画面へ表示しません。サーバーの`request_cancellation.py`はmerge analysisのHTTP接続だけを監視し、確認点で切断を調べます（socket確認から50ms未満の再確認は省略）。applicationから渡す`check_cancelled`を全件hydrate・索引作成のproject境界と候補pair境界で呼び、SQLはconnectionのprogress handler（1,000命令ごと）から確認します。取消し時は計算を抜け、read snapshot・DB接続・progress handlerを解放し、HTTPログに`499`を残します。取消し用のqueue・共有project状態・別タブへの取消しはありません。
+
+中断は協調的です。1 project内のPython処理、行の変換、SQLiteのbusy待機、応答の直列化を強制終了するものではなく、次の確認点まで続くことがあります。HTTPS等のreverse proxy経由では上流接続へ切断が伝わることが前提です。単発の全件読込み・索引再構築は引き続き行い、cacheや候補判定規則は変更しません。
+
 ### 一覧・詳細の検索経路
 
 Webのproject一覧は`projects`を起点にnormalized identifier、relation、decisionを`EXISTS` queryでfilterします。一覧候補作成時に全projectのchildをhydrateせず、detailは選択した1件のchildを取得します。自由入力はproject key、name、Website、identifier value、relation subject/object/locator、decision target/noteに加え、保存済みの`tagline`、`summary`、`features`各要素の大小文字を無視した部分一致です。`profile_json`や`state_json`全体、raw evidence、README/HTML全文は対象外です。

@@ -11,7 +11,7 @@ import time
 import urllib.parse
 import uuid
 from dataclasses import asdict
-from typing import Any
+from typing import Any, Callable
 
 from project_registry_core import database as registry_database
 from project_registry_core import domain_policy as domain_policy_core
@@ -1379,7 +1379,12 @@ def resolve_project_key_input(conn: sqlite3.Connection, supplied: str) -> str:
 
 
 @concurrency.consistent_read
-def list_projects(conn: sqlite3.Connection, tracking_states: set[str] | None = None) -> list[dict[str, Any]]:
+def list_projects(
+    conn: sqlite3.Connection, tracking_states: set[str] | None = None,
+    *, check_cancelled: Callable[[], None] | None = None,
+) -> list[dict[str, Any]]:
+    if check_cancelled:
+        check_cancelled()
     if tracking_states is None:
         rows = conn.execute(
             """
@@ -1402,7 +1407,12 @@ def list_projects(conn: sqlite3.Connection, tracking_states: set[str] | None = N
             """,
             tuple(requested),
         ).fetchall()
-    return [_project_from_snapshot_row(conn, row) for row in rows]
+    projects = []
+    for row in rows:
+        if check_cancelled:
+            check_cancelled()
+        projects.append(_project_from_snapshot_row(conn, row))
+    return projects
 
 
 @concurrency.consistent_read

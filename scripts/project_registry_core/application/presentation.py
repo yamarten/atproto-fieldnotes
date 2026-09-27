@@ -8,7 +8,7 @@ import datetime as dt
 import hashlib
 import json
 import sqlite3
-from typing import Any
+from typing import Any, Callable
 
 from .. import evaluation, relations, registry as core, runtime_view, storage
 from . import decisions, explain, investigation, merge, projects, query as query_service, review, review_targets
@@ -725,13 +725,19 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
     return payload
 
 
-def project_merge_analysis(conn: sqlite3.Connection, *, project_key: str) -> dict[str, Any]:
+def project_merge_analysis(
+    conn: sqlite3.Connection, *, project_key: str, check_cancelled: Callable[[], None] | None = None,
+) -> dict[str, Any]:
+    if check_cancelled:
+        check_cancelled()
     resolved = project_record.resolve_project_key_input(conn, project_key)
     revision_before = project_revision(conn, resolved)
     project = project_record.fetch_project(conn, resolved)
     if project is None:
         raise KeyError(project_key)
-    prepared = projects.prepare_project_view(conn, project)
+    prepared = projects.prepare_project_view(conn, project, check_cancelled=check_cancelled)
+    if check_cancelled:
+        check_cancelled()
     revision_after = project_revision(conn, resolved)
     if revision_before != revision_after:
         raise StaleProjectError(f"project changed during merge analysis: {resolved}")

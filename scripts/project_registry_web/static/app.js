@@ -382,7 +382,7 @@ function contextualBackButton() {
 }
 function bindBackToListButtons() {
   document.querySelectorAll("[data-detail-back]").forEach((button) => {
-    button.onclick = () => { document.body.classList.remove("detail-open"); state.selected = ""; syncUrl(); };
+    button.onclick = () => { document.body.classList.remove("detail-open"); clearDetailSelection(); syncUrl(); };
   });
   document.querySelectorAll("[data-detail-return]").forEach((button) => {
     button.onclick = () => {
@@ -435,6 +435,8 @@ const state = {
   listRequest: 0,
   detailRequest: 0,
   mergeAnalysisRequest: 0,
+  detailController: null,
+  mergeAnalysisController: null,
   operationTimer: null,
   settings: loadSettings(),
   server: null,
@@ -580,8 +582,14 @@ async function api(path, options = {}) {
   if (options.body) headers["Content-Type"] = "application/json";
   let response;
   try { response = await fetch(path, {...options, headers}); }
-  catch (error) { throw new Error(apiErrorMessage(error)); }
-  const payload = await response.json().catch(() => ({}));
+  catch (error) {
+    if (error.name === "AbortError") throw error;
+    throw new Error(apiErrorMessage(error));
+  }
+  const payload = await response.json().catch((error) => {
+    if (error.name === "AbortError") throw error;
+    return {};
+  });
   if (!response.ok) {
     const error = new Error(apiErrorMessage(payload.error || {message: response.statusText}));
     error.code = payload.error?.code || "request_failed";
@@ -666,12 +674,12 @@ function syncUrl({replace = false} = {}) {
 }
 
 function setScreen(screen, {updateUrl = true, preserveSelection = false} = {}) {
+  cancelDetailRequests();
   if (state.operationTimer) clearTimeout(state.operationTimer);
   state.operationTimer = null;
   state.listRequest += 1;
-  state.detailRequest += 1;
   state.screen = screen;
-  if (!preserveSelection) state.selected = "";
+  if (!preserveSelection) clearDetailSelection();
   document.body.dataset.screen = screen;
   document.body.classList.remove("detail-open");
   document.querySelectorAll(".primary-nav [data-screen]").forEach((button) => button.classList.toggle("active", button.dataset.screen === screen));
@@ -741,6 +749,7 @@ function listControls() {
 }
 
 async function loadList() {
+  if (!state.selected) clearDetailSelection();
   const request = ++state.listRequest;
   $("list-controls").innerHTML = listControls();
   $("list").innerHTML = `<p class="muted">読込中…</p>`;
@@ -847,7 +856,7 @@ function bindControls() {
     state.promotionView = $("promotion-view").value;
     state.promotionReason = $("promotion-reason").value.trim();
     state.promotionOffset = 0;
-    state.selected = "";
+    clearDetailSelection();
     syncUrl(); loadList();
   };
   $("promotion-view")?.addEventListener("change", applyPromotionFilter);
@@ -856,12 +865,12 @@ function bindControls() {
   $("clear-promotion-filter")?.addEventListener("click", () => {
     $("promotion-reason").value = ""; applyPromotionFilter();
   });
-  document.querySelectorAll("[data-review-view]").forEach((button) => button.onclick = () => { state.reviewView = button.dataset.reviewView; state.selected = ""; syncUrl(); loadList(); });
-  $("introduced-status")?.addEventListener("change", () => { state.introducedStatus = $("introduced-status").value; state.introducedOffset = 0; state.selected = ""; syncUrl(); loadList(); });
+  document.querySelectorAll("[data-review-view]").forEach((button) => button.onclick = () => { state.reviewView = button.dataset.reviewView; clearDetailSelection(); syncUrl(); loadList(); });
+  $("introduced-status")?.addEventListener("change", () => { state.introducedStatus = $("introduced-status").value; state.introducedOffset = 0; clearDetailSelection(); syncUrl(); loadList(); });
   $("refresh-review-list")?.addEventListener("click", () => loadList());
   const applyReviewFilter = () => {
     state.reviewSignalKind = $("review-signal-kind")?.value.trim() || "";
-    state.selected = "";
+    clearDetailSelection();
     syncUrl();
     loadList();
   };
@@ -869,13 +878,13 @@ function bindControls() {
   $("review-signal-kind")?.addEventListener("keydown", (event) => { if (event.key === "Enter") applyReviewFilter(); });
   $("clear-review-filter")?.addEventListener("click", () => {
     state.reviewSignalKind = "";
-    state.selected = "";
+    clearDetailSelection();
     syncUrl();
     loadList();
   });
   bindExplicitMergePairControls(document);
-  $("search-projects")?.addEventListener("click", () => { captureProjectSearch(); state.selected = ""; syncUrl(); loadList(); });
-  $("project-query")?.addEventListener("keydown", (event) => { if (event.key === "Enter") { captureProjectSearch(); state.selected = ""; syncUrl(); loadList(); } });
+  $("search-projects")?.addEventListener("click", () => { captureProjectSearch(); clearDetailSelection(); syncUrl(); loadList(); });
+  $("project-query")?.addEventListener("keydown", (event) => { if (event.key === "Enter") { captureProjectSearch(); clearDetailSelection(); syncUrl(); loadList(); } });
   $("new-seed")?.addEventListener("click", renderNewSeed);
 }
 
@@ -1038,8 +1047,8 @@ function renderIntroducedList(data) {
       <span class="muted">${esc(formatTimestamp(item.indexed_at))}</span>
     </button>`).join("") : `<div class="empty-state"><p>表示する紹介投稿はありません。</p></div>`}
     <div class="actions"><button id="introduced-prev" ${data.offset ? "" : "disabled"}>前のページ</button><button id="introduced-next" ${data.has_more ? "" : "disabled"}>次のページ</button></div>`;
-  $("introduced-prev").onclick = () => { state.introducedOffset = Math.max(0, state.introducedOffset - 100); state.selected = ""; syncUrl(); loadList(); };
-  $("introduced-next").onclick = () => { state.introducedOffset += 100; state.selected = ""; syncUrl(); loadList(); };
+  $("introduced-prev").onclick = () => { state.introducedOffset = Math.max(0, state.introducedOffset - 100); clearDetailSelection(); syncUrl(); loadList(); };
+  $("introduced-next").onclick = () => { state.introducedOffset += 100; clearDetailSelection(); syncUrl(); loadList(); };
   document.querySelectorAll("[data-introduced-id]").forEach((button) => button.onclick = () => selectIntroducedItem(button.dataset.introducedId));
   const selected = state.introducedItems.find((item) => item.id === state.selected) || state.introducedItems[0];
   if (selected) selectIntroducedItem(selected.id, {updateUrl:false});
@@ -1049,6 +1058,7 @@ function renderIntroducedList(data) {
 function selectIntroducedItem(id, {updateUrl = true} = {}) {
   const item = state.introducedItems.find((entry) => entry.id === id);
   if (!item) return;
+  cancelDetailRequests();
   state.selected = id;
   document.querySelectorAll("[data-introduced-id]").forEach((card) => card.classList.toggle("selected", card.dataset.introducedId === id));
   if (updateUrl) syncUrl();
@@ -1075,7 +1085,7 @@ async function introducedAction(item, action, extra = {}) {
   try {
     await api("/api/introduced-review/action", {method:"POST", body:JSON.stringify({scope_key:item.scope_key, item_id:item.id, action, ...extra})});
     status("紹介投稿の判断を保存しました。");
-    state.selected = "";
+    clearDetailSelection();
     syncUrl({replace:true});
     await loadList();
   } catch (error) { status(error.message, true); }
@@ -1175,7 +1185,7 @@ function advanceReviewList(sourceKey, {targetKey = "", statusPrefix = "今回は
     status(`${statusPrefix} 次の項目へ進みました。残り${remaining}件。再読込で一覧を更新します。`);
     openListCard(next || previous);
   } else {
-    state.selected = "";
+    clearDetailSelection();
     document.body.classList.remove("detail-open");
     syncUrl();
     $("detail").innerHTML = `<div class="empty-state"><p>表示中の要レビュー項目はすべて確認しました。</p><div class="actions"><button id="refresh-empty-review-list" class="primary">一覧を再読込</button></div></div>`;
@@ -1248,7 +1258,7 @@ function advanceMergeReviewAfterMerge(response) {
     status(`保存しました。 次の項目へ進みました。残り${remainingCards.length}件。再読込で一覧を更新します。`);
     openListCard(nextCard);
   } else {
-    state.selected = "";
+    clearDetailSelection();
     document.body.classList.remove("detail-open");
     syncUrl();
     $("detail").innerHTML = `<div class="empty-state"><p>表示中の要レビュー項目はすべて確認しました。</p><div class="actions"><button id="refresh-empty-review-list" class="primary">一覧を再読込</button></div></div>`;
@@ -1265,7 +1275,25 @@ function skipReviewItem(sourceKey = state.selected, targetKey = "") {
   }
 }
 
+function clearDetailSelection() {
+  cancelDetailRequests();
+  state.selected = "";
+  $("detail").innerHTML = `<div class="empty-state"><h2>登録プロジェクトを選択</h2><p>識別子・調査根拠・手動判断を確認できます。</p></div>`;
+}
+
+function cancelDetailRequests() {
+  state.detailRequest += 1;
+  state.mergeAnalysisRequest += 1;
+  state.detailController?.abort();
+  state.mergeAnalysisController?.abort();
+  state.detailController = null;
+  state.mergeAnalysisController = null;
+}
+
 async function loadDetail(key, {updateUrl = true, backTarget = null} = {}) {
+  cancelDetailRequests();
+  const controller = new AbortController();
+  state.detailController = controller;
   const request = ++state.detailRequest;
   state.selected = key; document.body.classList.add("detail-open");
   state.detailBackTarget = backTarget;
@@ -1273,9 +1301,10 @@ async function loadDetail(key, {updateUrl = true, backTarget = null} = {}) {
   $("detail").innerHTML = `<p class="muted">${esc(key)}を読込中…</p>`;
   resetDetailScroll();
   try {
-    const data = await api(`/api/projects/${encodeURIComponent(key)}`);
+    const data = await api(`/api/projects/${encodeURIComponent(key)}`, {signal: controller.signal});
     if (request === state.detailRequest && state.selected === key) renderDetail(data);
   } catch (error) {
+    if (error.name === "AbortError") return;
     if (request !== state.detailRequest || state.selected !== key) return;
     status(error.message, true);
     $("detail").innerHTML = `<p class="notice">${esc(error.message)}</p>`;
@@ -1634,9 +1663,12 @@ function renderMergeIdentifierMatches(matches, projectLabel = "このプロジ�
 }
 
 async function loadMergeAnalysis(projectKey, revision, explanations) {
+  state.mergeAnalysisController?.abort();
+  const controller = new AbortController();
+  state.mergeAnalysisController = controller;
   const request = ++state.mergeAnalysisRequest;
   try {
-    const data = await api(`/api/projects/${encodeURIComponent(projectKey)}/merge-analysis`);
+    const data = await api(`/api/projects/${encodeURIComponent(projectKey)}/merge-analysis`, {signal: controller.signal});
     if (request !== state.mergeAnalysisRequest || state.selected !== projectKey || state.detailRevision !== revision) return;
     if (data.revision !== revision) {
       $("merge-analysis-content").innerHTML = `<p class="muted">プロジェクトが変更されました。詳細を再読込してマージ候補を再計算してください。</p>`;
@@ -1661,6 +1693,7 @@ async function loadMergeAnalysis(projectKey, revision, explanations) {
     const current = document.querySelector('[data-explain-topic="merge_candidate"]');
     if (current) current.outerHTML = renderExplanation("merge_candidate", mergeExplanation);
   } catch (error) {
+    if (error.name === "AbortError") return;
     if (request !== state.mergeAnalysisRequest || state.selected !== projectKey) return;
     const target = $("merge-analysis-content");
     if (target) target.innerHTML = `<p class="notice">${esc(error.message)}</p>`;
@@ -1905,6 +1938,7 @@ function confirmMutation(title, message, path, payload, note, defaultNote = "", 
 }
 
 async function loadMergeDetail(source, target, options = {}) {
+  cancelDetailRequests();
   const request = ++state.detailRequest;
   state.selected = source; document.body.classList.add("detail-open");
   const includeFirstCreator = Boolean(options.includeFirstCreator);
@@ -1964,8 +1998,7 @@ function confirmMerge(title, action, source, target) {
 }
 
 function renderNewSeed() {
-  state.detailRequest += 1;
-  state.selected = "";
+  clearDetailSelection();
   $("detail").innerHTML = `${backToListButton()}<p class="eyebrow">登録プロジェクト</p><h2>シードを登録</h2><div class="controls"><label>NSID・リポジトリURL・サービスURL<input id="seed-value" type="text"></label><div class="actions"><button id="preview-seed" class="primary">プレビュー</button></div></div><div id="seed-preview"></div><div class="detail-footer">${backToListButton()}</div>`;
   document.body.classList.add("detail-open");
   bindBackToListButtons();
@@ -2424,6 +2457,10 @@ $("refresh").addEventListener("click", () => setScreen(state.screen, {updateUrl:
 window.addEventListener("popstate", () => {
   restoreStateFromUrl();
   setScreen(state.screen, {updateUrl: false, preserveSelection: true});
+});
+window.addEventListener("pagehide", cancelDetailRequests);
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) setScreen(state.screen, {updateUrl: false, preserveSelection: true});
 });
 api("/api/settings").then((server) => {
   state.server = server;

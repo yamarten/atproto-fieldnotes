@@ -27,6 +27,7 @@ from project_registry_core import introduced_review
 from project_registry_core import registry as core
 from project_registry_core.application import decisions, maintenance, merge, presentation as services, projects
 from .jobs import JobConflictError, JobManager
+from .request_cancellation import RequestCancellation, RequestCancelled
 from project_registry_core import project_record
 
 
@@ -215,6 +216,10 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
     def dispatch(self, callback: Callable[[], None]) -> None:
         try:
             callback()
+        except (RequestCancelled, BrokenPipeError, ConnectionResetError):
+            # Log cancellation, but never send an error to a disconnected client.
+            self._response_status = 499
+            self.close_connection = True
         except KeyError as exc:
             self.send_error_json("not_found", str(exc).strip("'"), HTTPStatus.NOT_FOUND)
         except (ValueError, json.JSONDecodeError) as exc:
@@ -425,8 +430,13 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             key = urllib.parse.unquote(path.removeprefix("/api/projects/").removesuffix("/merge-analysis")).strip("/")
             if not key or "/" in key:
                 raise KeyError("project not found")
+            cancellation = RequestCancellation(getattr(self, "connection", None))
+            cancellation.check()
             with contextlib.closing(self.server.open_db()) as conn:
-                self.send_json(services.project_merge_analysis(conn, project_key=key))
+                with cancellation.during_queries(conn):
+                    result = services.project_merge_analysis(conn, project_key=key, check_cancelled=cancellation.check)
+                cancellation.check()
+                self.send_json(result)
             return
         if path.startswith("/api/projects/"):
             key = urllib.parse.unquote(path.removeprefix("/api/projects/")).strip("/")
