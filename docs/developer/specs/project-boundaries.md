@@ -757,7 +757,7 @@ merge実行時の統合後`duplicate_candidates`は、削除予定sourceと置�
   - `identifier_storage.COMPONENT_ROLES`を使い、service、project site、project repository、owned NSID、project account/handle、brand DIDを対象にします。developer account/handle/DID、利用・参照したcollection、Website scalar、derived domain、未知roleはこの根拠にしません
   - `runtime_view.project_identifiers()`にある現行claimだけを照合し、former/non-production、derived/heuristic classification、片方でもblockまたは有効なdeferに該当する値は使いません。期限切れdeferは通常の評価へ戻ります
   - 正規化済みの値を完全一致で比較します。NSIDの大小文字は区別し、URLのhost共有・prefix一致・異なるkind/role間の一致へ広げません
-  - 共有resourceの一致は同一projectの確定ではありません。候補には`identifier_matches`としてkind・role・一致値・比較元と相手のclassificationを付け、Webの個別ページ・候補一覧・比較画面で表示します。候補計算はidentifierや採用判断を保存しません
+  - 共有resourceの一致は同一projectの確定ではありません。候補には`identifier_matches`としてkind・role・一致値・比較元と相手のclassificationを付け、Webの個別ページ・候補一覧・比較画面で表示します。候補計算はidentifierや採用判断を保存しません。比較候補としての表示は個々のpairのmerge承認ではなく、構成範囲と帰属を比較して判断します
 
 ### score と confidence
 

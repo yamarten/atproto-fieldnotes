@@ -2,7 +2,7 @@
 
 project間の継承・派生関係と、identifierの帰属・現行性を判断しきれていない事例を保持します。2026-08-11〜2026-09-04の調査・reviewに残った材料であり、現在のDBや公開先を再確認した結果ではありません。必要な表示・検索・説明が具体化した時に再検討し、全事例の先行調査は行いません。
 
-現行・非現行の識別子、採用理由、確定した移転関係（transition）、再登録の抑止情報（exclusion）は既存のschema v3で保存できます。ここで未決なのはproject間の関係表現と、個々の事例をどの関係・状態として扱うかです。
+現行・非現行の識別子、採用理由、確定した移転関係（transition）、再登録の抑止情報（exclusion）は現行のschema v4で保存できます。ここで未決なのはproject間の関係表現と、個々の事例をどの関係・状態として扱うかです。
 
 ## 改名・継承・派生で決めること
 
@@ -62,3 +62,14 @@ ATlasは[公式commit](https://github.com/lawhiteley/ATlas/commit/2328ac267dd55c
 - ATProtoFans / high-five: 別レイヤとして扱う既知のoperator判断があった。GroundMist Library / GroundMist Syncは保存された構成だけで包括関係・別projectを確定できなかった。
 
 Newdin Read・Untangled・high-fiveの分離とteal.fmの保留について、当時のレビュー判断を、2つのprojectの組に対するDBの判断記録へ反映したことまでは記録から確認できません。当時の判断を引き継ぎ、必要時に現在の判断記録を先に確認します。
+
+## Candidateとconfirmedの一致に残る同一性の留保
+
+2026-09-27の比較候補表示の受理は、各pairのmerge承認ではありません。次は保存情報による未確定例で、確認済み同一projectの成功例にしません。実際の処遇には現在の両projectの構成範囲と判断記録を照合します。
+
+- WhiteWind（`proj:fec4b7da44a2`）／WhiteBreeze（`proj:3446d362d145`）: `https://whtwnd.com`のservice一致に対し、利用者が同一視への懸念を表明。
+- Cartridge同士: 一致repoのほかに`nulfrost/bloc`もあり、利用者が同一性を留保。
+- tapfall（`proj:698b749f3e60`）／skyfall（`proj:b8d039b334d8`）: `https://tangled.org/mackuba.eu/tapfall`の候補混入か、同じ説明・追跡単位かが未確認。
+- atproto-identity-rs（`proj:634f6bc6b106`）／atproto-plc（`proj:723b9cf13beb`）: `https://tangled.org/smokesignal.events/atproto-identity-rs`の一致だけで同じ作者の関連作品を統合しない。
+
+Rito同士のrepo・service一致やBookHiveのミラー説明も、保存情報の比較材料まででmergeの正解ラベルではありません。
