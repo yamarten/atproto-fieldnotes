@@ -1,0 +1,53 @@
+#!/usr/bin/env sh
+# Explicit maintenance only: normal app startup never invokes uv.
+set -eu
+ROOT_DIR=$(CDPATH= cd -P -- "$(dirname -- "$0")/.." && pwd)
+usage() {
+  printf '%s\n' 'usage: project-registry-python-env prepare NAME [PYTHON_VERSION [REQUIREMENTS]]' \
+    '       project-registry-python-env activate NAME' \
+    '       project-registry-python-env status'
+}
+if [ "$#" -eq 0 ]; then usage >&2; exit 2; fi
+ACTION=$1
+shift
+case "$ACTION" in
+  -h|--help) usage; exit 0 ;;
+  status)
+    [ "$#" -eq 0 ] || { usage >&2; exit 2; }
+    exec "$ROOT_DIR/bin/_project-registry-python" project-registry-python-env \
+      -I "$ROOT_DIR/scripts/project_registry_runtime.py" status ;;
+  prepare|activate) ;;
+  *) usage >&2; exit 2 ;;
+esac
+[ "$#" -ge 1 ] || { usage >&2; exit 2; }
+NAME=$1
+shift
+case "$NAME" in
+  ''|.*|*[!a-zA-Z0-9_-]*) printf '%s\n' 'error: NAME must contain only letters, digits, _ and -, and not start with .' >&2; exit 2 ;;
+esac
+GENERATION="$ROOT_DIR/.runtime/$NAME"
+if [ "$ACTION" = activate ]; then
+  [ "$#" -eq 0 ] || { usage >&2; exit 2; }
+  exec "$GENERATION/venv/bin/python" -I "$ROOT_DIR/scripts/project_registry_runtime.py" activate "$GENERATION/venv" "$ROOT_DIR"
+fi
+[ "$#" -le 2 ] || { usage >&2; exit 2; }
+VERSION=${1:-$(cat "$ROOT_DIR/.python-version")}
+REQUIREMENTS=${2:-$ROOT_DIR/requirements.txt}
+[ -f "$REQUIREMENTS" ] || { printf 'error: requirements not found: %s\n' "$REQUIREMENTS" >&2; exit 2; }
+command -v uv >/dev/null || { printf '%s\n' 'error: install uv before preparing Python (see docs/user/guide.md)' >&2; exit 2; }
+# mkdir refuses reused generations, including failed preparations. Never overwrite a runtime.
+[ ! -L "$ROOT_DIR/.runtime" ] || { printf '%s\n' 'error: .runtime must not be a symlink' >&2; exit 2; }
+mkdir -p "$ROOT_DIR/.runtime"
+mkdir "$GENERATION"
+export UV_PYTHON_INSTALL_DIR="$GENERATION/python"
+export UV_CACHE_DIR="$ROOT_DIR/.tmp/uv-cache"
+uv python install --no-config --no-bin "$VERSION"
+PYTHON=$(uv python find --no-config --managed-python --no-python-downloads --system "$VERSION")
+# Resolve uv's minor-version link before venv creation, so future patch upgrades cannot retarget it.
+PYTHON=$("$PYTHON" -I -c 'import os, sys; print(os.path.realpath(sys.executable))')
+uv venv --no-config --no-python-downloads --python "$PYTHON" "$GENERATION/venv"
+uv pip install --no-config --python "$GENERATION/venv/bin/python" --link-mode copy -r "$REQUIREMENTS"
+"$GENERATION/venv/bin/python" -I "$ROOT_DIR/scripts/project_registry_runtime.py" check "$GENERATION/venv"
+uv pip freeze --no-config --python "$GENERATION/venv/bin/python" > "$GENERATION/requirements.txt.pending"
+mv "$GENERATION/requirements.txt.pending" "$GENERATION/requirements.txt"
+printf 'Prepared %s; validate with PROJECT_REGISTRY_PYTHON_ENV=%s before activate.\n' "$NAME" "$GENERATION/venv"

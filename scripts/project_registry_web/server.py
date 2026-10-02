@@ -45,6 +45,8 @@ def build_information(root: Path | None = None) -> dict[str, Any]:
     root = (root or Path(__file__).resolve().parents[2]).resolve()
     info: dict[str, Any] = {
         "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        "python_executable": sys.executable,
+        "python_base_prefix": sys.base_prefix,
         "commit": "",
         "dirty": False,
     }

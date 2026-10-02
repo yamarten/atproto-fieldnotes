@@ -5,17 +5,24 @@ ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 COMMAND_NAME=$1
 shift
 
-if [ -x "$ROOT_DIR/.venv/bin/python" ]; then
-  PYTHON="$ROOT_DIR/.venv/bin/python"
+if [ -n "${PROJECT_REGISTRY_PYTHON_ENV:-}" ]; then
+  VENV=$PROJECT_REGISTRY_PYTHON_ENV
+elif [ -e "$ROOT_DIR/.venv" ] || [ -L "$ROOT_DIR/.venv" ]; then
+  VENV="$ROOT_DIR/.venv"
 else
   COMMON_GIT_DIR=$(git -C "$ROOT_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
   COMMON_ROOT=$(dirname -- "${COMMON_GIT_DIR:-$ROOT_DIR/.git}")
-  if [ -n "$COMMON_GIT_DIR" ] && [ -x "$COMMON_ROOT/.venv/bin/python" ]; then
-    PYTHON="$COMMON_ROOT/.venv/bin/python"
-  else
-    PYTHON=python3
-  fi
+  VENV="$COMMON_ROOT/.venv"
 fi
+
+if [ ! -x "$VENV/bin/python" ]; then
+  printf 'error: %s requires a prepared Python environment: %s\n' "$COMMAND_NAME" "$VENV" >&2
+  printf '%s\n' 'see docs/user/guide.md: project-registry-python-env prepare / activate' >&2
+  exit 2
+fi
+# Pin sys.executable to the generation, not to the mutable .venv pointer.
+VENV=$(CDPATH= cd -P -- "$VENV" && pwd)
+PYTHON="$VENV/bin/python"
 
 if ! "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
   VERSION=$("$PYTHON" -c 'import platform; print(platform.python_version())' 2>/dev/null || printf 'unknown')
@@ -23,9 +30,8 @@ if ! "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10)
   exit 2
 fi
 
-if ! "$PYTHON" -c 'import tldextract' >/dev/null 2>&1; then
-  printf '%s\n' "error: $COMMAND_NAME requires dependencies from requirements.txt" >&2
-  printf '%s\n' 'create .venv and run: .venv/bin/pip install -r requirements.txt' >&2
+if ! "$PYTHON" -I "$ROOT_DIR/scripts/project_registry_runtime.py" check "$VENV"; then
+  printf 'error: %s requires a dedicated managed Python generation (see docs/user/guide.md)\n' "$COMMAND_NAME" >&2
   exit 2
 fi
 

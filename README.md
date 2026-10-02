@@ -6,16 +6,18 @@
 
 ## Quick start
 
-Python 3.10以上の隔離環境とNode.js 22.15以上を用意します。Node依存はTangledの取得とOAuth scopeの解析に使います。
+uvとNode.js 22.15以上を用意します。Python本体はHomebrewとは別に、checkout内の専用世代へ取得します。既定はCPython 3.14の最新patchで、通常起動時には取得・更新しません。Node依存はTangledの取得とOAuth scopeの解析に使います。
 
 ```bash
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -r requirements.txt
+bin/project-registry-python-env prepare initial
+bin/project-registry-python-env activate initial
+bin/project-registry-python-env status
 npm install
 export PATH="$PWD/bin:$PATH"
 project-registry init-db
 ```
+
+uvの導入、既存環境からの移行、検証後の更新・復旧は[Python環境の管理](docs/user/guide.md#python環境の管理)を参照してください。既存の`.venv`を直接上書きしません。
 
 Web UIを起動します。
 
@@ -48,6 +50,7 @@ project-registry show --seed sh.tangled.repo --type nsid
 - [bin/project-registry](bin/project-registry): 登録、調査、候補整理、外部情報の取り込み、保守のCLI
 - [bin/project-registry-web](bin/project-registry-web): schema v4ローカルWeb UI
 - [bin/project-registry-web-service](bin/project-registry-web-service): macOS LaunchAgentの導入・状態確認
+- [bin/project-registry-python-env](bin/project-registry-python-env): Python世代の準備・選択・状態確認
 - [completions/_project-registry](completions/_project-registry) / [completions/_project-registry-web](completions/_project-registry-web) / [completions/_project-registry-web-service](completions/_project-registry-web-service): zsh completion
 
 `PATH`には`bin/`だけを追加する前提です。各CLIオプションは`project-registry COMMAND --help`で確認できます。
@@ -58,7 +61,7 @@ project-registry show --seed sh.tangled.repo --type nsid
 bin/project-registry-test
 ```
 
-テストは外部API、正本DB、実LLMの接続先へ接続せず、必要なSQLite DBを一時ディレクトリへ作ります。起動スクリプトは現在のチェックアウトの`.venv`を優先し、worktreeではGit共通ディレクトリにある本家チェックアウトの`.venv`も利用します。
+テストは外部API、正本DB、実LLMの接続先へ接続せず、必要なSQLite DBを一時ディレクトリへ作ります。起動スクリプトは現在のcheckoutの`.venv`を優先し、それが存在しないworktreeでは本家の専用環境を利用します。候補環境の検証は`PROJECT_REGISTRY_PYTHON_ENV`で明示できます。システムPythonへのfallbackはありません。
 
 ## 文書
 

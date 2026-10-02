@@ -24,6 +24,10 @@ application serviceは、検索や登録・調査などの処理をCLIとWebか�
 
 ## 実行経路
 
+公開shell入口は`bin/_project-registry-python`で専用Python環境を選び、世代の実pathからCLI/Web/service/testを実行します。`bin/project-registry-python-env`が保守時だけuvによる世代準備と選択を行い、`scripts/project_registry_runtime.py`がPython本体・標準ライブラリの世代内所属、依存import、選択symlinkの原子的置換を担当します。通常起動にはuvもシステムPythonへのfallbackもありません。worktreeの選択順、配置、更新・復旧は[利用ガイド](../user/guide.md#python環境の管理)を参照してください。
+
+Web workerとreloadは解決済み世代の`sys.executable`を使います。`.venv`の切替は稼働中processに反映せず、Python更新は停止・公開wrapperからの新規起動で行います。build情報はPython versionに加えて実行pathとbase prefixを返し、選択中環境と稼働中環境を照合できます。
+
 OAuth metadataの解析は`oauth_metadata.py` → `oauth_scope_parser.mjs` → 公式OAuth scope SDKで行います。Nodeは取得済み文字列の解析に限定し、HTTPは既存collector、保存済み観測の適用は`integration.py`、表示はapplication presentationが担当します。詳細は[OAuth観測](specs/investigation.md#oauth-client-metadataの観測)を参照してください。
 
 `usage_material.py`は個別repo宣言・record型Lexicon・record観測を同じcollection名で束ね、保存済み本文・README原文の表記と照合します。通常のservice collectorへ既知名を渡し、HTMLの切捨て前に選んだ候補をservice観測として保持します。通信・LLM・用途判定を担当しません。[関連記述](specs/investigation.md#atproto利用の関連記述)を参照してください。

@@ -84,6 +84,14 @@ OAuth scopeは公式SDKで解析し、通常の収集・保存・replay・Web詳
 
 Gemmaは比較時のrepository解析でJSON失敗が再現し、通常処理への置換試用を停止しています。Qwenを維持していますが、解析内容の品質は引き続き評価対象です。後続のclosed candidate契約での確認と旧契約の結果も区別します。Splash版Qwen 3.6 35B A3Bは固定入力でLLM requestが約16%短くなった一方、triageの保存前検査と分類の一貫性が悪化したため通常modelへの置換を見送っています。複製DBの通常enrich、紹介候補一覧、実使用memoryへの影響は未確認です。Agents A1の低優先度処理への試用も、比較時の速度・Qwenとの自動切替時の共存条件から停止しています。低優先度modelの通常自動切替と、同じ処理を実行した時のmemory・swap・入力処理（prefill）・出力生成（decode）の自動計測は未接続です。[評価手順](workflows/llm-model-evaluation.md)、[候補固有の保留・再開材料](../notes/llm-model-evaluation.md)を参照してください。
 
+## Python実行環境
+
+CLI/Web/service/testの公開入口はuvで準備した専用Python世代を利用します。Python本体・標準ライブラリ・venvをcheckoutの`.runtime/`に保持し、`.venv`の選択変更と稼働中processの世代を分離します。worktreeの候補指定・本家環境の利用、更新・復旧・旧世代削除の条件は[Python環境の管理](../user/guide.md#python環境の管理)を参照してください。通常起動でPythonを取得・更新せず、HomebrewやシステムPythonへのfallbackはありません。
+
+隔離worktreeで専用CPython 3.14.8と既存依存versionを導入し、CLI、HTTPの静的asset・設定・一覧API、開発DBのreview dry-run実workerを確認しています。3.14.7→3.14.8の選択変更後も旧Web・worker・通常reloadが旧世代を保ち、停止・新規起動で新世代を使い、旧世代へ復旧できることを確認しました。Python実体と標準ライブラリの世代内所属、実Git worktreeの本家環境参照、全unit testも確認しています。Web画面はHTTP配信までで実ブラウザ表示は未確認です。実運用のvenv・LaunchAgentは未移行で、本番HTTP/HTTPS、ログイン時の新runtime起動、長時間運用は未検証です。[本番切替](../user/web-ui.md#python環境の切替)は別承認で行います。
+
+2026-10-02の旧Webで起きたstatic読込みEPERMとDB open失敗について、削除済みHomebrew Cellarを使う旧processとの関連は強いものの、TCC/sandboxの直接原因は確定していません。専用世代の導入は処理系の寿命・更新時点を管理する変更であり、この権限障害の再発防止を実証したものではありません。
+
 ## JobとWeb運用
 
 詳細から離れると、その詳細・マージ候補のfetchを取り消し、サーバーはmerge analysisの接続切断を読込み・索引作成・候補比較・SQLの確認点で検知して終了します。loopbackの開発Webと実ブラウザで連続選択・一覧／別画面への移動・履歴移動・別タブの独立性を確認し、一時DBで候補同値・DB不変・stale保護を検証しています。正本のread-onlyサービス比較でも不要計算の停止による競合減少を確認しました。2026-09-27に実運用Webへ反映し、このMacからTailscale Serve経由のHTTPS接続を中断すると約0.3秒で499終了することを確認しました。本番ブラウザの画面遷移と別端末からの取消しは未再検証です。開いているページには再読込が必要です。[読込みと取消しの境界](architecture.md#cliwebとapplication-service)を参照してください。

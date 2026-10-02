@@ -50,6 +50,22 @@ class ProjectRegistryWebServiceTest(unittest.TestCase):
 
         read_token.assert_not_called()
 
+    def test_preflight_validates_runtime_in_direnv_before_opening_database(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".envrc").touch(mode=0o600)
+            with (
+                mock.patch.object(service, "_read_web_token", return_value="test"),
+                mock.patch.object(service, "_run", side_effect=RuntimeError("invalid runtime")) as run,
+                mock.patch.object(service.database, "open_database") as open_db,
+                self.assertRaisesRegex(RuntimeError, "invalid runtime"),
+            ):
+                service.preflight(workspace_root=root, direnv_path=Path("/usr/bin/direnv"))
+            self.assertEqual(run.call_args.args[0], [
+                "/usr/bin/direnv", "exec", str(root), str(root / "bin/project-registry-python-env"), "status",
+            ])
+            open_db.assert_not_called()
+
     def test_write_plist_is_parseable_and_replaces_existing_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "agent.plist"

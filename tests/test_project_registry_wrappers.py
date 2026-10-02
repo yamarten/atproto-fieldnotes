@@ -34,11 +34,15 @@ exit 99
                     )
                     python_path.chmod(0o755)
 
+                    env = os.environ.copy()
+                    env.pop("PROJECT_REGISTRY_PYTHON_ENV", None)
+
                     result = subprocess.run(
                         [str(wrapper_path), "--help"],
                         capture_output=True,
                         text=True,
                         check=False,
+                        env=env,
                     )
 
                     self.assertEqual(result.returncode, 2)
@@ -62,7 +66,7 @@ exit 99
             shutil.copy2(source_root / "bin" / "_project-registry-python", helper_path)
             python_path.write_text(
                 "#!/bin/sh\n"
-                "if [ \"$1\" = \"-c\" ]; then exit 0; fi\n"
+                "if [ \"$1\" = \"-c\" ] || [ \"$1\" = \"-I\" ]; then exit 0; fi\n"
                 "printf '%s\\n' \"$@\"\n",
                 encoding="utf-8",
             )
@@ -73,6 +77,7 @@ exit 99
             )
             git_path.chmod(0o755)
             env = os.environ.copy()
+            env.pop("PROJECT_REGISTRY_PYTHON_ENV", None)
             env["PATH"] = os.pathsep.join([str(tool_root), env.get("PATH", "")])
 
             result = subprocess.run(
@@ -89,6 +94,11 @@ exit 99
             self.assertIn(str(fake_root / "tests"), args)
             self.assertEqual(args[-2:], ["-p", "test_example.py"])
 
+            (fake_root / ".venv").symlink_to(fake_root / "missing")
+            result = subprocess.run([str(wrapper_path)], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn(str(fake_root / ".venv"), result.stderr)
+
     def test_test_wrapper_warns_when_workspace_temp_exceeds_budget(self) -> None:
         source_root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as tempdir:
@@ -104,13 +114,14 @@ exit 99
             shutil.copy2(source_root / "bin" / "_project-registry-python", helper_path)
             python_path.write_text(
                 "#!/bin/sh\n"
-                "if [ \"$1\" = \"-c\" ]; then exit 0; fi\n"
+                "if [ \"$1\" = \"-c\" ] || [ \"$1\" = \"-I\" ]; then exit 0; fi\n"
                 "exit 0\n",
                 encoding="utf-8",
             )
             python_path.chmod(0o755)
             (temp_path / "large.db").write_bytes(b"x" * 4096)
             env = os.environ.copy()
+            env.pop("PROJECT_REGISTRY_PYTHON_ENV", None)
             env["PROJECT_REGISTRY_TMP_WARN_KIB"] = "1"
 
             result = subprocess.run(
@@ -124,6 +135,44 @@ exit 99
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn(".tmp uses", result.stderr)
             self.assertIn("cleanup-workspace-temp", result.stderr)
+
+    def test_selection_pins_generation_and_rejects_broken_local_override(self) -> None:
+        source_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "checkout"
+            (root / "bin").mkdir(parents=True)
+            helper = root / "bin" / "_project-registry-python"
+            shutil.copy2(source_root / "bin" / helper.name, helper)
+            generation = root / ".runtime" / "candidate" / "venv"
+            (generation / "bin").mkdir(parents=True)
+            python = generation / "bin" / "python"
+            python.write_text(
+                '#!/bin/sh\nif [ "$1" = "-c" ] || [ "$1" = "-I" ]; then exit 0; fi\nprintf "%s\\n" "$0" "$@"\n'
+            )
+            python.chmod(0o755)
+            (root / ".venv").symlink_to(generation)
+            env = os.environ.copy()
+            env.pop("PROJECT_REGISTRY_PYTHON_ENV", None)
+            result = subprocess.run([str(helper), "test", "probe"], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines(), [str(python.resolve()), "probe"])
+            env["PROJECT_REGISTRY_PYTHON_ENV"] = str(root / "missing")
+            result = subprocess.run([str(helper), "test", "probe"], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("requires a prepared Python environment", result.stderr)
+
+    def test_missing_environment_never_uses_path_python(self) -> None:
+        source_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "bin").mkdir()
+            helper = root / "bin" / "_project-registry-python"
+            shutil.copy2(source_root / "bin" / helper.name, helper)
+            env = os.environ.copy()
+            env.pop("PROJECT_REGISTRY_PYTHON_ENV", None)
+            result = subprocess.run([str(helper), "test", "--help"], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("prepare / activate", result.stderr)
 
 
 if __name__ == "__main__":

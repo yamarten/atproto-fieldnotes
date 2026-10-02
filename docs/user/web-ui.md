@@ -52,6 +52,28 @@ plistにはtokenやAPI keyを保存しません。token入り起動URLが出る�
 
 LaunchAgentはcheckoutとDBを絶対パスで参照します。リポジトリを移動した場合は旧checkoutで`uninstall`してから新しい場所で`install`し直してください。通常起動には`--reload`を付けません。コード更新後は設定の`サーバーを再起動`または`project-registry-web-service restart`を使います。
 
+### Python環境の切替
+
+通常reloadと`project-registry-web-service restart`は起動中のPython世代を維持します。Python更新には[候補環境の準備・検証](guide.md#python環境の管理)後に、LaunchAgentの停止と新規起動が必要です。installはdirenv内のPython環境も事前確認し、壊れた環境なら既存serviceの停止前に拒否します。
+
+実運用への適用承認後、実行中job・worker・CLIがないことを確認します。ジョブ一覧とeventは停止時に失われるため、必要な結果を先に確認します。`.envrc`に候補検証用の`PROJECT_REGISTRY_PYTHON_ENV`を残しません。
+
+```bash
+unset PROJECT_REGISTRY_PYTHON_ENV
+# 初回移行でも旧Homebrew環境を使わず、候補Pythonから停止する
+PROJECT_REGISTRY_PYTHON_ENV="$PWD/.runtime/candidate/venv" project-registry-web-service uninstall
+# 初回移行で.venvが実directoryの場合だけ、停止後に退避
+# mv .venv .venv-legacy
+project-registry-python-env activate candidate
+project-registry-python-env status
+project-registry-web-service install
+project-registry-web-service status
+```
+
+新規起動後に画面・静的asset・認証付き設定/一覧/job APIをHTTPと運用中のHTTPS入口で確認します。設定APIの`build.python_executable`と`build.python_base_prefix`を候補世代の実pathと照合します。確認用serverやtokenで本番を置き換えません。LaunchAgentのlabel、bind、port、DB、Tailscale設定は変わりません。
+
+失敗時は新serviceを停止し、旧専用世代をactivateしてinstallし直します。初回移行の旧venvへの復旧には[切替と復旧](guide.md#切替と復旧)のとおり旧wrapperも必要です。検証用worktreeから本家への世代コピーはできず、本家で再準備します。実際に適用するまで本番のPythonが独立管理へ移ったとは扱いません。
+
 ### Tailscale経由のHTTPS
 
 実運用Macでは、[HTTPS入口](https://your-host.your-tailnet.ts.net:8445/)からも同じWeb UIとDBを利用できます。接続端末でTailscaleを有効にし、このMacへの接続が許可されたtailnetから開きます。Tailscale ServeがTLSを終端し、同じMacの`http://127.0.0.1:8888`へ転送します。Funnelによる一般公開は行いません。

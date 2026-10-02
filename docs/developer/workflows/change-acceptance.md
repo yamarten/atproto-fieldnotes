@@ -148,6 +148,8 @@ Tailscale Serveの実運用設定変更を明示的に依頼された場合は�
 
 ### アプリ変更の反映
 
+Python本体の更新は通常reloadで切り替わりません。[Python環境の管理](../../user/guide.md#python環境の管理)で独立世代を準備し、`PROJECT_REGISTRY_PYTHON_ENV`で候補を指定して全testと開発DBのCLI/Web/実workerを確認します。実運用適用は別承認を得て[停止・切替・新規起動](../../user/web-ui.md#python環境の切替)を行い、APIのPython実pathと世代を照合します。本家venv・LaunchAgent・本番DBをworktreeの検証対象にしません。
+
 変更の受入確認と実運用serverへの反映は別作業です。通常は利用者がWeb UIのSettingsにある`Reload server`を押します。明示的な反映依頼がない限り、変更を実装したagentは`project-registry-web-service restart`、reload API、正本DBへの変更を実行しません。
 
 実運用serverのreloadは実行中workerを停止し、process内のjob一覧とeventを失います。明示的に反映する場合も、実行中jobがないことを確認し、影響を説明してから行います。

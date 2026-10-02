@@ -4,6 +4,8 @@
 
 日常フローだけを知りたい場合は[利用ガイド](guide.md)、画面操作は[Web UIガイド](web-ui.md)を参照してください。
 
+Python本体の準備・選択・状態確認は別入口の`project-registry-python-env`で行います。引数、外部取得、切替と復旧は[Python環境の管理](guide.md#python環境の管理)を参照してください。この入口はDBやWeb serviceを操作しません。
+
 ## 共通の入力と出力
 
 - 登録プロジェクトは`--project-key`または既知のシードで指定する。プロジェクトキーは一意な接頭辞でもよい。

@@ -473,6 +473,8 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         with mock.patch("project_registry_web.server.subprocess.run", side_effect=completed) as run:
             info = build_information(root)
         self.assertEqual(info["commit"], "abc123def456")
+        self.assertEqual(info["python_executable"], sys.executable)
+        self.assertEqual(info["python_base_prefix"], sys.base_prefix)
         self.assertTrue(info["dirty"])
         self.assertEqual(run.call_count, 2)
 

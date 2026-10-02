@@ -129,6 +129,10 @@ def preflight(*, workspace_root: Path, direnv_path: Path) -> None:
     if mode & 0o077:
         raise RuntimeError(f"workspace .envrc must not be group/world accessible: chmod 600 {envrc}")
     _read_web_token(direnv_path=direnv_path, workspace_root=workspace_root)
+    _run([
+        str(direnv_path), "exec", str(workspace_root),
+        str(workspace_root / "bin" / "project-registry-python-env"), "status",
+    ])
     db_path = workspace_root / "data" / "survey.db"
     with contextlib.closing(database.open_database(db_path, create=False)):
         pass
