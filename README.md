@@ -29,6 +29,8 @@ project-registry-web --host 127.0.0.1 --port 8765
 
 macOSでログイン時に自動起動する場合は、`.envrc`からトークン等を読み込むLaunchAgentを導入できます。LaunchAgentは実運用向けに`0.0.0.0:8888`で接続を待ち受け、同じMacからは`http://127.0.0.1:8888/`で開けます。
 
+先に[設定テンプレートから`.envrc`を準備](docs/user/guide.md#設定ファイルと認証情報)し、Web UI tokenを設定して`direnv allow`を実行します。
+
 ```bash
 chmod 600 .envrc
 project-registry-web-service install
@@ -44,6 +46,12 @@ project-registry show --seed sh.tangled.repo --type nsid
 ```
 
 通常コマンドとWeb UIはDBを暗黙作成しません。既定DBは`data/survey.db`です。別DBを使う方法、シード形式、外部情報源とLLMの設定は[利用ガイド](docs/user/guide.md)を参照してください。
+
+## 利用と共有の範囲
+
+個人が自分のローカルDBを運用するためのツールです。複数利用者での共有DBや公開Webサービスとしての運用、外部向けAPIの互換性保証は提供しません。
+
+調査DB、認証情報を設定する`.envrc`、実行ログ、非公開のLLM事例はGit管理外です。DBを共有する場合は、その都度用途に合わせた論理exportを用意し、収集資料に含まれる認証値やトークン等を確認します。共有用の秘匿処理付きDB exportは未実装です。同梱データと依存物の権利表記は[Third-party materials](THIRD_PARTY_NOTICES.md)を参照してください。
 
 ## 公開入口
 

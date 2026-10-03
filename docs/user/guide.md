@@ -253,7 +253,20 @@ export ATPROTO_SURVEY_WEB_TOKEN='long-random-token'
 
 `ATPROTO_SURVEY_LLM_ENDPOINT`は利用者が管理する信頼済みの接続先として扱い、localhostやLANも許可します。LLMの接続設定は上記の環境変数で行います。Web UIから変更する機能はありません。
 
-候補収集に使う外部情報源の有効・無効、URL、検索条件、対象範囲、リクエスト上限は`config/sources.json`で管理します。ドメインの区切りを判断するPublic Suffix List（PSL）にないホスティングサービスの接尾辞は`config/domain-overrides.json`で補います。接尾辞変更の影響確認には`audit-source-config`を使います。
+### 設定ファイルと認証情報
+
+環境変数をdirenvで管理する場合は、[設定テンプレート](../../.envrc.example)から始めます。既存の`.envrc`がある場合は上書きせず、必要な項目だけ追加します。
+
+```bash
+cp -n .envrc.example .envrc
+chmod 600 .envrc
+```
+
+`.envrc`を編集し、使う項目のコメントを外して自分の値を設定した後に`direnv allow`を実行します。Web UI tokenは長いランダム値にします。Blueskyにはアプリパスワードを使います。テンプレートの空の認証値は、そのまま接続に使える値ではありません。`.envrc`はGit管理外で、LaunchAgentもこのファイルをdirenv経由で読みます。環境変数を直接設定する運用ではdirenvは不要です。
+
+候補収集に使う外部情報源の有効・無効、URL、検索条件、対象範囲、リクエスト上限は[config/sources.json](../../config/sources.json)で管理します。同梱設定は、このプロジェクトの公開紹介アカウントを検索し、公開Semble collectionを収集する設定です。別の紹介活動に使う場合は`introduced_search.query`を変更し、Sembleの対象は`semble_collections.tracked_collections`で選びます。収集しない情報源は`enabled: false`にします。認証値はsource設定へ書かず、上記の環境変数へ設定します。
+
+ドメインの区切りを判断するPublic Suffix List（PSL）にないホスティングサービスの接尾辞は`config/domain-overrides.json`で補います。[設定例](../../config/domain-overrides.example.json)と接尾辞変更の影響確認に使う`audit-source-config`を参照してください。
 
 ## zsh補完
 

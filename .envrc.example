@@ -1,0 +1,24 @@
+# Copy to .envrc, fill only the settings you use, then run direnv allow.
+# .envrc is ignored by Git. This example contains no working credentials.
+
+# Required for Web UI. Set a long, random value of your own.
+export ATPROTO_SURVEY_WEB_TOKEN=''
+
+# Optional: Bluesky authenticated search and introduced-post search.
+# export BSKY_HANDLE='your-handle.bsky.social'
+# export BSKY_APP_PASSWORD=''
+# export BSKY_AUTH_HOST='https://bsky.social'
+
+# Optional: GitHub API authentication.
+# export GITHUB_TOKEN=''
+
+# Required when using Tangled discovery through Jetstream v2.
+# export ATPROTO_SURVEY_JETSTREAM_API_KEY=''
+
+# Optional: a trusted local LLM endpoint and the model loaded there.
+# export ATPROTO_SURVEY_LLM_ENDPOINT='http://127.0.0.1:1234/v1'
+# export ATPROTO_SURVEY_LLM_MODEL='your-local-model-id'
+# export ATPROTO_SURVEY_LLM_API_KEY=''
+# export ATPROTO_SURVEY_LLM_TIMEOUT='300'
+# export ATPROTO_SURVEY_LLM_REASONING_EFFORT='none'
+# export ATPROTO_SURVEY_LLM_API_STYLE='auto'
