@@ -76,7 +76,7 @@ project-registry-web-service status
 
 ### Tailscale経由のHTTPS
 
-実運用Macでは、[HTTPS入口](https://your-host.your-tailnet.ts.net:8445/)からも同じWeb UIとDBを利用できます。接続端末でTailscaleを有効にし、このMacへの接続が許可されたtailnetから開きます。Tailscale ServeがTLSを終端し、同じMacの`http://127.0.0.1:8888`へ転送します。Funnelによる一般公開は行いません。
+Tailscale Serveを設定すると、tailnet内のHTTPS入口から同じWeb UIとDBを利用できます。接続端末でTailscaleを有効にし、対象Macへの接続が許可されたtailnetから開きます。入口のURLは`tailscale serve status`で確認します。Tailscale ServeがTLSを終端し、同じMacの`http://127.0.0.1:8888`へ転送します。Funnelによる一般公開は行いません。
 
 初回は`Project RegistryのAPIトークン`入力ダイアログに、実運用checkoutの`.envrc`で設定している同じAPI tokenを入力します。HTTPとHTTPSは別originなので、tokenと一覧件数などのUI設定は引き継がれません。tokenをURLへ付ける必要はありません。再入力する場合は設定の`APIトークンを削除`で削除してページを再読込します。
 

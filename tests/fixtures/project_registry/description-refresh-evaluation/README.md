@@ -5,7 +5,7 @@
 - `triage/`: 現行2生成と共通prompt整理案10生成。通常triageの構築・Qwen suffix・transport・適用・保存を通した結果。
 - `description-only/`: 説明だけに絞る実験6生成。入力選択・prompt・出力schema・suffixなしは実験専用。通常transport・説明field正規化・editorial適用・保存codecを使用し、通常enrichには未接続。
 - 各`review.md`: 原文・更新前・生出力・保存後全文とAgent評価。ユーザーが結果を受理したことと、各文章を正解として認定したことは区別する。
-- 入力JSON、prompt全文、suffix、各出力JSON、attempts、metrics、statisticsを保持。`recorded-runner.py.txt`は実行時のスクリプト記録であり、配置変更後に直接実行する入口ではない。絶対pathの設定参照先に認証値自体は含まない。
+- 入力JSON、prompt全文、suffix、各出力JSON、attempts、metrics、statisticsを保持。`recorded-runner.py.txt`は実行時のスクリプト記録であり、配置変更後に直接実行する入口ではない。公開用に設定参照先のpathだけ相対化している。認証値自体は含まない。
 
 通常promptとversionは開始HEAD `f7eff882fe18d846f7ac8c2efbdeabc5da363a69`の状態へ戻しています。候補promptはこの素材内だけに保持します。出力JSONのgit状態は実行時の記録であり、最終commitの状態ではありません。本文内の日付も構成素材の条件です。
 

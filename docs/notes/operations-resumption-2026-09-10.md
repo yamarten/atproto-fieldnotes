@@ -29,4 +29,4 @@
 | homepage role補正・checkpoint | `data/backups/homepage-role-review-20260909T110921Z/`。旧604件の一覧は配下の`coverage-failures-before-resume.json` |
 | Website role復元・checkpoint | `data/backups/website-role-restoration-20260909T124023Z/` |
 
-DB操作前には別のWeb/enrich/CLIによる書き込み処理を確認する。現行のproject単位の競合保護は[保存契約](../developer/specs/project-record.md)を参照する。このローカルWeb UIでレビューするためのリンクは`http://127.0.0.1:8888/?project=...`を使う。
+DB操作前には別のWeb/enrich/CLIによる書き込み処理を確認する。現行のproject単位の競合保護は[保存契約](../developer/specs/project-record.md)を参照する。監査レポート内のprojectリンクは、同じMacの`http://127.0.0.1:8888/?project=...`から実運用Web UIを開く。

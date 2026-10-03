@@ -22,6 +22,7 @@ def digest(text):
 
 settings = {}
 allowed = {'ATPROTO_SURVEY_LLM_ENDPOINT', 'ATPROTO_SURVEY_LLM_MODEL', 'ATPROTO_SURVEY_LLM_API_KEY'}
+# Operator configuration path generalized for publication.
 for line in Path('.envrc').read_text().splitlines():
     parts = shlex.split(line, comments=True)
     if len(parts) == 2 and parts[0] == 'export' and '=' in parts[1]:
