@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
@@ -351,11 +350,7 @@ def repo_semantic_hints(
             continue
         per_file_count = 0
         for line_number, line in enumerate(text.splitlines(), start=1):
-            nsids = project_record.unique_list([
-                candidate
-                for candidate in re.findall(project_record.LOOSE_NSID_PATTERN, line)
-                if identifier_core.is_valid_nsid(candidate)
-            ])
+            nsids = identifier_core.extract_nsids_from_text(line)
             if not nsids:
                 continue
             lowered = line.lower()

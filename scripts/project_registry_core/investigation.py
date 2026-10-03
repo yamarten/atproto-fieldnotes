@@ -10,6 +10,7 @@ from html import unescape
 from typing import Any, Callable
 
 from . import collector_relation_policy
+from . import identifiers as identifier_core
 from .evidence import (
     CollectorFailure,
     EvidenceBundle,
@@ -699,6 +700,10 @@ def collect_repository_evidence(
     semantic_hints = [] if trust_only or not source_evidence_needed else dependencies.repo_semantic_hints(
         repo_url, ref=inspection_ref, tree=repo_tree
     )
+    semantic_hints = [
+        item for item in semantic_hints
+        if identifier_core.is_valid_nsid(str(item.get("nsid") or ""))
+    ]
     manifest_hints = [] if trust_only else dependencies.repo_manifest_hints(
         repo_url, ref=inspection_ref, tree=repo_tree
     )

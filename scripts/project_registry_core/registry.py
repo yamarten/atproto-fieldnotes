@@ -5424,6 +5424,9 @@ def normalize_schema_definition_relations(project: dict[str, Any]) -> None:
     normalized: list[dict[str, Any]] = []
     for item in relation_core.normalize_relation_records(project.get("relation_evidence", [])):
         relation = dict(item["relation"])
+        obj = relation.get("object") or {}
+        if obj.get("type") == "nsid" and not identifier_core.is_valid_nsid(str(obj.get("value") or "")):
+            continue
         if not accepted_repo_schema_relation(project, relation):
             relation["predicate"] = "mentions_collection"
             item = {

@@ -42,7 +42,7 @@ confirmed repositoryのrevision固定解析、根拠位置と事前生成した�
 
 README公開先の候補化と、帰属・逆参照・Web/protocol実在確認を通したservice採用を接続しています。`repository-analysis-v16` / `repository-homepage-role-v4`は実運用反映済みです。既存project全件の再解析・再採用は実施していません。代表project siteの自動確定、汎用API・AppView独自APIの確認は未接続です。
 
-固定した解析素材・保存実例・限定した公開URLによる候補化、確認、一時DB保存・replayの記録があります。意味の確認はこれらの小規模な事例を対象としています。拡張子付きfile名のNSID候補化、曖昧なdescriptionの過解釈、package配布repositoryの役割、fixture Lexiconの解釈には残る課題があります。[解析仕様](specs/investigation.md#repository-analysis)、[採用仕様](specs/project-boundaries.md#repository-homepageと公開先の評価)を参照してください。
+固定した解析素材・保存実例・限定した公開URLによる候補化、確認、一時DB保存・replayの記録があります。source codeのcollection候補はtoken全体のNSID構文を検査し、不正な保存済みNSID relationをfinalize／replay／`repair-db`で現在状態から除きます。JWT誤抽出の合成fixture、正常なcollection、一時DBでのrepair・履歴保持・再実行と、該当する正本projectのread-only再評価で確認しています。正本へのrepair適用と実運用への反映は未実施で、過去の調査履歴内の値は保持します。意味の確認はこれらの小規模な事例を対象としています。拡張子付きfile名のNSID候補化、曖昧なdescriptionの過解釈、package配布repositoryの役割、fixture Lexiconの解釈には残る課題があります。[取得・抽出仕様](specs/investigation.md#repositoryの取得とsnapshot)、[解析仕様](specs/investigation.md#repository-analysis)、[採用仕様](specs/project-boundaries.md#repository-homepageと公開先の評価)を参照してください。
 
 ## 帰属・信頼・Projectの統合と分離
 

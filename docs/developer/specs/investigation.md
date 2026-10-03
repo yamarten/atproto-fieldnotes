@@ -157,10 +157,12 @@ relationとcandidate生成はsnapshot budget適用前の全取得結果から行
   - ownership が弱い時は `github_repo_lexicon_reference` として investigation log に残すだけです
   - test / fixture / vendor / generated / docs / example path は `mentions_collection` に留めます
 - source code の意味解析:
+  - collection候補はドット区切りのtoken全体を[NSID構文](https://atproto.com/specs/nsid)で検査します。3 segment以上、全体317文字以下、authority 253文字以下、各segment 63文字以下とし、authorityの数字・ハイフンとcase-sensitiveな最終nameの英数字を区別します。`_`等で不正tokenを分割して、その一部をNSID候補にしません。JWT等の長いドット区切り値も同じ規則で棄却します
   - write/createRecord 系は `uses_collection` の write
   - read/query/subscription 系は `uses_collection` の read
   - operation が取れない出現は `mentions_collection`
   - package/library 提供、service 実装、用途不明を context に分けます
+  - collectorは不正NSIDのsource hintをsnapshot・relationへ展開しません。保存済みの不正NSID relationも通常のfinalize、replay、`repair-db`の再評価で現在状態から除きます。`repair-db`は他の正規化・派生値更新も含むためdry-run全差分を確認してから適用します。保存済み調査履歴の本文・snapshotは書き換えません
 - README のリンクの扱い:
   - 同一 repo へのリンクは confirmed の補強に使います
   - 別 repo は `repo_candidate_allowed_for_project()` を満たす時だけ candidate に入れます

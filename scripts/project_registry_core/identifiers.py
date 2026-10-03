@@ -22,7 +22,9 @@ GENERIC_ALIAS_TOKENS = {
 }
 
 
-NSID_SEGMENT_RE = re.compile(r"^[A-Za-z](?:[A-Za-z0-9-]*[A-Za-z0-9])?$")
+NSID_AUTHORITY_SEGMENT_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?")
+NSID_NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9]*")
+NSID_TEXT_TOKEN_RE = re.compile(r"[\w.-]+")
 
 
 def normalize_url(url: str) -> str:
@@ -69,7 +71,21 @@ def is_valid_nsid(nsid: str) -> bool:
     segments = value.split(".")
     if len(segments) < 3 or any(not segment or len(segment) > 63 for segment in segments):
         return False
-    return all(NSID_SEGMENT_RE.fullmatch(segment) for segment in segments)
+    authority, name = segments[:-1], segments[-1]
+    return bool(
+        len(".".join(authority)) <= 253
+        and authority[0][0].isascii() and authority[0][0].isalpha()
+        and all(NSID_AUTHORITY_SEGMENT_RE.fullmatch(segment) for segment in authority)
+        and NSID_NAME_RE.fullmatch(name)
+    )
+
+
+def extract_nsids_from_text(text: str) -> list[str]:
+    # Validate whole dotted tokens: splitting at '_' can turn an invalid token
+    # (including a JWT) into a valid-looking NSID suffix. A final prose period
+    # is punctuation, while internal empty segments remain invalid.
+    candidates = (match.group().rstrip(".") for match in NSID_TEXT_TOKEN_RE.finditer(text))
+    return list(dict.fromkeys(candidate for candidate in candidates if is_valid_nsid(candidate)))
 
 
 def derive_authority_domain(nsid: str) -> str:
