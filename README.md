@@ -49,6 +49,8 @@ project-registry show --seed sh.tangled.repo --type nsid
 
 ## 利用と共有の範囲
 
+本体コード・文書は[MIT License](LICENSE)で公開します。第三者の同梱データや引用は[個別の権利表記](THIRD_PARTY_NOTICES.md)に従います。
+
 個人が自分のローカルDBを運用するためのツールです。複数利用者での共有DBや公開Webサービスとしての運用、外部向けAPIの互換性保証は提供しません。
 
 調査DB、認証情報を設定する`.envrc`、実行ログ、非公開のLLM事例はGit管理外です。DBを共有する場合は、その都度用途に合わせた論理exportを用意し、収集資料に含まれる認証値やトークン等を確認します。共有用の秘匿処理付きDB exportは未実装です。同梱データと依存物の権利表記は[Third-party materials](THIRD_PARTY_NOTICES.md)を参照してください。

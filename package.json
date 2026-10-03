@@ -1,6 +1,7 @@
 {
   "name": "atproto-survey",
   "private": true,
+  "license": "MIT",
   "dependencies": {
     "@atproto/oauth-scopes": "0.5.12",
     "@bsky/jetstream": "1.0.0"
