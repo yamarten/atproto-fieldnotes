@@ -94,7 +94,7 @@ bin/project-registry-python-env status
 
 切替が失敗した場合は旧選択が残ります。新世代での確認が失敗した場合はprocessを停止し、`bin/project-registry-python-env activate OLD_NAME`で旧世代を選び直して起動します。旧世代は準備・切替で変更されません。
 
-初回移行の復旧では新Webを停止し、`.venv`のsymlinkだけを外して`mv .venv-legacy .venv`で元に戻します。新wrapperは外部Pythonを拒否するため、このcommitも戻して旧wrapperを使う必要があります。旧Homebrew本体が既に消えている場合、venvの退避だけでは復旧できません。専用環境の再構築を優先します。
+初回移行で退避した`.venv-legacy`は、旧環境の記録として保持できますが、現行wrapperは外部Pythonを拒否するため、そのまま起動には使えません。利用できる旧専用世代がない場合は、必要なPython versionを指定して新しい世代を準備し、候補指定で検証してから選び直します。旧Homebrew本体が既に消えている場合も、venvの退避だけでは復旧できません。
 
 ### 更新と不要環境の整理
 

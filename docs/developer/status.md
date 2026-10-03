@@ -90,7 +90,7 @@ CLI/Web/service/testの公開入口はuvで準備した専用Python世代を利�
 
 隔離worktreeで3.14.7→3.14.8の選択変更後も旧Web・worker・通常reloadが旧世代を保ち、停止・新規起動で新世代を使い、旧世代へ復旧できることを確認しました。Python実体と標準ライブラリの世代内所属、実Git worktreeの本家環境参照を確認しています。本家でも既存依存versionを維持した専用CPython 3.14.8で全unit test、開発DBのCLI・Web・review dry-run実worker、実ブラウザの一覧・詳細・設定表示を確認しました。
 
-2026-10-02に本家の`.runtime/managed-3148/`へ移行し、LaunchAgentから専用Pythonで本番Webを新規起動しました。このMacからHTTPと証明書検証付きHTTPSで画面・静的asset・設定・一覧・job・定期設定APIを確認し、同じserver instance・正本DB・専用Python実pathを照合しました。LaunchAgent設定と定期設定は維持し、実行中jobの中断はありません。実運用ブラウザでの再確認、ログイン時起動、移行後の定期jobと長時間運用は未検証です。初回移行前の環境は`.venv-legacy`に復旧用として保持し、次の通常jobの成功確認後に撤去を判断します。復旧には[初回移行の切替・復旧手順](../user/guide.md#切替と復旧)に従い旧wrapperも戻す必要があります。
+2026-10-02に本家の`.runtime/managed-3148/`へ移行し、LaunchAgentから専用Pythonで本番Webを新規起動しました。このMacからHTTPと証明書検証付きHTTPSで画面・静的asset・設定・一覧・job・定期設定APIを確認し、同じserver instance・正本DB・専用Python実pathを照合しました。LaunchAgent設定と定期設定は維持し、実行中jobの中断はありません。実運用ブラウザでの再確認、ログイン時起動、移行後の定期jobと長時間運用は未検証です。初回移行前の環境は`.venv-legacy`に保持し、次の通常jobの成功確認後に撤去を判断します。現行wrapperからは起動できないため、復旧には[専用世代の切替・再準備](../user/guide.md#切替と復旧)を使います。
 
 2026-10-02の旧Webで起きたstatic読込みEPERMとDB open失敗について、削除済みHomebrew Cellarを使う旧processとの関連は強いものの、TCC/sandboxの直接原因は確定していません。専用世代の導入は処理系の寿命・更新時点を管理する変更であり、この権限障害の再発防止を実証したものではありません。
 

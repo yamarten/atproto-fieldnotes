@@ -25,6 +25,4 @@
 - 検出を広げる場合は日本語・form外入力・handle例と、検索欄・newsletter・単なる案内buttonの反例で評価します。個別site名を例外にしません。browserでの案内取得とprotocol serviceの稼働確認は分けます。
 - 長期失敗率、timeoutの多いbatch、再観測noise、人のreview件数・時間、連続運転は未検証です。観測のみの試用範囲と再評価日を先に決めます。
 
-## 再開資料
-
-主checkoutの`.tmp/temporal-validation-20260915/services-report.json`に取得素材・run ID・計測、`run_services.py`に実行手順があります。正本6件の必要fieldだけで作った試験DBは削除済みです。素材は母艦管理の一時保全で、恒久fixtureではありません。監視方針の再検討時に恒久保持／破棄を判断し、実験不採用の場合も生素材の処分は別途判断します。説明更新の材料は[説明品質](description-refresh-quality.md)を参照してください。
+当時の取得素材と試験DBは本checkoutに収録していません。再開時は現在のURL・backlogから対象を選び、上記の検出不足と反例を含めて新たに観測します。説明更新の材料は[説明品質](description-refresh-quality.md)を参照してください。

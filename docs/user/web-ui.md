@@ -72,7 +72,7 @@ project-registry-web-service status
 
 新規起動後に画面・静的asset・認証付き設定/一覧/job APIをHTTPと運用中のHTTPS入口で確認します。設定APIの`build.python_executable`と`build.python_base_prefix`を候補世代の実pathと照合します。確認用serverやtokenで本番を置き換えません。LaunchAgentのlabel、bind、port、DB、Tailscale設定は変わりません。
 
-失敗時は新serviceを停止し、旧専用世代をactivateしてinstallし直します。初回移行の旧venvへの復旧には[切替と復旧](guide.md#切替と復旧)のとおり旧wrapperも必要です。検証用worktreeから本家への世代コピーはできず、本家で再準備します。実際に適用するまで本番のPythonが独立管理へ移ったとは扱いません。
+失敗時は新serviceを停止し、旧専用世代をactivateしてinstallし直します。利用できる旧専用世代がない場合は、[切替と復旧](guide.md#切替と復旧)に従って専用環境を再準備します。検証用worktreeから本家への世代コピーはできず、本家で再準備します。実際に適用するまで本番のPythonが独立管理へ移ったとは扱いません。
 
 ### Tailscale経由のHTTPS
 

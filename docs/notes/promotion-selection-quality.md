@@ -47,13 +47,11 @@ Qwen 3.6比較のAPI要求値はnone／lowですが、後のcapability確認はo
 
 JuntosのLLM提案`live`は通常の最終処理で`unverified`へ戻りました。途中の`apply_llm_output`だけの加点を、通常enrichの最終保存不備と扱いません。一方、最終messageのないreasoning-only応答がJSON解析へ進んだ診断は別の確認対象として残ります。再開時に現行transportと照合します。
 
-## 個別判断と素材の所在
+## 再確認する個別判断
 
 - math.r（`proj:edb76ad07967`）は過去fixtureで低優先、当時DBでは判断なし。消失原因は未確認で、今も低優先か再確認します。
 - Blacksky AppView（`proj:2c69d06edf95`）と紹介済みBlacksky（`proj:cef4c9185f74`）は紹介単位が未確定。HappyViewには紹介済みGitHub行と未紹介Tangled行があり、同名Glean・Leaflet等も別々の高関心対象として数えません。
 - Ionosphereのrepo `github.com/blaine/ionosphere`を持つ`proj:1190661ee687`は保存名がStreamplace、READMEはIonosphereでした。説明名と原文の不整合を訂正していません。
 - y-pdsのSDP交換、SSRF Probeの技術highは当時読んだ原文では裏取り不足でした。全根拠の不存在とは断定せず、現在の資料から確認します。
 
-読み取り診断・固定corpus・生成結果・原文照合は旧worktree `/workspace/worktrees/ca10/atproto_survey/.tmp/promotion-quality/` に記録されています。主な配下は`llm-calibration/`、`design-comparison/`、`reasoning-comparison-8192/`、`focused-review/`、`claim-only-review/`、`claim-only-atomic/`、`qwen38-claim-review/`、未実行入力の`self-escalation/`です。最後の枠比較は当該作業checkoutの`.tmp/promotion-comparison/`という記録で、絶対pathは未確認です。
-
-2026-09-27の文書整理では、記録された旧worktreeの`promotion-quality/`と主checkoutの`.tmp/promotion-comparison/`は存在しませんでした。移管先・復元可能性は未確認です。入力契約・順位設計を再検討する際に、既存の非公開事例storeへの保全分も確認し、必要な素材を選別して残りの処分を判断します。既知例と上位・保存語彙に偏った比較なので、再開には未使用対象と通常導線での効果確認が必要です。新たな判別材料や具体的な運用問題がないまま、同じfixtureへの配点・prompt調整を再開しません。
+当時の比較入力・全出力は、このcheckoutには収録していません。上記は診断と保留判断の要約で、完全な再実行の入口ではありません。既知例と上位・保存語彙に偏った比較なので、再開には現在の資料から対照を作り直し、未使用対象と通常導線での効果を確認します。新たな判別材料や具体的な運用問題がないまま、同じ例への配点・prompt調整を再開しません。

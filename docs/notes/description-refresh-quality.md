@@ -25,7 +25,7 @@ Webの更新案と根拠本文・変更前後previewから確認できますが�
 
 ## 素材と再開条件
 
-[比較素材README](../../tests/fixtures/project_registry/description-refresh-evaluation/README.md)に原文・prompt・18出力・適用結果・通信なし再検証の入口があります。通常triageと説明専用案は入力・出力・suffixも異なり、タスク分割だけの因果効果は分離できません。全素材は既知となっており、次の確認には未使用素材が必要です。旧監査・8出力は主checkoutの`.tmp/temporal-validation-20260915/`に一時保持され、所有者は母艦です。保持範囲・処分は次の再検討時に判断し、恒久再現を保証しません。
+[比較素材README](../../tests/fixtures/project_registry/description-refresh-evaluation/README.md)に原文・prompt・18出力・適用結果・通信なし再検証の入口があります。通常triageと説明専用案は入力・出力・suffixも異なり、タスク分割だけの因果効果は分離できません。全素材は既知となっており、次の確認には未使用素材が必要です。これより前の実観測による監査・8出力は本corpusに収録していません。
 
 再開時は改善する用途、減らす確認・補完・訂正、未使用素材と反復、追加request・時間・費用の上限、停止条件と戻し方を提示して了承を得ます。サービス／共有Lexicon、個人用途、触りやすさ、特異なインフラ・分散性への役割を扱い、終了・機能変更の難例だけで全体を評価しません。欠落と誤断定の両方を見て、すべてunknown／変更なしを高評価にしません。
 
