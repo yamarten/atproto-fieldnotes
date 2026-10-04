@@ -85,7 +85,7 @@ reportはproject key順で、次を含みます。
 - 各candidate fieldを支えるsource fieldまたはnormalized row
 - report全体の`content_hash`
 
-report内容をDB snapshotとcontractだけで決めることで、同じ入力から同じreportとhashを生成します。件数はsnapshotの観測値です。reportは`.tmp/`へ置く一時的な監査結果です。
+report内容をDB snapshotとcontractだけで決めることで、同じ入力から同じreportとhashを生成します。件数はsnapshotの観測値です。reportはGit管理外に置く一時的な監査結果です。
 
 ## Publication manifest
 

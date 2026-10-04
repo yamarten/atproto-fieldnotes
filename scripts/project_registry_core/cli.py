@@ -109,7 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--db-path", required=True, help="Source schema v4 SQLite database opened read-only."
     )
     validate_app_record_parser.add_argument(
-        "--output", required=True, help="JSON report path. Use a path under .tmp for audits."
+        "--output", required=True, help="Output JSON report path."
     )
     validate_app_record_parser.set_defaults(
         func=app_record_validation_commands.cmd_validate_app_record_export

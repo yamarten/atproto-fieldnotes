@@ -6,19 +6,7 @@
 
 停止は処理境界で協調的に行い、完了したDB更新は保持します。enrichはcheckpointを使って未完了projectから再開できますが、sync/reviewのcheckpoint再開は未接続です。Webのjob一覧・eventはprocess内の表示用情報であり、再開の正本はcheckpointです。
 
-## 目的
-
-- `argparse`、標準出力、HTTP requestから長時間処理本体を分離する
-- CLIとWebでproject選択、保存、checkpoint、再開の意味を一致させる
-- 進捗、部分完了、失敗、中断を機械可読なeventとして扱う
-- API keyなどの認証情報をcheckpointやeventへ保存しない
-
-非目標:
-
-- collector request中の強制停止
-- 一般のjob event履歴をSQLiteへ永続化すること。Lexicon publication観測の件数・成否などの集計は、専用のsidecar DBを正本にする
-- 複数の書き込みjobを同時実行すること
-- 任意commandや任意外部URLをWebから実行すること
+認証情報はcheckpointやeventへ保存しません。任意command・任意外部URLのWeb実行は提供せず、同じWeb serverの書込みjobは一件ずつ実行します。
 
 review処理で追跡状態を更新する場合は、先にdry-run planを作り、candidate IDを選択してから実行します。execute workerはplanの変更検出値（fingerprint）とcandidate IDを再計算し、候補が変化していればDB更新前に拒否します。
 
@@ -60,7 +48,7 @@ review処理で追跡状態を更新する場合は、先にdry-run planを作�
 
 ### ETA
 
-bulk enrichは現在のworker processで時間を観測した処理件数と残件数からETAを計算し、resume前の完了件数を混ぜません。その他のjobは直近の`current / total`を開始時からの平均速度へ線形外挿します。総数がないoperationでは表示しません。`sync-introduced`は未知の総page数を`null`とし、安全上限を進捗総数にしません。
+bulk enrichは前述のworker単位の観測件数と残件数、その他のjobは開始後の`current / total`の平均速度からETAを計算します。総数がないoperationでは表示しません。
 
 ### `OperationResult`
 
@@ -138,7 +126,7 @@ Web serverはjobごとに`python -m project_registry_core.worker`を起動しま
 
 syncのdry-runも外部APIへ接続しますが、SQLiteのprojectと`sync_state`は更新しません。reviewのdry-runは保存済みprojectだけを読み、networkへ接続しません。reviewのexecuteはplanから選択した候補を一括適用するため、Web UIは開始前に明示確認を要求します。
 
-job一覧は永続化していません。server再起動後にprocess job一覧とeventは復元しません。未完了のenrich checkpointは固定rootから再発見し、OperationsのDiscovered Checkpointsから再開できます。
+server再起動後は未完了のenrich checkpointを固定rootから再発見し、OperationsのDiscovered Checkpointsから再開できます。
 
 ## Web serverの診断・再起動
 

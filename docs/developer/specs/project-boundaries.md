@@ -7,98 +7,50 @@ repository、service、Lexiconなどの外部対象（resource）の帰属・採
 | 帰属・採用 | 観測した関係からresourceのroleと信頼根拠を評価し、既存projectへ採用するかを決める |
 | 統合・分離 | 独立して登録されたproject同士の根拠を比較し、説明・追跡単位の重複や混在を見直す |
 
-前半は両者を区別する判断モデルと合意済みの設計です。`仮称`や`未決`を含み、全規則が通常導線へ接続済みではありません。後半の「現行の採用規則」「Merge・Split」が現在の規則、末尾の「Shadow比較」が比較用の別経路を説明します。未実現の接続目標は[roadmap](../../roadmap.md#信頼帰属policyの追加接続)で管理します。
+前半は両者を区別する判断モデルと合意済みの設計です。`仮称`や`未決`を含み、全規則が通常導線へ接続済みではありません。後半の「現行の採用規則」「Merge・Split」が現在の規則、末尾の「Shadow比較」が比較用の別経路を説明します。未実現の接続目標は[TODO](../todo.md#信頼帰属policyの追加接続)で管理します。
 
 ## 判断モデル
 
-### この設計が扱うこと
+### 判断の流れ
 
-このツールは、人が行っていたatproto関連プロジェクトの調査を、収集と判断に分けて機械化します。判断の中心には次の二つがあります。
+1. collectorが外部情報を観測する。
+2. 帰属規則が関係の意味を解釈し、roleを主張できる対象を識別子候補にする。
+3. 信頼グラフが、role付き帰属主張を支持する直接関係と経路を評価する。
+4. 採用規則が評価結果、block/defer、手動判断を合わせて採否を決める。
 
-- 識別子が調査対象の登録プロジェクトに属する構成要素か
-- 収集した情報が、その登録プロジェクトの説明や「何であるか」の判断に役立つか
-
-信頼グラフは、前者について作られた「この識別子はこの登録プロジェクトの構成要素である」という帰属主張を受け取り、その主張がどの直接関係と関係経路によって支持されるかを評価します。構成要素候補は帰属policyが作り、説明に役立つ情報は調査・profile policyが選びます。
-
-概念上の処理は次の順です。
-
-1. 外部情報を観測として収集する
-2. 関係の意味を解釈し、構成要素、構成要素ではない関係者、関連情報、未分類の観測に分ける
-3. 構成要素などのroleを主張できる対象だけを識別子候補にする
-4. 信頼グラフが、そのrole付き帰属主張を直接関係と関係経路から評価する
-5. 評価結果、block/deferなどの採用を止める条件、手動判断を採用規則が組み合わせ、採用可否を決める
-
-候補生成と信頼評価は、同じrelationを参照する場合があっても別の判断です。二つの登録プロジェクトをマージする判断も、既存projectへ構成要素を追加する判断とは前提が異なるため、別policyとして扱います。
+説明に役立つ情報は調査・profile policyが選び、project同士のマージは別policyで判断します。候補生成・信頼評価・採用は同じrelationを使っても別の判断です。
 
 ### 登録プロジェクトの意味
 
-ここでいう登録プロジェクトは、所有されたLexicon、主要実装、公式repository、提供service、代表project site、native appなどを、一つの説明・追跡対象としてまとめる編集上の単位です。互いに異なる種類のresourceを、来歴・管理・提供目的などの関係に基づいてまとめます。実装・保存上の`project record`は、この登録プロジェクトを表すrecordです。以下の開発上の説明では`project`または`project record`を使います。
+project recordは、Lexicon・公式repository・提供service・代表site等を、来歴・管理・提供目的に基づいてまとめる編集記録です。同じdeveloper、code、domain、collection利用、repositoryへの言及だけでは同じprojectにしません。
 
-Lexicon、実装、repository、service surface、project siteは互いに別のresourceですが、関係が適切なら同じproject recordの構成要素になれます。一方、同じdeveloperが関与する、同じcollectionを利用する、同じrepositoryへ言及する、といった事実だけでは同じproject recordに収めません。
+説明と追跡に十分な代表的resourceを保持し、構成要素の網羅は求めません。たとえばBlueskyの`bsky.app`と主要repositoryを保持していても、`api.bsky.app`や`video.bsky.app`まで必ず収集する必要はありません。
 
-この定義は、将来の mirror、instance、複数project同居repo、fork、template、派生 project の境界を判断する際にも使います。これらの詳細は未決ですが、同じcode、同じowner、同じdomainのいずれか一つだけでproject同一性を確定しないことを出発点にします。
-
-project recordは、説明と追跡に十分な代表的resourceを保持する編集記録です。構成要素の完全なinventoryではなく、未収集のservice surface、API endpoint、補助repositoryが残ることを許容します。たとえばBlueskyについて`bsky.app`と主要repositoryがあれば、`api.bsky.app`や`video.bsky.app`まで必ず収集する必要はありません。
-
-serviceを持たない共有Lexicon/specification initiativeもprojectになれます。`standard.site`や`lexicon.community.*`のような集合は、代表project site、共通のspecification、governance、repository、release、管理主体に基づいて一つのprojectとして扱えます。wildcard表記自体はidentifierではありません。
+serviceを持たない共有Lexicon/specification initiativeもprojectになれます。`standard.site`や`lexicon.community.*`のような集合は、共通仕様・governance・repository・release・管理主体に基づいてまとめられます。wildcard表記自体はidentifierではありません。
 
 ### 区別する判断
 
-#### 資源同一性（resource identity）
+| 判断 | 問うこと |
+| --- | --- |
+| 資源同一性（resource identity） | 二つのURL・DID・handle等が同じresourceまたはcanonical aliasを指すか |
+| 帰属（identifier attribution） | resourceを既存projectへ特定roleで関連づけるか。共有repository等では排他的所属を意味しない |
+| 統合・分離（project merge / separation） | 二つのproject recordが同じ説明・追跡単位を重複して表すか、異なる単位が混在しているか |
+| 信頼（trust） | role付き帰属主張が信頼できるsourceと関係で裏付けられるか |
+| 説明用情報の評価 | developer・dependency・used collection等が説明や調査に役立つか |
 
-二つのURL、DID、handleなどが、同じresourceまたはそのcanonical aliasを指すかを扱います。
-
-#### 登録プロジェクトの境界（project boundary）
-
-登録プロジェクトの境界判断には、主に二つの対象があります。
-
-- identifier attribution: あるresourceを、既存のproject recordと特定roleで関連づけるかを扱う。resource同士が同一物である必要はなく、repositoryのように複数projectと関係し得る対象では排他的な所属を意味しない
-- project merge / separation: 独立して形成された二つのproject recordが、同じ説明・追跡単位を二重に表しているかを扱い、統合または分離を判断する
-
-前者は既存projectへrole付きidentifierを追加する判断、後者はproject record同士の構成範囲を見直す判断です。前提と対象に応じて、それぞれのpolicyで評価します。
-
-project mergeでは、既存projectへ新しい構成要素を追加するconfirmationとは非対称性と前提が異なるため、信頼グラフのpathをそのままmerge scoreへ流用しません。
-
-#### 信頼（trust）
-
-「このresourceはこのprojectの構成要素である」という主張が、騙りや偶然のlinkではなく、信頼できるsourceと関係で裏付けられているかを扱います。
-
-#### 説明用情報の評価
-
-developer account、dependency、used collectionなど、projectの説明や調査には役立つが、通常はproject identifierにしない情報を扱います。これは信頼グラフの主目的ではありません。
-
-これらは順番に一つの結論へ収束する評価段階ではありません。たとえば、developer accountとの関係が事実でも、そのaccountを登録プロジェクトの構成要素にするとは限りません。また、同じrepository identityであることを確認できても、repositoryを共有する二つの登録プロジェクトをマージするとは限りません。
+developerとの関係が事実でも構成要素とは限らず、同じrepositoryを共有してもprojectをマージするとは限りません。既存projectへの構成要素追加とproject間マージは前提・非対称性が異なり、信頼グラフのpathをそのままmerge scoreへ流用しません。
 
 ### 信頼グラフの責務
 
-信頼グラフは、role付きの帰属主張と識別子間の直接関係を入力に、どの識別子と情報源がどの方向から主張を支持しているかを評価し、根拠となる経路を説明可能にする機構です。本設計では、直接出力を主張単位の信頼判定結果（内部名: Trust verdict）と位置づけ、採用規則がその結果を採用判断へ利用します。
+信頼グラフはrole付き帰属主張と直接関係を入力に、支持・欠けた確認・矛盾を経路とともに返します。結果（Trust verdict）を使う採用判断は後段が担当します。
 
-graph nodeには次が混在し得ます。
-
-- `confirmed`または`candidate`のproject identifier
-- developer DIDやorganization accountなど、構成要素ではないidentifier
-- protocol解決の中継点
-- claimの対象
-
-developer DIDやauthority domainは、登録プロジェクトの構成要素候補でなくても、帰属主張の根拠または経路の中継点としてgraph nodeになります。
-
-信頼判定結果は、主張がどの程度支持されているか、どの方向の確認が欠けているか、矛盾や再取得の必要があるかを表します。最終的な採用は、登録プロジェクトへの帰属、信頼判定結果、採用を止める条件、手動判断を組み合わせて決めます。
-
-後半の接続マトリクスは直接relationを重複なく棚卸しし、用途はその後の静的policy表で示します。同じrelationを候補生成と信頼評価が参照する場合も、それぞれの利用可否を別のpolicy列で判断します。
+graph nodeにはconfirmed/candidate identifier、developer DID、authority domain、protocol解決の中継点等が混在します。nodeであるだけではproject構成要素や信頼判定の起点になりません。接続マトリクスと静的policy表では、同じrelationでも候補生成と信頼評価への利用可否を分けます。
 
 #### Relationとedgeの関係
 
 page↔repositoryでは、relationを観測・方向付き判断の正本とし、graphで必要なものをedgeとして導出します。直接事実の確定と、相互経路によるidentifier採用は別の判断です。homepageが確定していても、それだけでproject帰属を支持する逆向きedgeにはしません。直接参照、解釈の根拠、判断時刻はrelation側へ保持します。将来relationに表現できない関係が必要になった場合はその観測契約を設計します。現時点でaccount/NSIDの保存方式までこの導出方式へ統一するものではありません。
 
 同じ観測の新判断は旧判断を置換し、別sourceの観測は独立して保持します。取得失敗やLLMの未評価は否定に置き換えません。採用時の根拠履歴と、現在の観測で支持されるかという評価は分けます。
-
-#### 責務境界
-
-- 帰属規則が、観測からrole付きの識別子候補を作る
-- 信頼グラフが、既に型付けされた帰属主張の支持状況を評価する
-- 採用規則が、信頼判定結果、採用を止める条件、手動判断を組み合わせて採用可否を決める
-- マージ規則が、二つのproject recordを同じ編集単位としてまとめるかを判断する
-- graph nodeであること自体は、project identifierへの登録、構成要素への帰属、信頼判定の起点にできることのいずれも意味しない
 
 ### collector観測からrelationまでを分ける
 
@@ -155,55 +107,16 @@ resource identityは、二つのidentifierが同じ外部resourceまたはその
 
 現行graphは観測されたidentifierをnodeとして保持し、aliasらしい値を暗黙に一つへ畳みません。identityを確認する直接relationと、projectへの帰属relationを分けます。
 
-#### 登録プロジェクトでのrole
-
-project roleは「外部対象がこのproject recordにとって何であるか」という主張です。`project_site`、`project_repository`、`owned_nsid`は対象自体の種類ではなく帰属の意味を表し、developer、dependency、mirrorなどとの関係は同じkindのnodeに対しても別に記述できます。role、`candidate` / `confirmed`、根拠のprovenanceはそれぞれ別の軸として評価します。
-
-後述する「構成要素」「構成要素ではない関係者」「関連情報」はroleまたはrelationを説明するための上位区分であり、roleと並ぶ独立した保存軸ではありません。未分類linkやauthority domainなど、まだproject roleを主張しない観測対象はproject identifierにせず、graph-only nodeまたはevidenceとして扱います。
-
 ### 収集対象の分類
 
-#### 1. 登録プロジェクトの構成要素
+| 区分 | 例と扱い |
+| --- | --- |
+| 構成要素 | owned Lexicon、公式repository、代表service/site、native app等。同じprojectへrole付きで帰属させる |
+| 構成要素ではない関係者 | developer、organization、publisher、service operator。説明や帰属の裏付けに使う |
+| 関連情報 | used collection、dependency、upstream、template、mirror、個別docs・配布・support page |
+| 観測・調査先 | 未分類link、README mention、検索hit、追加取得先。帰属は未判断 |
 
-同じproject recordへ、特定roleで所属させる対象です。
-
-- owned Lexicon / NSID
-- 公式repository。source、docs、specification、issue、release等を含み得る
-- operated serviceの代表的なservice surface
-- projectを代表するproject site。service surfaceや補助pageとは分ける
-- native app。bundle/package identifierとdistribution URL、backend serviceは別resourceとして扱う
-- その他、一つの説明・追跡対象として扱うresource
-
-#### 2. 構成要素ではない関係者
-
-帰属主張の裏付けや説明には使えますが、通常はproject identifierにしません。
-
-- developer account
-- organization
-- publisher DID
-- service operator
-
-専用のproject accountはproject自身を表す構成要素になり得ます。一方、複数projectを代表するorganization accountは、複数projectに関係するaccountとして保持します。publisher DIDをdeveloper、project、organizationのいずれかへ自動的に読み替えません。現行roleと保存契約は[Project Record Schema](project-record.md)、未実装のrole拡張は[roadmap](../../roadmap.md#信頼帰属policyの追加接続)で管理します。
-
-#### 3. 関連情報
-
-projectとの関係は事実でも、そのprojectの構成要素ではない対象です。
-
-- used collection
-- dependency
-- upstream、template、mirror
-- primary project siteではない個別docs page、distribution、supporting page
-
-#### 4. 観測・調査先
-
-意味や帰属をまだ判断していない収集結果です。
-
-- README mention
-- search result
-- 未分類link
-- 追加取得先としてだけ必要なidentifier
-
-identifier kindだけでは分類を決めません。同じrepo URLでも、project repository、dependency、mirrorではprojectとの関係が異なります。
+同じrepo URLでも公式repository・dependency・mirrorのどれかで扱いが変わり、kindだけでは分類できません。専用project accountは構成要素になり得ますが、複数projectを代表するorganizationとは分け、publisher DIDからaccount roleを推定しません。これらは説明上の区分で、roleと別の保存軸ではありません。現行のroleと保存は[Project Record Schema](project-record.md)、role拡張は[TODO](../todo.md#信頼帰属policyの追加接続)を参照します。
 
 ### `candidate`と`confirmed`の意味
 
@@ -230,7 +143,7 @@ candidate生成を厳密にする目的は、project境界とreview品質を保�
 
 `INSUFFICIENT`と`CONFLICTING`は「偽」の一種類へまとめません。観測不足、片方向の自己申告、矛盾、policy対象外では、必要な人間の対応が異なるためです。登録起点は信頼グラフによる自己評価で`SUPPORTED`にせず、operatorまたはbootstrapという採用理由を表示します。
 
-採用規則は信頼判定結果をproject recordの変更へ変換し、手動判断を自動採用より優先します。operator操作時のconfirm/block/defer解除と採用理由の更新、現行mutationの全roleへの作用範囲は[project_decisions](project-record.md#project_decisions)を正本とします。判断モデルの対象はrole付きclaimです。承認済みsourceのbootstrap契約はbootstrap採用理由を作り、`SUPPORTED`はguardがない場合にtrust-policy採用理由を作れます。role単位の拒否の拡張条件は[roadmap](../../roadmap.md#web-ui)で管理します。
+採用規則は信頼判定結果をproject recordの変更へ変換し、手動判断を自動採用より優先します。operator操作時のconfirm/block/defer解除と採用理由の更新、現行mutationの全roleへの作用範囲は[project_decisions](project-record.md#project_decisions)を正本とします。判断モデルの対象はrole付きclaimです。承認済みsourceのbootstrap契約はbootstrap採用理由を作り、`SUPPORTED`はguardがない場合にtrust-policy採用理由を作れます。role単位の拒否の拡張条件は[TODO](../todo.md#web-ui)で管理します。
 
 既にconfirmedのclaimが後の再評価で`INSUFFICIENT`になっても、通常のenrichだけで即時降格しません。一時的な取得失敗による連鎖降格を避け、採用理由、欠けたrelation、時間変化、誤帰属のどれかをreviewします。`CONFLICTING`になったclaimは、矛盾を解消またはoperatorが再判断するまで後続自動採用の起点に使いません。
 

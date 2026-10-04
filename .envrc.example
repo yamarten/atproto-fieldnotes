@@ -1,7 +1,7 @@
 # Copy to .envrc, fill only the settings you use, then run direnv allow.
 # .envrc is ignored by Git. This example contains no working credentials.
 
-# Required for Web UI. Set a long, random value of your own.
+# Required for Web UI login. Enter the same private value in the browser.
 export ATPROTO_SURVEY_WEB_TOKEN=''
 
 # Optional: Bluesky authenticated search and introduced-post search.

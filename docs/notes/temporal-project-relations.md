@@ -1,6 +1,8 @@
-# 時間・派生関係とidentifier処遇の未決事項
+# Project境界・時間関係の設計材料と個別判断の留保
 
-project間の継承・派生関係と、identifierの帰属・現行性を判断しきれていない事例を保持します。2026-08-11〜2026-09-04の調査・reviewに残った材料であり、現在のDBや公開先を再確認した結果ではありません。必要な表示・検索・説明が具体化した時に再検討し、全事例の先行調査は行いません。
+[TODOのproject間の時間・派生関係](../developer/todo.md#project間の時間派生関係)で、改名・継承・fork等を表示・検索・紹介文へどう反映するか、既存のidentifier履歴や分離判断で足りるかを検討する資料です。最初の節に保存形とreview操作の選択肢を置きます。後続の事例は[TODOの個別projectの再検討](../developer/todo.md#個別projectの判断を再検討する時)から参照し、同じ対象を扱う時に、同一性の留保や未確定のidentifier処遇を見落とさないために使います。
+
+2026-08-11〜2026-09-27の調査・reviewに残った材料であり、現在のDBや公開先を再確認した結果ではありません。設計は必要な表示・検索・説明が具体化した時に再検討し、個別例は通常のレビューで必要になった時に確認します。全事例の先行調査は行いません。
 
 現行・非現行の識別子、採用理由、確定した移転関係（transition）、再登録の抑止情報（exclusion）は現行のschema v4で保存できます。ここで未決なのはproject間の関係表現と、個々の事例をどの関係・状態として扱うかです。
 
@@ -26,12 +28,11 @@ project間の継承・派生関係と、identifierの帰属・現行性を判断
 | Spindle / publicdomainrelay | `com.publicdomainrelay.temp.*`にはmarket、agent、compute等もあり、Spindle固有とは限らない。`com.publicdomainrelay.temp.tangled.spindle.repos`はSpindleを明示する | 個々のproject帰属と、Tangled側schemaからの置き換えの有無 |
 | PopFeed / PopSky | 2026-08-13の採用reviewに同時URL・canonical・履歴の区別が残った | 現在の採用・後続のrole補正と照合し、同時aliasか旧URLかを確認する |
 
-redirectの初期reviewには次の材料も残っています。再検討する事例を選び、現在の状態と移転の根拠を確かめるための候補です。
+redirectの判断では、次の異なる状況を比較します。現在の状態と公式告知・stable resource ID・両側の帰属根拠を確かめ、resourceごとの移転を判断します。
 
 - Pinksky→Pinkleap: [当時参照したprofile](https://bsky.app/profile/pinksky.app)に発展・改名の明示があり、同一project内の置き換え候補とした。resourceごとの置き換えは別途確認する。
-- 同じサイトの範囲に属する別の公開先: Barazo、If This Then、Scribe、Slices、ATPcraft、Drydown。補助リソース、並行する公開先、代表URL、本番環境の切替をURLだけで決めない。ATPcraftでは`dev.atpcraft.at`の公式案内とLive mapが併存していた。
+- 公開先の併存: ATPcraftでは`dev.atpcraft.at`の公式案内とLive mapが併存していた。上表のBarazo・Drydownと同様、補助リソース、並行する公開先、代表URL、本番環境の切替をURLだけで決めない。
 - 行先が安定しない観測: PhotoSky／PskyからPhotoSkyまたはZeensへの観測。移転確定より先に、観測時期と行先の変化を確かめる。
-- 別siteへの移転・改名候補: `main.bsky.dev`→`bsky.app`、DateSky→Nomare、Pipup→Lemma、Provcheck、Eurosky、Thread Viewer、Cirrus、LastFM.blue、Denazen→Rhize、Flapnote→Yuunagi、Cabildo Abierto。保存形や説明の検討に必要な事例だけ、公式告知・stable resource ID・両側の帰属根拠で確認する。
 
 ## 一時merge review後に残ったidentifier処遇
 
@@ -73,3 +74,7 @@ Newdin Read・Untangled・high-fiveの分離とteal.fmの保留について、�
 - atproto-identity-rs（`proj:634f6bc6b106`）／atproto-plc（`proj:723b9cf13beb`）: `https://tangled.org/smokesignal.events/atproto-identity-rs`の一致だけで同じ作者の関連作品を統合しない。
 
 Rito同士のrepo・service一致やBookHiveのミラー説明も、保存情報の比較材料まででmergeの正解ラベルではありません。
+
+## この資料の役割が終わる条件
+
+設計材料は、新しい関係表現を採用するか既存の保存形で足りるか判断し、必要な契約・理由・代表例を仕様へ反映した時に閉じます。個別の留保は、現在の資料で判断してDB等の適切な記録へ反映した時、または追う必要がなくなった時に一件ずつ外します。未確認の例をまとめて解決扱いにはせず、残る少数の確認事項はTODOへ集約できます。設計の決着と全例の処遇完了を互いの前提にせず、両方の役割がなくなれば本資料を削除します。

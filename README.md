@@ -1,104 +1,67 @@
 # atproto survey automation
 
-新しく生まれたatprotoのプロジェクト、サービス、ライブラリ、lexiconを発見し、調査・整理・追跡するための個人用ローカルツールです。
+**気になるatprotoプロジェクトを集め、根拠を読み、次に深掘りする対象を選ぶためのローカル調査ツールです。** Web UIとCLIから同じSQLite DBを使い、サービス、ライブラリ、Lexiconの調査結果と自分の判断を蓄積します。
 
-主対象は新規lexiconを持つ独立プロジェクトです。候補を外部情報源から収集し、シードを起点に登録プロジェクトを調査して、紹介状況と追跡状態をSQLiteに保存します。
+たとえば、新しいLexiconを見つけたら、そのNSIDを登録して調査します。関連するリポジトリやサービス、用途の説明、atprotoとの関係を確認し、曖昧な帰属は根拠を見て採用・保留します。紹介候補の一覧から気になる対象を選び、追加調査や短い紹介文の下調べに使えます。
 
-## Quick start
+| すること | 得られるもの |
+| --- | --- |
+| URLやNSIDを登録する／外部情報源から候補を集める | 同じ対象のシードと関連情報をまとめた登録プロジェクト |
+| 登録した対象を調査する | 説明・分類、サービスやLexiconの情報、取得元と調査履歴 |
+| 根拠を確認して整理する | 採用・除外・保留などの手動判断、重複の整理、紹介状況 |
+| 紹介候補を見直す | 深掘りする対象と、確認・訂正が必要な点 |
 
-uvとNode.js 22.15以上を用意します。Python本体はHomebrewとは別に、checkout内の専用世代へ取得します。既定はCPython 3.14の最新patchで、通常起動時には取得・更新しません。Node依存はTangledの取得とOAuth scopeの解析に使います。
+PC表示では、登録プロジェクトの一覧と選択したプロジェクトの詳細を並べて確認できます。詳細から説明、識別子、関係、調査履歴、手動判断をたどれます。下の画面は同梱の架空データを表示したものです。
+
+![架空の5件の一覧とDemo Field Notesの詳細を並べたPC表示](docs/images/project-detail.jpg)
+
+調査と候補提示は判断の補助です。生成された説明や帰属には誤りがあり得るため、根拠を確認して人が紹介可否を決めます。紹介文の公開はツールの外で行います。
+
+## 動作環境
+
+動作確認済みの環境はmacOS（Apple Silicon）です。Linux・Windowsでの動作は未検証です。macOSへのログイン時にWebを自動起動する`project-registry-web-service`はmacOS専用です。
+
+## 架空データで試用デモを動かす
+
+[uv](https://docs.astral.sh/uv/getting-started/installation/)とNode.js 22.15以上を用意し、リポジトリのルートで実行します。Python本体と依存の取得にはネットワーク接続が必要です。サンプルの生成・閲覧には外部APIキーやLLMは不要です。
 
 ```bash
 bin/project-registry-python-env prepare initial
 bin/project-registry-python-env activate initial
-bin/project-registry-python-env status
 npm install
-export PATH="$PWD/bin:$PATH"
-project-registry init-db
+bin/project-registry dev-db
+bin/project-registry-web --host 127.0.0.1 --port 8765 --db-path data/dev/survey.db --token web-ui-dev
 ```
 
-uvの導入、既存環境からの移行、検証後の更新・復旧は[Python環境の管理](docs/user/guide.md#python環境の管理)を参照してください。既存の`.venv`を直接上書きしません。
+[ローカル画面](http://127.0.0.1:8765/)を開き、ログイン用トークンとして`web-ui-dev`を入力します。これはWebの起動時に`--token`で指定した値です。デモには架空の5件と調査済みの結果が用意されており、次の2つを試せます。
 
-Web UIを起動します。
+1. `登録プロジェクト`→`Demo Field Notes`で一覧と詳細を開き、説明と判断欄を見る。
+2. `登録プロジェクト`→`Demo Sketch Board`→`調査履歴`で部分失敗を見る。`調査履歴を読み込む`から記録を選ぶと、保存済みの根拠も開ける。
 
-```bash
-export ATPROTO_SURVEY_WEB_TOKEN='long-random-token'
-export ATPROTO_SURVEY_JETSTREAM_API_KEY='...'
-project-registry-web --host 127.0.0.1 --port 8765
-```
+このデモは保存済みの調査結果を閲覧・編集するためのものです。`調査`ボタンは実際に外部へアクセスするため、架空データでは使わず、実際の対象を登録した後に試してください。
 
-macOSでログイン時に自動起動する場合は、`.envrc`からトークン等を読み込むLaunchAgentを導入できます。LaunchAgentは実運用向けに`0.0.0.0:8888`で接続を待ち受け、同じMacからは`http://127.0.0.1:8888/`で開けます。
+試用を終える時はターミナルでCtrl+Cを押します。サンプルは`data/dev/survey.db`に保持されます。既に環境やサンプルがある場合は生成を繰り返さず、Webの起動から再開してください。
 
-先に[設定テンプレートから`.envrc`を準備](docs/user/guide.md#設定ファイルと認証情報)し、Web UI tokenを設定して`direnv allow`を実行します。
+**自分の対象を調べるには、[利用ガイド](docs/user/guide.md#自分の調査dbを用意する)へ進みます。** 自分用のDB、LLMと情報源の設定、1件の登録・調査から継続利用までを案内します。
 
-```bash
-chmod 600 .envrc
-project-registry-web-service install
-project-registry-web-service status
-```
+## 必要な文書を探す
 
-Web UIの`登録プロジェクト`からシードを登録・調査し、`レビュー`で要レビュー項目や紹介候補を確認します。CLIで最小フローを行う場合は次の通りです。
+| 知りたいこと | 文書 |
+| --- | --- |
+| 導入して一通り使いたい | [利用ガイド](docs/user/guide.md) |
+| 画面の操作／コマンドの引数と副作用を確認したい | [Web UI](docs/user/web-ui.md)・[CLI](docs/user/cli.md) |
+| LLMや認証、収集対象を設定したい | [接続設定](docs/user/configuration.md) |
+| Pythonを更新・復旧したい | [Python環境の管理](docs/user/python-environment.md) |
+| 目的と開発上の残件を知りたい | [Brief](docs/brief.md)・[TODO](docs/developer/todo.md) |
+| 実装の構成と機能の契約を知りたい | [Architecture](docs/developer/architecture.md)・[仕様一覧](docs/documentation-policy.md#開発仕様) |
+| 開発・文書保守に参加したい | [AGENTS](AGENTS.md)・[文書管理方針](docs/documentation-policy.md)・[変更の受入](docs/developer/workflows/change-acceptance.md) |
 
-```bash
-project-registry add-seed sh.tangled.repo
-project-registry enrich --seed sh.tangled.repo --type nsid
-project-registry show --seed sh.tangled.repo --type nsid
-```
-
-通常コマンドとWeb UIはDBを暗黙作成しません。既定DBは`data/survey.db`です。別DBを使う方法、シード形式、外部情報源とLLMの設定は[利用ガイド](docs/user/guide.md)を参照してください。
+開発時の全unit testは`bin/project-registry-test`です。外部API、正本DB、実LLMへ接続せず、一時DBで実行します。
 
 ## 利用と共有の範囲
 
-本体コード・文書は[MIT License](LICENSE)で公開します。第三者の同梱データや引用は[個別の権利表記](THIRD_PARTY_NOTICES.md)に従います。
+個人が自分のローカルDBを運用するためのツールです。複数利用者の共有DBや公開Webサービスとしての運用、外部向けAPIの互換性保証は提供しません。通常の調査DBは`data/survey.db`です。
 
-個人が自分のローカルDBを運用するためのツールです。複数利用者での共有DBや公開Webサービスとしての運用、外部向けAPIの互換性保証は提供しません。
+調査DB、認証情報を設定する`.envrc`、実行ログ、非公開のLLM事例はGit管理外です。DBの共有には用途に合わせた論理exportと、収集資料に含まれる認証値などの確認が必要です。共有用の秘匿処理付きDB exportは未実装です。
 
-調査DB、認証情報を設定する`.envrc`、実行ログ、非公開のLLM事例はGit管理外です。DBを共有する場合は、その都度用途に合わせた論理exportを用意し、収集資料に含まれる認証値やトークン等を確認します。共有用の秘匿処理付きDB exportは未実装です。同梱データと依存物の権利表記は[Third-party materials](THIRD_PARTY_NOTICES.md)を参照してください。
-
-## 公開入口
-
-- [bin/project-registry](bin/project-registry): 登録、調査、候補整理、外部情報の取り込み、保守のCLI
-- [bin/project-registry-web](bin/project-registry-web): schema v4ローカルWeb UI
-- [bin/project-registry-web-service](bin/project-registry-web-service): macOS LaunchAgentの導入・状態確認
-- [bin/project-registry-python-env](bin/project-registry-python-env): Python世代の準備・選択・状態確認
-- [completions/_project-registry](completions/_project-registry) / [completions/_project-registry-web](completions/_project-registry-web) / [completions/_project-registry-web-service](completions/_project-registry-web-service): zsh completion
-
-`PATH`には`bin/`だけを追加する前提です。各CLIオプションは`project-registry COMMAND --help`で確認できます。
-
-## テスト
-
-```bash
-bin/project-registry-test
-```
-
-テストは外部API、正本DB、実LLMの接続先へ接続せず、必要なSQLite DBを一時ディレクトリへ作ります。起動スクリプトは現在のcheckoutの`.venv`を優先し、それが存在しないworktreeでは本家の専用環境を利用します。候補環境の検証は`PROJECT_REGISTRY_PYTHON_ENV`で明示できます。システムPythonへのfallbackはありません。
-
-## 文書
-
-利用者向け:
-
-- [利用ガイド](docs/user/guide.md): 準備、シード、日常フロー、安全な使い分け
-- [CLIガイド](docs/user/cli.md): 全公開コマンドの入力、出力、外部接続、DB変更
-- [Web UIガイド](docs/user/web-ui.md): 画面、絞り込み、操作、バックグラウンドジョブ、アクセス境界
-
-目的・計画・文書方針:
-
-- [Project Brief](docs/brief.md): 目的、対象・非目標、提供したい価値
-- [Roadmap](docs/roadmap.md): 到達目標、着手条件、優先関係
-- [文書管理方針](docs/documentation-policy.md): 正本文書全体の責務、配置、更新方法
-
-開発者向け:
-
-- [Status](docs/developer/status.md): 現在頼ってよい範囲、接続・適用と制約
-- [Architecture](docs/developer/architecture.md): 全体の流れ、実行経路、moduleの責務・依存方向
-- [仕様一覧](docs/documentation-policy.md#開発仕様): 発見、調査、帰属・採用、評価、保存などの担当文書
-- [変更の受入条件と確認手順](docs/developer/workflows/change-acceptance.md): CLI/Web共通ダミーDBの生成・リセット、変更種別ごとの確認、DB複製、実運用への反映境界
-- [設計・調査メモ](docs/notes/): 未決事項、保留、再開に必要な材料
-
-## 実装
-
-- [scripts/project_registry_core/](scripts/project_registry_core/): CLIとWebで共有する調査・評価・保存などの処理
-- [scripts/project_registry_web/](scripts/project_registry_web/): Web API、バックグラウンドジョブの管理、静的UI
-- [prompts/project-triage.md](prompts/project-triage.md): LLM調査prompt
-
-調査結果の正本は`data/survey.db`です。現行保存形式はregistry schema version 4で、旧schemaは通常導線の対象外です。
+本体コード・文書は[MIT License](LICENSE)、第三者の同梱データや引用は[個別の権利表記](THIRD_PARTY_NOTICES.md)に従います。

@@ -4,7 +4,7 @@
 
 日常フローだけを知りたい場合は[利用ガイド](guide.md)、画面操作は[Web UIガイド](web-ui.md)を参照してください。
 
-Python本体の準備・選択・状態確認は別入口の`project-registry-python-env`で行います。引数、外部取得、切替と復旧は[Python環境の管理](guide.md#python環境の管理)を参照してください。この入口はDBやWeb serviceを操作しません。
+Python本体の準備・選択・状態確認は別入口の`project-registry-python-env`で行います。引数、外部取得、切替と復旧は[Python環境の管理](python-environment.md)を参照してください。この入口はDBやWeb serviceを操作しません。
 
 ## 共通の入力と出力
 
@@ -54,13 +54,15 @@ CLI/Webの手動確認には`project-registry dev-db`で架空データ5件を�
 | `validate-app-record-export` | schema v4 DBと`--output` | `community.lexicon.app.entry`として書き出す条件の充足状況（readiness report） | DBはread-only。指定JSONだけを書き込み |
 | `export-app-records` | schema v4 DB、公開対象・時刻を指定するmanifest、`--output` | PDS処理へ渡せるentry record配列 | DBはread-only。全対象の検証成功後に指定JSONだけを書き込み |
 
+`add-seed`でサービスURLから新規登録する時は、Websiteが空なら同じURLを初期値にします。その後の候補採用や収集はWebsiteを自動設定せず、サービスURLと代表サイトは別々に変更できます。NSIDの`owned`はcollection所有を表し、単なる利用・言及ではありません。
+
 `show --seed`は登録済みのシード値から登録プロジェクトを解決します。プロジェクトキーから調べる場合は`--project-key`、シードのURLが曖昧な場合は`--type`を指定してください。
 
 `add-seed`へ渡したサービスURLはパスを保持します。同じシードを同じ登録プロジェクトへ再適用してもよく、旧データに不足する採用済みサービス・リポジトリの役割を補えます。利用者が明示したサービスURLは、`/about`、`/docs`、`/login`などのパス名だけを理由に補助ページ扱いにしません。同じURLの除外・保留は最新の明示登録で解除しますが、親URLに対する再付着防止・保留の判断は他候補向けに残します。
 
 `explain`のtopicは`all`、`service_status`、`ownership`、`contribution`、`merge_candidate`、`trust`です。保存済み状態と共通評価処理だけを使い、ネットワークやLLMを呼びません。
 
-`validate-app-record-export`は紹介用プロフィール、代表値として保存した項目、現行かつ採用済みの識別子・リソースから公開候補を作り、その他の候補を診断用の除外入力として残します。登録プロジェクトごとに必須・任意項目の不足、根拠不足、変換不能、仕様未確定、公開対象としての適否を分け、公開用の作成日時である`createdAt`の指定も案内します。通常は`.tmp/`へ出力してください。詳細は[App Record Export](../developer/specs/app-record-export.md)を参照してください。
+`validate-app-record-export`は紹介用プロフィール、代表値として保存した項目、現行かつ採用済みの識別子・リソースから公開候補を作り、その他の候補を診断用の除外入力として残します。登録プロジェクトごとに必須・任意項目の不足、根拠不足、変換不能、仕様未確定、公開対象としての適否を分け、公開用の作成日時である`createdAt`の指定も案内します。詳細は[App Record Export](../developer/specs/app-record-export.md)を参照してください。
 
 `export-app-records`は、manifestに明示したプロジェクトキーを公開対象とし、UTCの`createdAt`もmanifestから使います。公開対象としての適否が未確定な`scope_uncertain`は、manifestの別の許可リストへ同じキーを重ねて指定した場合だけ許可します。必須項目の不足、変換不能、`not_applicable`は許可せず、1件でも不適格なら出力しません。
 
@@ -271,7 +273,7 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 
 公開テストfixture向けの書き出し時の機密情報除去（sanitization）は機械的な補助です。実プロジェクトキー、時刻、handle/DID、自由記述が残り得るため、fixtureとしてcommitする前に必ず人が確認してください。この公開用の確認を、非公開LLM事例のローカル保存・参照の前提にはしません。
 
-LLM評価corpusも保存済みの根拠、実プロジェクトキー、公開識別子、自由記述を含みます。通常は`.tmp/`へ出力し、commit前に人が確認します。`reference_output`は保存済みモデル出力との比較用で、正解labelではありません。
+LLM評価corpusも保存済みの根拠、実プロジェクトキー、公開識別子、自由記述を含みます。出力はGit管理外に置き、commitする場合は事前に人が内容を確認します。`reference_output`は保存済みモデル出力との比較用で、正解labelではありません。
 
 `evaluate-llm-corpus`はJSON/schema、根拠にない識別子、`library`と紹介文の役割不整合、日英混在文の空白警告、保存済み出力との差、応答時間を記録します。`--labels`を指定すると根拠のハッシュ値を照合して期待結果との差とcategory一致数も記録します。
 
@@ -305,7 +307,3 @@ project-registry monitor-services --limit 20 --execute
 最後に確認できた利用面と最新の試行は別に保持します。確認結果は現在の利用を保証するものではなく、HTTPエラーだけで提供終了とは判断しません。単独のservice確認で全体調査の鮮度は更新しません。
 
 リンクや作成を促すボタンだけでは、サービスを利用する画面の確認済み判定にはしません。認証の実行、認証入力、フォーム送信、登録、投稿は行いません。`browser`を使う場合はPlaywrightとブラウザーの導入が必要です。
-
-## 現在の整理対象
-
-CLIはWeb UIより低水準な操作や開発補助も公開しています。機能削減の検討中も、削除が確定して実装から外れるまでは、この文書と`--help`で現行の入出力を説明します。日常の操作は[利用ガイドの日常フロー](guide.md#日常フロー)から選んでください。

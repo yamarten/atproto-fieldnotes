@@ -12,17 +12,7 @@ registry schema version 4では、紹介・検索・要レビュー項目の確�
 
 保存処理は現在状態を正規化し、識別子・関係・判断などを個別のtableの行（normalized row）へ分けます。読み出すときは、それらの行から調査・評価処理用のproject dict（runtime view）を組み立てます。この復元をhydrate、読み出した内容を変更せず再保存する確認を無変更roundtripと呼びます。調査履歴は過去の入力と結果を再評価する材料、現在状態は一覧や詳細の表示元です。
 
-## 設計意図
-
-registryの一次目的は、atproto関連projectを継続的に発見し、紹介・追跡・再調査に必要な情報を保守的に保持することです。
-
-- projectの現在状態と、外部sourceから観測したidentifierを分離する
-- collector由来のrelation evidenceを、後から再評価できる形で残す
-- block/deferなどoperator判断を自動評価より優先する
-- 不確かな値を紹介用profileへ無理に昇格させない
-- 一覧表示に必要な値と、調査・運用上の詳細を分ける
-
-`profile_json.app`には、表示やexportへ再利用する確定情報を保持し、未確定のfieldは空にします。app lexiconとの変換条件は[App record export](app-record-export.md)で定めます。
+`profile_json.app`には表示・exportへ再利用する確定情報を保持し、未確定fieldは空にします。[App record export](app-record-export.md)が変換条件を定めます。
 
 ## Schema Version
 
@@ -504,14 +494,7 @@ service観測から現在の稼働状態を算出する処理では、JSON paylo
 
 `compare-identifier-storage --db-path PATH --output REPORT`はsource DBを`mode=ro`、`query_only`、単一read transactionで読み、identifier・採用理由・非現行値の保存投影を比較します。sourceを更新しません。`--materialized-db NEW --review-manifest MANIFEST`を明示した場合だけ、上書きを拒否する新規複製DBへreview済み投影を適用します。schema v2から現行schemaへの変換はこの複製側で行い、通常openや`repair-db`の互換処理ではありません。移行時のmanifestは当時の判断を再現する入力であり、後続のoperator判断で変わった現在の採否を示すものではありません。
 
-## Non-goals
-
-- app lexiconとの完全互換
-- raw HTMLやREADME全文の永続化
-- 旧schemaの通常読み込み互換
-- Web UI向けpayload互換
-
-### 主機能でのatproto利用の保存
+## 主機能でのatproto利用の保存
 
 理由付き手動判断の正本は`project_decisions`の`assess_atproto_usage`で、roleをtarget value、理由をnoteへ保存し、解除・更新時は旧判断をclearedにして履歴を維持します。runtimeの`atproto_usage_decisions`はこの投影でありstate JSONへ保存しません。利用範囲の自動評価は保存契約から外し、LLM出力に同名fieldがあっても判断へ適用しません。新しいtableやschema versionは追加しません。
 

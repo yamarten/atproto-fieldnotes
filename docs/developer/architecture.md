@@ -1,204 +1,120 @@
 # Architecture
 
-このツールは、外部情報源（source）から候補を登録し、登録プロジェクト（以下project）ごとに調査した根拠を評価して、紹介・追跡に使う現在状態をSQLiteへ保つ仕組みです。CLIとWebは同じapplication serviceを呼び、外部取得とLLMは主に調査時に使います。一覧・詳細の表示とExplain（判定理由の表示）は保存済み情報を読みます。
+外部情報源から候補を登録し、登録プロジェクト（以下project）ごとに収集した根拠を評価して、紹介・追跡に使う現在状態をSQLiteへ保存します。CLIとWebは同じapplication serviceを呼びます。外部取得とLLMは主に調査時に使い、一覧・詳細・Explain（判定理由）は保存済み情報を読みます。
 
-application serviceは、検索や登録・調査などの処理をCLIとWebから共通に呼ぶ入口です。以下では、保存情報の取得をquery、変更操作をmutation、処理を実行する利用者をoperatorと呼びます。projectの識別子・関係・手動判断を個別のtableへ分けた保存形をnormalized row、それらを調査処理用のdictへ組み立てることをhydrateと表記します。保存形とdictの対応は[Project record](specs/project-record.md)で定めます。
+以下では、保存情報の取得をquery、変更操作をmutation、利用者をoperatorと呼びます。識別子・関係・手動判断を個別tableへ分けた保存形をnormalized row、それらを処理用dictへ組み立てることをhydrateと表記します。
 
 ## 全体の流れ
 
-1. **発見・登録** — source別のsyncが候補を既存projectへ照合し、対象commandでは未知の候補を新規登録する。
-2. **調査・判断** — enrichが観測を収集し、resourceの帰属と、説明・分類・稼働状態などをそれぞれ評価する。観測したlinkやLLMの提案が、そのまま採用済みidentifierになるわけではない。
-3. **保存・利用** — projectの現在状態と調査履歴を分けて保存する。CLI/Webで検索・要レビュー項目の確認・手動編集を行い、次の調査でもoperatorのconfirm（採用）・block（除外）・defer（期限付き保留）を尊重する。
+```mermaid
+flowchart TD
+    register[発見・登録<br/>候補の照合・取り込み] --> db
+    db[(SQLite<br/>現在状態・手動判断<br/>調査履歴)] -->|調査対象・保存済み情報| investigate
+    investigate[調査・判断<br/>根拠の収集と更新案の評価] -->|手動判断を尊重して保存| db
+    db --> view[閲覧・レビュー<br/>CLI / Web]
+    view -->|採用・除外・保留・編集| db
+```
 
-この流れの契約は次の仕様に分かれます。
+1. **発見・登録** — source別のsyncが候補を既存projectへ照合し、対象commandでは未知の候補を新規登録する。
+2. **調査・判断** — enrichが根拠を収集し、resourceの帰属、説明、分類、稼働状態を評価する。観測したlinkやLLMの提案をそのまま採用するわけではない。
+3. **保存・利用** — 現在状態と調査履歴を分けて保存し、CLI/Webで検索・レビュー・編集する。次の調査でもoperatorの採用・除外・保留を尊重する。
 
 | 確認したいこと | 仕様 |
 | --- | --- |
-| 何を発見し、既存projectへどう取り込むか | [発見と取り込み](specs/discovery-and-sync.md) |
-| 何を調べ、どの根拠を残すか | [Investigation](specs/investigation.md) |
-| 何を同じprojectの構成要素と認め、いつ統合・分離するか | [Project境界](specs/project-boundaries.md) |
-| 根拠から説明・紹介候補・追跡状態をどう決めるか | [Project評価](specs/project-evaluation.md) |
-| 現在状態・関係・手動判断・調査履歴をどう保持するか | [Project record](specs/project-record.md) |
-
-個人がローカルの`data/survey.db`を使う運用を前提とします。同時編集は自分のCLI、Web、worker間の衝突を想定します。Web server内ではmutationを直列化しますが、別processとの競合はproject単位の更新番号と保存transaction内の検査で検出します。
+| 発見した候補の照合・取り込み | [発見と取り込み](specs/discovery-and-sync.md) |
+| 調査pipeline・取得範囲・根拠 | [Investigation](specs/investigation.md) |
+| resourceの帰属とprojectの統合・分離 | [Project境界](specs/project-boundaries.md) |
+| 説明・紹介候補・追跡状態の決定 | [Project評価](specs/project-evaluation.md) |
+| 現在状態・手動判断・履歴の保存 | [Project record](specs/project-record.md) |
+| 長時間処理・中断・再開 | [Background jobs](specs/background-jobs.md) |
 
 ## 実行経路
 
-公開shell入口は`bin/_project-registry-python`で専用Python環境を選び、世代の実pathからCLI/Web/service/testを実行します。`bin/project-registry-python-env`が保守時だけuvによる世代準備と選択を行い、`scripts/project_registry_runtime.py`がPython本体・標準ライブラリの世代内所属、依存import、選択symlinkの原子的置換を担当します。通常起動にはuvもシステムPythonへのfallbackもありません。worktreeの選択順、配置、更新・復旧は[利用ガイド](../user/guide.md#python環境の管理)を参照してください。
+公開shell入口は`bin/_project-registry-python`で専用Python世代を選び、実pathからCLI/Web/service/testを起動します。`bin/project-registry-python-env`と`scripts/project_registry_runtime.py`が保守時の世代準備・検査・選択を担当します。通常起動はuvやシステムPythonへ依存せず、Web workerとreloadは起動中の`sys.executable`を使います。更新には停止・新規起動が必要です。[環境の選択・切替・復旧](../user/python-environment.md)を参照してください。
 
-Web workerとreloadは解決済み世代の`sys.executable`を使います。`.venv`の切替は稼働中processに反映せず、Python更新は停止・公開wrapperからの新規起動で行います。build情報はPython versionに加えて実行pathとbase prefixを返し、選択中環境と稼働中環境を照合できます。
+CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をtext/JSONまたはHTTP responseへ変換します。長時間処理ではCLIはserviceを直接呼び、Webは別processの`worker.py`を介します。serviceが進捗eventと終了resultを返し、enrichでは対象選択・保存・checkpoint・再開も担当します。
 
-OAuth metadataの解析は`oauth_metadata.py` → `oauth_scope_parser.mjs` → 公式OAuth scope SDKで行います。Nodeは取得済み文字列の解析に限定し、HTTPは既存collector、保存済み観測の適用は`integration.py`、表示はapplication presentationが担当します。詳細は[OAuth観測](specs/investigation.md#oauth-client-metadataの観測)を参照してください。
-
-`usage_material.py`は個別repo宣言・record型Lexicon・record観測を同じcollection名で束ね、保存済み本文・README原文の表記と照合します。通常のservice collectorへ既知名を渡し、HTMLの切捨て前に選んだ候補をservice観測として保持します。通信・LLM・用途判定を担当しません。[関連記述](specs/investigation.md#atproto利用の関連記述)を参照してください。
-
-CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をそれぞれtext/JSONとHTTP responseへ変換します。長時間処理では、CLIはserviceを呼び、Webは別processの`worker.py`を介して同じserviceを実行します。業務処理は進捗eventと終了resultを返し、enrichの保存・checkpoint・再開もapplication serviceが担当します。中断可能な境界と再開の保証は[Background jobs](specs/background-jobs.md)で定めます。
-
-独立したLexicon観測はregistry本体とは別の専用DB（sidecar DB）へ保存し、registryは照合用に読みます。App record exportは保存済みprojectから公開用JSONを生成します。いずれも通常のenrichとは別の処理です。
-
-LLMの個別事例は[非公開事例の固定保存](specs/llm-case-store.md)で、registry DBと公開テストfixtureから独立したGit管理外のJSONに保存できます。入力・出力・実行条件の固定snapshotと後からの判断eventを分けます。登録・event追記・検査はCLIの`commands/llm_cases.py`から`llm_case_store.py`を呼び、通常enrichには接続しません。
-
-### 実装の依存境界
-
-- `application/sync.py`は`source_sync.py`を呼び、source別の取得、watermark、既存projectへの接続を実行する
-- `introduced_review.py`は取得済み紹介投稿のURL別要確認記録、旧保留の投影、手動解消を担当し、`source_sync.py`とWeb APIから利用する。project本体の紹介URL保存は`project_record.py`を使い、判断は同じqueryの`sync_state`へ置く
-- `application/enrichment.py`は`enrichment_pipeline.py`を呼び、1 projectのcollector、LLM、保存前のcurrent state更新を実行する
-- `application/enrich_prefetch.py`は一括enrichのLLM区間中に次の一件の`collect_initial`を実行し、使用前のsnapshot照合・未使用成果の保持・batch計測を担当する。DBとLLMはcaller threadに残し、先行collectorの終了前にcallerの取得処理へ戻らない
-- `commands/queue_interaction.py`はreview/promotion queueのinteractive入出力を担当し、queue policy自体は`registry.py`に残す
-- `project_record.py`はproject shape、保存payload、fetch/list/save、normalized exact lookup、project key allocationを所有する
-- `registry.py`はcollectorの適用と評価の取りまとめ、保存前の整形・評価を行うfinalize、マージ候補・レビュー候補の選定規則を担当する
-
-`source_sync.py`と`enrichment_pipeline.py`はproject stateや保存を重複実装せず、`project_record.py`を直接利用します。`project_record.py`から`registry.py`への逆依存と、旧内部symbolを維持するためのre-exportは置きません。
+通常enrichとは別に、[Lexicon観測](specs/lexicon-publication-catalog.md)は専用のsidecar DBへ保存し、registryを照合用にだけ読みます。[App record export](specs/app-record-export.md)は保存済みprojectから公開用JSONを生成します。[LLM事例保存](specs/llm-case-store.md)は明示登録した入力・出力・判断をGit管理外のJSONへ保存し、通常enrichには接続しません。
 
 ### CLI・Webとapplication service
 
-`enrich`のproject選択、保存、checkpoint、再開は`project_registry_core.application.enrichment`へ接続済みです。CLIは`project_registry_core.commands.enrichment`で引数を`OperationRequest`へ変換し、serviceのevent dataをJSON linesへ変換します。
+`application/presentation.py`が検索・queue・詳細のpayloadを組み立てます。Web APIはDB schemaとは独立した`api_version: 2`を持ち、詳細は`project`、`identifiers`、`relations`、`decisions`、`evaluation`、`investigation`に分かれます。同値identifierをまとめた表示でも、`entries`にrole・classification・providerの対応を保持します。
 
-Webのproject detail payloadは`project`、`identifiers`、`relations`、`decisions`、`evaluation`、`investigation`を分離します。
+`application/explain.py`はCLI/Web共通で、保存済み状態とrelationから結論、適用rule、支持・反証signalを返します。外部取得・LLM・DB更新は行いません。
 
-identifier groupは同値行をまとめつつ、`entries`にrole（project内の役割）・classification（identifierの採用状態）・provider（外部サービス）の対応を保持します。Websiteはprofile、service URLはidentifierとして別々に表示し、値が同じでもprimary markerは付けません。DID/handle/accountは同じaccount metadataを持つ場合に、表示上の1つのidentity groupへまとめます。
-
-confirmはcandidate entryから開始でき、同じ値のblock/deferを解除してrole付きconfirm decision（採用判断）とadoption（採用来歴）を保存します。profile編集で明示したnameは`operator_edit`候補として保存し、自動生成候補より優先します。日常的なproject query、tracking、identifier decision、split/mergeは`project_registry_core.application`を共有入口として使います。旧構成要素（`former`）と開発・試験用（`non_production`）identifierの表示・編集UIは未接続です。
-
-Explain serviceは`project_registry_core.application.explain`をCLIとWebで共有します。`service_status`、NSID ownership（collectionの所有）、atproto寄与度、マージ候補について、保存済みの現在状態とrelationの根拠だけから結論、適用rule、支持/反証signalを返します。Explain実行中はnetwork collectorやLLMを呼ばず、再評価結果もDBへ保存しません。
-
-Webの初期detailは全project hydrateを行わず、merge candidateだけを`/api/projects/{key}/merge-analysis`で非同期計算します。同service内では重複候補（duplicate candidate）の計算を1回だけ行い、その結果をマージ推奨（merge recommendation）とExplainの両方へ渡します。マージ解析対象projectの変更検出値（revision）が計算中に変化した場合は結果を破棄し、計算済みviewはDBへ追加しません。
-
-単発候補計算の比較集合は`project_record.list_duplicate_projects`で読みます。projectの識別情報と必要なstateだけをSQLで取り出し、現行identifier・decision・adoptionをtableごとにまとめて読み、同じread snapshotで組み立てます。説明・収集結果・relation全体を復元せず、既存のhydrate・正規化を共有して保存済みidentifierのroleとclassificationを保ちます。この部分的なviewは保存不可です。呼出元が比較集合を渡すmerge等の経路は、その集合を引き続き使います。
-
-詳細の切替・選択解除・画面遷移・pagehideでは、ブラウザが詳細とmerge analysisのfetchをAbortControllerで取り消します。request世代とproject/revisionの照合も維持し、取消しと応答完了が競合しても古い結果を描画せず、AbortErrorを画面へ表示しません。サーバーの`request_cancellation.py`はmerge analysisのHTTP接続だけを監視し、確認点で切断を調べます（socket確認から50ms未満の再確認は省略）。applicationから渡す`check_cancelled`を子行の読取り・projectの復元・索引作成・候補pairの各境界で呼び、SQLはconnectionのprogress handler（1,000命令ごと）から確認します。取消し時は計算を抜け、read snapshot・DB接続・progress handlerを解放し、HTTPログに`499`を残します。取消し用のqueue・共有project状態・別タブへの取消しはありません。
-
-中断は協調的です。1 project内のPython処理、行の変換、SQLiteのbusy待機、応答の直列化を強制終了するものではなく、次の確認点まで続くことがあります。HTTPS等のreverse proxy経由では上流接続へ切断が伝わることが前提です。比較に必要な全件の読込み・索引構築はrequestごとに行い、projectや候補のcacheは持ちません。
+同時編集は自分のCLI、Web、worker間を想定します。Web内のmutationはlockで直列化し、process間ではproject更新番号と保存transaction内の検査で競合を検出します。詳細からのmutationは`expected_revision`を必須とし、古い詳細を`409 stale_project`で拒否します。紹介投稿の要確認はitem IDを指定し、保存時に現在の判断とproject更新番号を検査します。
 
 ### 一覧・詳細の検索経路
 
-Webのproject一覧は`projects`を起点にnormalized identifier、relation、decisionを`EXISTS` queryでfilterします。一覧候補作成時に全projectのchildをhydrateせず、detailは選択した1件のchildを取得します。自由入力はproject key、name、Website、identifier value、relation subject/object/locator、decision target/noteに加え、保存済みの`tagline`、`summary`、`features`各要素の大小文字を無視した部分一致です。`profile_json`や`state_json`全体、raw evidence、README/HTML全文は対象外です。
+通常一覧は`projects`とnormalized identifier・relation・decisionへの`EXISTS` queryで絞り込み、全projectをhydrateしません。詳細は選択した1件の子行を読みます。文字列検索は保存済みfieldの部分一致で、操作は[Web UIガイド](../user/web-ui.md#登録プロジェクト)を参照してください。
 
-紹介候補一覧は全子行を含む完全runtime viewを使います。読込み境界で正規化と保存用baseline作成を済ませ、queueとsignalの計算は同じ正規化済み値を再利用します。任意dictからの公開builderは正規化を行いますが、DBからの一覧は重複させません。読み取りsnapshotと判断履歴による先行絞込みの契約は[評価仕様](specs/project-evaluation.md#紹介候補の表示順位保留)を参照してください。
+紹介候補一覧は完全runtime viewを使い、読込み時の正規化結果をqueueとsignalで再利用します。先行絞込みとread snapshotの契約は[評価仕様](specs/project-evaluation.md#紹介候補の表示順位保留)に従います。
+
+詳細のマージ候補は`/api/projects/{key}/merge-analysis`で別途計算し、重複候補の計算結果を推薦とExplainで共有します。比較集合は`project_record.list_duplicate_projects`が同じread snapshotから識別情報・必要なstate・identifier・decision・adoptionを組み立てます。この部分的なviewは保存不可で、projectや候補のcacheは持ちません。呼出元が比較集合を渡す経路はその集合を使います。
+
+画面遷移時はブラウザが詳細とマージ解析の通信を取り消し、request世代とproject/revisionを照合して古い結果を描画しません。`request_cancellation.py`が接続断を検知し、applicationの確認点とSQLite progress handlerで協調的に計算を止め、DB接続等を解放します。別タブへは作用せず、計算中にproject revisionが変わった結果も破棄します。中断は即時の強制終了ではなく、HTTPS中継経由では切断が上流へ伝わることが必要です。
 
 ## Module構成と依存方向
 
-以下のpathは`scripts/`からの相対pathです。処理を変更するときの参照用に、担当moduleをまとめます。
+以下は`scripts/project_registry_core/`配下です。WebのHTTP・静的UI・process管理は`scripts/project_registry_web/`にあります。
 
 ### 入口・処理の制御
 
-- `project_registry_core/application/`
-  - project query、tracking、decision、merge/split、review queue、sync、investigation、maintenance、enrichのCLI/Web共通service
-  - `argparse.Namespace`やstdoutへ依存せず、明示引数とresult payloadを使う
-  - `presentation.py`はproject detail、queue、search payloadを組み立てるtransport非依存service
-- `project_registry_core/commands/`
-  - application serviceを呼び出し、CLI向けJSON/textへ変換するadapter
-  - review/promotion queueのinteractive入出力は`commands/queue_interaction.py`、stalled/ignore/out-of-scopeは`commands/review.py`が担当する
-- `project_registry_web/`
-  - schema v2 Web API adapter、HTTP server、build不要のHTML/CSS/ES modules
-  - 主要mutation/queryはapplication serviceを呼び、hydrated project dictを直接保存しない。補助read pathの直接依存は下記を参照
-  - `jobs.py`は別process worker、直近event、停止・再開を管理する
-  - JSON responseはDB schema versionと独立した`api_version: 2`を持つ
-  - presenterがidentifierを種類・同値関係でまとめた表示、relationと調査履歴の要約、project revisionを生成する
-  - project detailからのmutationは`expected_revision`を必須とし、stale detailを`409 stale_project`で拒否する。紹介投稿の要確認はitem IDを指定し、保存transactionで現在の判断とproject更新番号を検査する
-  - server内のmutationはlockで直列化する
-- `project_registry_core/jobs.py`
-  - 長時間処理のrequest/event/resultと協調的cancellation契約
-- `project_registry_core/worker.py`
-  - stdinの`OperationRequest`をapplication serviceへ渡し、event/resultをJSON Linesで返す
-- `project_registry_core/dev_database.py`
-  - `scripts/fixtures/dev-registry.json`の架空定義を既存のproject codec・調査履歴APIで保存する
-  - `dev-db`から各worktreeの固定pathへ生成し、生成元markerのあるDBだけをtransactionでリセットする。通常CLIのDB選択は`cli.py`の起動境界で行う
-- `project_registry_core/registry.py`
-  - collector/evaluation orchestration、finalize、merge/queue policyと未分離の補助処理
-  - collector適用とfinalize/evaluationの補助処理。1 projectの実行順序は`enrichment_pipeline.py`、transaction・保存・checkpointは`application/enrichment.py`が担当する
-  - `argparse.Namespace`を受け取る`cmd_*`は残っていない
+| Module | 担当 |
+| --- | --- |
+| `commands/` | CLI引数・出力。queueの対話は`queue_interaction.py`、stalled/ignore/out-of-scopeは`review.py` |
+| `application/` | CLI/Web共通service。`argparse.Namespace`やstdoutへ依存しない |
+| `jobs.py` / `worker.py` | request/event/resultと協調的中断。workerはstdinの`OperationRequest`を実行しJSON Linesを返す |
+| `application/sync.py` / `source_sync.py` | source別取得、watermark、既存projectへの接続 |
+| `introduced_review.py` | 紹介投稿のURL別要確認・手動解消。判断はqueryの`sync_state`、紹介URLはproject本体へ保存 |
+| `application/enrichment.py` | enrichの対象選択・transaction・保存・checkpoint |
+| `enrichment_pipeline.py` | 1 projectのcollector・LLM・保存前更新の実行順序 |
+| `application/enrich_prefetch.py` | LLM区間中の次の一件の先行取得。DBとLLMはcaller threadに保ち、使用前にsnapshotを照合 |
+| `registry.py` | collector適用・finalizeの補助処理、merge/queue policy |
+| `dev_database.py` | 架空定義から開発DBを生成・リセット。通常CLIのDB選択は`cli.py` |
 
 ### 観測・統合・評価
 
-- `project_registry_core/evidence.py`
-  - `EvidenceBundle` schema version 2
-  - `EvidenceRecord`, relation、`CollectorFailure`, `CollectorResult`
-- `project_registry_core/investigation.py`
-  - deterministic / LLM query planning
-  - provider共通repository snapshot collectorとGitHub / Codeberg adapter
-  - GitHub repository search、Bluesky actor/post/feed collector
-  - collector は project dict を変更せず evidence bundle を返す
-  - 外部情報源ごとの再試行、request数の上限、rate limit到達時の停止
-- `project_registry_core/integration.py`
-  - GitHub / Bluesky / service / Tangled / collector snapshot evidence を既存 project field へ適用する
-  - GitHub lexicon hint の owned / reference 判定は収集後に行う
-- `project_registry_core/repository_sources.py`
-  - GitHub / Codeberg / Tangledのmetadata、README、tree、個別file取得と短期cacheを所有する
-  - provider固有のHTTP契約を閉じ込め、projectへの適用判断は行わない
-- `project_registry_core/repository_material.py`
-  - 取得済みtreeとfileからmanifest、configuration、Lexicon、限定source hintを決定的に抽出する
-  - network取得、LLM判定、project mutationは行わない
-- `project_registry_core/repository_analysis.py`
-  - confirmed repositoryのmetadata、README、tree、manifest、configuration、Lexicon、限定source抜粋をprovider共通の解析素材へ縮約する
-  - repository revisionと解析policy単位で結果を再利用し、成功結果と最新試行を分けてcurrent stateへ保存する
-- `project_registry_core/service.py` / `tangled.py` / `relations.py`
-  - service検証、Tangled PDS/UFOs、typed relation
-  - service確認結果の縮約と、調査経路・対象URL（`lane + requested_url`）ごとの最新観測を最大32組保持する処理は`service.py`が担当する
-- `project_registry_core/tangled_identity.py`
-  - Tangled同期専用のDID document・handle双方向検証と、対象の解決不能状態／外部取得失敗の分類。既存のDID取得・HTTP transportを使い、projectの帰属や保留一覧の保存は`source_sync.py`へ委ねる
-- `project_registry_core/evaluation.py`
-  - ownership、atproto寄与度、service status の純粋評価本体
-- `project_registry_core/collection_trust.py`
-  - Lexicon公開応答の検証と、project・role・authority・publisherに範囲を限定したcollection信頼policy。限定した直接関係を`trust_graph.py`の共通経路評価へ渡し、取得・採用・DB保存は行わない
-- `project_registry_core/editorial.py`
-  - 維持する説明、内容を持つ根拠の集合、変更種別と参照検査、編集保護、最新の更新案を扱う。版履歴は作らない
-  - 通常triageから呼び、Webのpreview／編集／見送りと同じ状態を使う
-- `project_registry_core/atproto_usage.py`
-  - 利用範囲の理由付き手動判断と解除・マージ規則を扱う。サービス確認と技術評価から独立したprojectionをCLI/Web/紹介候補へ渡し、LLMの総括は適用しない
-- `project_registry_core/promotion_attention.py`
-  - 紹介候補を再評価するための構造化snapshot・fingerprintと直近の明示操作を扱う。品質scoreや自動閲覧判定を持たず、`registry.py`の候補選定とapplicationの判断保存から利用する
+| Module | 担当 |
+| --- | --- |
+| `evidence.py` | `EvidenceBundle` v2、観測・relation・collector結果と失敗の型 |
+| `investigation.py` | query planningとcollector。project dictを変更せずevidence bundleを返す |
+| `repository_sources.py` | provider別metadata・README・tree・file取得と短期cache |
+| `repository_material.py` | 取得済みfileからmanifest・configuration・Lexicon・source hintを抽出 |
+| `repository_analysis.py` | confirmed repoの解析素材縮約、revision・policy単位の再利用、成功結果と最新試行の管理 |
+| `service.py` / `tangled.py` / `relations.py` | service観測、Tangled PDS/UFOs、typed relation |
+| `tangled_identity.py` | 同期用DID・handle双方向検証と取得失敗の分類。帰属・保留保存は`source_sync.py` |
+| `oauth_metadata.py` / `oauth_scope_parser.mjs` | 取得済みOAuth metadataを公式SDKで解析。Nodeで外部取得はしない |
+| `usage_material.py` | collection名に対応する宣言・record観測・原文の関連記述を抽出。用途判定はしない |
+| `integration.py` | 観測をprojectへ適用 |
+| `evaluation.py` | ownership・atproto寄与度・service statusの純粋評価 |
+| `collection_trust.py` / `trust_graph.py` | Lexicon公開応答の検証・限定したcollection信頼policyと共通経路評価。取得・採用・DB保存は分離 |
+| `editorial.py` | 説明と更新案・根拠参照・編集保護。通常triageとWeb編集で共有 |
+| `atproto_usage.py` | 利用範囲の理由付き手動判断・解除・マージ。サービス確認・技術評価から独立 |
+| `promotion_attention.py` | 候補再確認用snapshotと直近の明示操作。品質scoreや自動閲覧判定は持たない |
+| `triage_reuse.py` | 入力・実行条件・手動判断・期限を照合し、triage成功出力を再利用。他の調査・適用処理は省略しない |
 
-### 保存と再評価
+### 保存と外部接続
 
-- `project_registry_core/concurrency.py`
-  - project更新番号のtrigger定義、短いread/write transaction、保存時の競合検査を所有する
-  - 外部取得・LLM中のwrite lockは保持しない。`project_record.py`が読込みsnapshotへ番号を付け、保存時に検査する
-
-
-- `project_registry_core/project_record.py`
-  - projectの既定shapeと保存前正規化、scalar/profile/state payloadへの投影を所有する
-  - schema v4 rowのhydrate、fetch/list/save、normalized exact lookup、project key allocationを所有する
-  - `database.py` / `runtime_view.py`と専門moduleを利用し、`registry.py`へ依存しない
-- `project_registry_core/storage.py` / `replay.py`
-  - investigation run保存、network-free replay、fixture benchmark
-- `project_registry_core/enrich_observations.py`
-  - 通常enrichの将来比較用snapshot、容量制限、候補の前後照合、操作時間を担当する。判断・再利用条件は変更しない
-  - `scripts/enrich_observation_report.py`が保存履歴をread-onlyで集計し、欠落・実測・既存概算の範囲を分ける
-- `project_registry_core/private_data.py`
-  - 個別LLM事例と将来比較用snapshotに共通の認証情報除去。外部送信は行わない
-
-### 共通の正規化・外部接続
-
-- `project_registry_core/domain_policy.py`
-  - 正式依存`tldextract`へ同梱のPublic Suffix List（PSL）を入力し、登録可能domainとsame-siteを判定する。共有hostingのtenant境界には既知・設定済みの接尾辞も使う。依存または同梱PSLの欠落時はエラーとする
-  - suffix設定の読書きもこのmoduleが所有する
-- `project_registry_core/http_transport.py`
-  - outbound URL検証、内部host遮断、redirect先再検証、bytes/JSON requestを所有する
-  - collectorのtestではこのmoduleのHTTP呼出しを差し替える
-- `project_registry_core/identifiers.py`
-  - canonical URL/NSID、抽出URLの句読点除去、authority domain導出、generic値を除外するalias token正規化を所有する
-  - domain/HTTP transportも同じURL正規化を使う
-- `project_registry_core/repo_urls.py`
-  - GitHub、Tangled、Codeberg、GitLab、SourceHutのrepo URL正規化とprovider/owner判定を所有する
-  - `registry.py`はconsumerとしてmoduleを呼ぶ
-- `project_registry_core/naming.py`
-  - HTML titleの短縮、name candidate正規化、service/repo source labelのpure helperを所有する
-  - project固有のcandidate採否・score・mutationは`registry.py`に残す
-- `project_registry_core/llm_transport.py`
-  - command/OpenAI互換endpointの呼出し、response parser、timeout/error分類、request metricsを所有する
-  - prompt/evidence構築とprojectへの適用はtransport外に残し、testはcommand/endpointをfakeへ差し替える
-- `project_registry_core/triage_reuse.py`
-  - triageの入力・実行条件・手動判断の照合と期限を担当し、成功出力の再利用を`enrichment_pipeline.py`から行う。検索・収集・出力適用・規則評価は省略しない
+| Module | 担当 |
+| --- | --- |
+| `database.py` / `runtime_view.py` | schema・接続・normalized rowのsnapshotと処理用view |
+| `project_record.py` | project shape、正規化、保存payload、hydrate、fetch/list/save、exact lookup、key割当 |
+| `concurrency.py` | 更新番号trigger・短いtransaction・競合検査。外部取得・LLM中にwrite lockを保持しない |
+| `storage.py` / `replay.py` | 調査履歴保存、network-free replay、fixture benchmark |
+| `enrich_observations.py` | 比較用snapshotと処理時間。集計入口は`scripts/enrich_observation_report.py` |
+| `llm_case_store.py` / `private_data.py` | 非公開事例保存と共通の認証情報除去 |
+| `domain_policy.py` | 同梱PSLとhosting suffix設定によるdomain・tenant境界。依存・PSL欠落はエラー |
+| `http_transport.py` | outbound URL検証、内部host遮断、redirect先再検証、HTTP呼出し |
+| `identifiers.py` / `repo_urls.py` | URL・NSID・aliasの正規化、repo provider・owner判定 |
+| `naming.py` | title短縮・name candidate・source labelのpure helper。採否は`registry.py` |
+| `llm_transport.py` | command/互換endpoint呼出し、応答解析、timeout・error・metrics。prompt構築と適用は外側 |
 
 ### 依存境界の制約
 
-現行実装で分離できている責務と、残る直接依存は次の通りです。
+- `source_sync.py`と`enrichment_pipeline.py`は保存を重複実装せず`project_record.py`を使う。`project_record.py`は`registry.py`へ依存しない。
+- application・commands・pipelineにはdomain facadeとして`registry.py`への依存が残る。Web主要query/mutationはapplicationを通るが、bootstrap・検索・補助read pathには直接依存もある。
+- `database.py`の通常open/saveは`registry.py`をimportしない。maintenance専用roundtrip verifierは`project_record.py`を遅延importする。
+- 分離したmoduleを旧symbol互換のため`registry.py`からre-exportしない。collectorのtestはHTTP transport、LLMのtestはcommand/endpointをfakeへ差し替える。
 
-- `database.py`はschema、接続、normalized rowのsnapshotを所有する。通常open/save pathは`registry.py`をimportせず、maintenance専用のnormalized roundtrip verifierは`project_record.py`の`fetch_project` / `save_project`を遅延importする
-- `application/`はCLI/Web共通serviceとして分離済みだが、多くのserviceがdomain/storage facadeとして`registry.py`とproject保存用の`project_record.py`を用途別にimportする。`commands/`も同じ境界を使う
-- Web APIの主要mutation/queryはapplication serviceを通る一方、server bootstrap、検索、補助read pathには`registry.py`または`project_record.py`への直接依存が残る
-- `database`、`runtime_view`、`evidence`、`investigation`、`integration`、`evaluation`、`service`、transport、identifier/repo URL/naming/domain policyの抽出moduleを`registry.py`経由へ戻すre-exportは置かない
-- queue policyとcollector適用の補助処理は`registry.py`に残る。1 projectのenrich本体の分離は完了しているが、`enrichment_pipeline.py`やapplication serviceが`registry.py`から独立済みとは扱わない
-
-resource pageの観測の統合は、既存の更新関数をprojectのcopy上で実行し、許可fieldの差分（patch）を返す暫定実装です。cacheと、失敗が続く取得を抑止するcircuit breakerは、processと外部情報源ごとに状態を持ちます。状態はprocess終了時に失われます。
+resource pageの統合は既存更新関数をprojectのcopyへ適用し、許可fieldの差分を返す暫定実装です。cacheと連続失敗を抑止するcircuit breakerはprocess・情報源単位で、process終了時に状態を失います。

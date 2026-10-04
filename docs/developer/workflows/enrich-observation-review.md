@@ -4,7 +4,7 @@
 
 ## 評価を始める条件
 
-初回は導入後の週次enrichが2回完走した時点で始めます。既存のjob/checkpoint記録で対象・完走・開始終了時刻を確認し、導入前のworkerや中断runを区別します。project履歴だけで週次jobの完走を認定しません。2回は初回確認の契機であり、品質の証明や必要sample数ではありません。導入後の完走確認と残る判断は[再開メモ](../../notes/enrich-observation-review.md)を参照します。
+初回は導入後の週次enrichが2回完走した時点で始めます。既存のjob/checkpoint記録で対象・完走・開始終了時刻を確認し、導入前のworkerや中断runを区別します。project履歴だけで週次jobの完走を認定しません。2回は初回確認の契機であり、品質の証明や必要sample数ではありません。導入後の完走確認と残る判断は[TODO](../todo.md#通常enrichの初回評価)を参照します。
 
 ## 集計
 
@@ -34,6 +34,15 @@ bin/_project-registry-python enrich-observation-report scripts/enrich_observatio
   --db-path data/survey.db \
   --run-id inv:対象ID > .tmp/enrich-review/run.json
 ```
+
+## 効果と運用費の比較
+
+- **Triage再利用**: `metrics.triage_reuse`のhit/miss理由、実triage request数・時間、収集失敗と新しい候補の扱いを確認します。追加最適化は実際のmiss理由から判断します。
+- **先行取得**: 同程度の対象とtriage hit率を持つbatchの`execution.batch_elapsed_ms`、先行使用／未使用、join待ち、collector requestとrate limitを併読します。重なった処理時間を合算して短縮実績にしません。効果が小さい、無効化やquota消費が多い場合は`--no-prefetch`で比較します。実外部取得とLLMを重ねた時間・負荷、大きなprojectの追加メモリは未測定です。
+- **検索計画**: 入力・計画・実行語の変化と、既知候補の再発見／新出／最終採用を分けます。旧履歴には当時の完全planning入力がなく、triage材料の一致だけで検索固定の同等性を保証できません。新旧計画を同時期・同予算で実行しない限り、旧計画が拾えたはずの材料は断定しません。
+- **保存・計測負担**: 実際の圧縮増分、上限省略、write lock競合、長期容量を確認します。導入前の保存outputによるproxyは実planningやSQLite全体の増加量を測ったものではありません。HTTPごとの統一計測は未実装で、操作時間から必要なsourceを絞って再検討します。
+
+制御方式の固定応答比較は[変更の受入](change-acceptance.md#enrichの逐次先行取得比較)を参照します。
 
 ## 判断と再開
 

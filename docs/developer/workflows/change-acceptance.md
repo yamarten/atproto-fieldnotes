@@ -27,6 +27,8 @@
 
 実施できなかった確認は成功扱いにせず、未検証の範囲と理由を報告します。
 
+heuristic変更では、特定のproject、URL、source、既知fixtureだけに作用する条件を通常ロジックへ追加せず、既存規則の修正・置換で解消できるかを確認します。一般化できない対応はoperator decision、設定、または期限付きの観測へ分離し、適用範囲と廃止条件を示します。LLM調査・評価・修正で得た誤判定、訂正、判断が分かれる例、有用な正例は、一時資料を片付ける前に[事例保存の手順](llm-model-evaluation.md#作業中に得た事例の保存)に沿って保存を検討します。
+
 ## CLI/Webの共通ダミーDB
 
 初回は次の入口で、架空データ入りの小さな開発用DBを作ります。実行した入口のworktree内に作り、カレントディレクトリから保存先を推測しません。
@@ -35,7 +37,7 @@
 bin/project-registry dev-db
 ```
 
-Gitで管理するのは[架空定義](../../../scripts/fixtures/dev-registry.json)と生成入口です。SQLite本体はgit管理外の`data/dev/survey.db`で、task間で保持して構いません。保存は既存のproject codecと調査履歴APIを使い、schemaをfixture側へ複製しません。未使用の`tests/helpers.py`の`seed_web_fixture`は共通入口にしません。自動unit testは引き続きtestごとのtemp DBを使い、この可変DBに依存しません。
+Gitで管理するのは[架空定義](../../../scripts/fixtures/dev-registry.json)と生成入口です。SQLite本体はgit管理外の`data/dev/survey.db`で、task間で保持して構いません。保存は既存のproject codecと調査履歴APIを使い、schemaをfixture側へ複製しません。自動unit testは引き続きtestごとのtemp DBを使い、この可変DBに依存しません。
 
 | 登録プロジェクト（key末尾） | 代表的な確認導線 |
 | --- | --- |
@@ -72,7 +74,7 @@ bin/project-registry dev-db --reset
 
 リセットは同じDB file内の単一transactionで全tableのデータを再投入し、途中失敗はrollbackします。WALを解除してexclusive transactionを取り、SQLiteが使用中と判断する場合は待たずに拒否します。接続を閉じたまま待機中のserver／workerの検知は保証しないため、事前停止は必要です。リセット後の通常接続は既存仕様どおりWALを有効にします。DB外の`job-schedules.json`、checkpoint、browserのlocalStorageはリセットしません。
 
-従来手動初期化した`data/survey.dev.db`は自動移行・削除しません。標準の確認入口をこのダミーDBへ切り替え、古いDBが不要なら用途と利用processを確認して別途片付けます。`data/dev/`は正本の定期設定やcheckpointがある`data/`と分けます。開発用の定期実行は有効にせず、確認後はserverを停止します。
+`data/dev/`は正本の定期設定やcheckpointがある`data/`と分けます。開発用の定期実行は有効にせず、確認後はserverを停止します。
 
 ## Web UIの実ブラウザ確認
 
@@ -90,6 +92,8 @@ bin/project-registry-web \
 
 unit testでしか再現できない内部状態はそのtestで確認し、実ブラウザでは利用者の操作経路を確認します。どこをunit test、どこを画面で確認したかを分けて報告します。確認後はserverを停止し、`data/dev/survey.db`は今後も使うなら残します。
 
+README等の説明用画面も、このダミーDBで撮影します。`docs/images/`に画像を保存し、掲載文で架空データと明示します。画面の導線・ラベルを変更した時は本文と画像を併せて見直し、本番token・実データ・設定画面の環境固有情報を含めません。
+
 ## Enrichの逐次・先行取得比較
 
 外部応答を固定して制御方式の意味と時間を比較する場合は、次をworktreeで実行します。正本DB・外部取得・共有LLMには接続せず、`.tmp/enrich-overlap/`内の一時DBを終了時に削除します。
@@ -106,7 +110,7 @@ bin/_project-registry-python benchmark scripts/benchmark_enrich_overlap.py \
 
 ## 正本DBの確認と複製
 
-現在のproject、件数、保存状態、dry-run結果を読むだけなら、正本DBを直接使います。read-onlyと分かっているCLI、SQLiteの`mode=ro` URI、read-only接続を使う書き捨てスクリプトのためにGB単位の複製を作りません。調査用スクリプトは保存せず、必要な結果だけを報告します。
+現在のproject、件数、保存状態、dry-run結果を読むだけなら、正本DBを直接使います。read-onlyと分かっているCLI、SQLiteの`mode=ro` URI、read-only接続を使う書き捨てスクリプトのためにGB単位の複製を作りません。
 
 ```bash
 sqlite3 'file:data/survey.db?mode=ro' 'SELECT COUNT(*) FROM projects;'
@@ -128,13 +132,15 @@ sqlite3 data/survey.db ".backup '.tmp/change-acceptance/survey.db'"
 
 複製をWebで使う場合も`127.0.0.1:8765`へ起動します。確認後は使用processを停止し、複製DBとWAL/SHMを削除します。再利用する小さな`data/dev/survey.db`と、容量の大きい正本DB複製を区別し、後者はtaskをまたいで残しません。
 
+`.tmp/`内の古いSQLite複製は[cleanup-workspace-temp](../../user/cli.md#auditrepairstorage-maintenance)で確認・削除できます。全unit test起動時の容量警告が出た場合は、この清掃対象と保持中の資料を確認します。
+
 ### sandboxでの読み取り計測
 
-正本の読み取りが許可された計測は、まず通常権限で実行します。Pythonは既存の`bin/_project-registry-python`が選ぶ環境を使い、SQLite接続は`mode=ro`を維持します。書き捨て計測や旧コードとの比較では、不要なbytecode出力を`PYTHONDONTWRITEBYTECODE=1`で止め、計測結果と依存ライブラリの書込みcacheを作業中のworktreeの`.tmp/`へ置きます。読取対象のDB・設定・vendoredデータと、書込先を区別します。準備処理と追加権限が必要な計測を一つのshell commandへまとめません。
+Pythonは既存の`bin/_project-registry-python`が選ぶ環境を使い、SQLite接続は`mode=ro`を維持します。bytecode出力を止める必要がある場合は`PYTHONDONTWRITEBYTECODE=1`を指定します。計測結果や依存ライブラリのcacheへの書込みと、DB読取りに必要な権限は分けて確認します。
 
-WAL形式では、`mode=ro`でも`-wal`・`-shm`が存在しない場合に補助ファイルの作成が必要になります。読取が失敗したら、エラーと補助ファイルの状態を確認し、必要な接続だけを一時的な昇格対象にします。一度の通常のSQLite接続で補助ファイルが揃えば、以後は書込権限なしで読める場合があります。次の計測では通常権限へ戻して確認し、補助ファイルが削除された場合などは、その時点の状態から再判断します。昇格後に成功したことだけで、以後も昇格が必要とは扱いません。
+WAL形式では、`mode=ro`でも`-wal`・`-shm`が存在しない場合に補助ファイルの作成が必要になります。読取が失敗したら、エラーと補助ファイルの状態を確認します。一度の通常のSQLite接続で補助ファイルが揃えば、以後は書込権限なしで読める場合があります。
 
-承認省略のために`data/`やWAL補助ファイルへ恒久的な書込権限を追加しません。WALは未反映のcommit済みデータを持つため、単なるcacheとして扱いません。稼働中の正本に`immutable=1`やロック無効化を指定したり、journal modeを変更したり、補助ファイルを手作業で作成・削除したりして回避しません。通常権限での再実行が失敗した場合は、その経路を未解決として報告します。
+WALは未反映のcommit済みデータを持つため、単なるcacheとして扱いません。稼働中の正本に`immutable=1`やロック無効化を指定したり、journal modeを変更したり、補助ファイルを手作業で作成・削除したりして回避しません。
 
 ## 実運用への反映
 
@@ -144,11 +150,11 @@ Tailscale Serveの実運用設定変更を明示的に依頼された場合は�
 
 追加後は証明書検証を有効にしたHTTPSで、ページと静的asset、無認証・不正tokenのAPI拒否、正しいtokenでの設定・一覧APIを確認します。tokenをコマンド引数・URL・ログ・画像・検証成果へ含めず、実運用環境からprocess内へ読み込みます。実ブラウザではtoken入力、一覧・詳細・Settingsの表示と再読込をread-onlyで確認し、DB更新・job開始・server reloadは行いません。HTTP入口と同じserver instance・DBを返すことも照合します。設定変更のみならアプリの再起動は不要です。
 
-このMac自身からの成功と、別端末からの到達・tailnetのアクセス許可は区別します。別端末・Mac再起動後・証明書の自動更新を実測しなかった場合は、その範囲を未検証としてstatusへ残します。
+このMac自身からの成功と、別端末からの到達・tailnetのアクセス許可は区別します。別端末・Mac再起動後・証明書の自動更新を実測しなかった場合は、その範囲を未検証として報告し、継続判断に必要な確認だけTODOへ残します。
 
 ### アプリ変更の反映
 
-Python本体の更新は通常reloadで切り替わりません。[Python環境の管理](../../user/guide.md#python環境の管理)で独立世代を準備し、`PROJECT_REGISTRY_PYTHON_ENV`で候補を指定して全testと開発DBのCLI/Web/実workerを確認します。実運用適用は別承認を得て[停止・切替・新規起動](../../user/web-ui.md#python環境の切替)を行い、APIのPython実pathと世代を照合します。本家venv・LaunchAgent・本番DBをworktreeの検証対象にしません。
+Python本体の更新は通常reloadで切り替わりません。[Python環境の管理](../../user/python-environment.md)で独立世代を準備し、`PROJECT_REGISTRY_PYTHON_ENV`で候補を指定して全testと開発DBのCLI/Web/実workerを確認します。実運用適用は別承認を得て[停止・切替・新規起動](../../user/web-ui.md#python環境の切替)を行い、APIのPython実pathと世代を照合します。本家venv・LaunchAgent・本番DBをworktreeの検証対象にしません。
 
 変更の受入確認と実運用serverへの反映は別作業です。通常は利用者がWeb UIのSettingsにある`Reload server`を押します。明示的な反映依頼がない限り、変更を実装したagentは`project-registry-web-service restart`、reload API、正本DBへの変更を実行しません。
 
@@ -156,4 +162,4 @@ Python本体の更新は通常reloadで切り替わりません。[Python環境�
 
 ## Maintenance適用の確認
 
-共有hostingのtenant境界を定める接尾辞（hosted suffix）の変更に伴う分割監査は`audit-source-config`、URL監査はread-onlyの`audit-url-fields`を使います。判定規則の変更を既存DBへ反映する場合は、補助pageやblock/defer等の採用抑止条件（guard）に該当するURLのservice採用、repo/NSIDの採用条件を満たさない`defines_schema`等を監査し、dry-runの全差分を確認します。`repair-db --execute`は特定補正だけを選ばず、同じsummaryに含まれる正規化・派生値更新も保存します。正本DBへの適用は承認とbackupを経て行い、保存・再監査の確認範囲を作業記録へ残します。
+共有hostingのtenant境界を定める接尾辞（hosted suffix）の変更に伴う分割監査は`audit-source-config`、URL監査はread-onlyの`audit-url-fields`を使います。判定規則の変更を既存DBへ反映する場合は、まず`repair-db`で足りるかを確認し、補助pageやblock/defer等の採用抑止条件（guard）に該当するURLのservice採用、repo/NSIDの採用条件を満たさない`defines_schema`等を監査し、dry-runの全差分を確認します。`repair-db --execute`は特定補正だけを選ばず、同じsummaryに含まれる正規化・派生値更新も保存します。正本DBへの適用は承認とbackupを経て、他のenrich・CLI・Webからの書込みと競合しないことを確認して行い、保存・再監査の確認範囲を作業記録へ残します。

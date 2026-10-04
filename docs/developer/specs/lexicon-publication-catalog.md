@@ -6,7 +6,7 @@
 
 非record Lexiconを含むpublication観測の価値を評価する暫定の独立機能です。registryのproject/owned NSID表現へ未確定な対象を押し込まず、独自の観測DBと評価結果を保持します。入力はJetstream publicationと検証先、registryはread-onlyの照合入力です。出力は観測・評価JSONとjob表示で、registryへのidentifier・relation・decision追加やpromotion更新は行いません。
 
-観測は、publicationの増分を取り込む、選んだpublisherを検証する、registryと照合して発見価値を評価する、という流れです。publicationの存在と、そのpublisherの正当性やregistryでの採用は区別します。週次presetはこの流れを上限付きで実行し、通常sync後に比較条件を満たした週（valid period）を数えて再評価が必要かを示します。この結果から継続・統合・停止を決める目標は[roadmap](../../roadmap.md#jetstreamでのlexicon-publication観測)で管理します。
+観測は、publicationの増分を取り込む、選んだpublisherを検証する、registryと照合して発見価値を評価する、という流れです。publicationの存在と、そのpublisherの正当性やregistryでの採用は区別します。週次presetはこの流れを上限付きで実行し、通常sync後に比較条件を満たした週（valid period）を数えて再評価が必要かを示します。この結果から継続・統合・停止を決める目標は[TODO](../todo.md#jetstreamでのlexicon-publication観測)で管理します。
 
 ## 境界と入口
 
@@ -54,8 +54,7 @@ bin/_project-registry-python lexicon-publication-catalog scripts/lexicon_publica
 - inventory timeoutはcatalog反映と別fieldへ保存し、run全体を`partial`として成功回数へ含めません。publisher検証の個別失敗は観測結果として対象・成功・失敗・理由を保持します。
 - publisher検証は1 run最大12件です。未検証またはcontent更新を期限到来より優先し、未登録authority / space、非record、その他の順で選びます。期限到来は最古の確認時刻から選び、同一schemaの複数publisherは1 runで重複検証しません。全publisherを周期的に走査しません。
 - 成功検証の7日TTLは同じ候補を評価する際の再取得抑制に使います。失敗の1日TTLは翌日以降に対象限定で再試行できる境界であり、失敗全件を日次で再走査する指示ではありません。
-- 2026-09-05のbootstrapは約1か月分10,232 eventを2 segment、約8分で処理しました。週次増分はこの初回量より十分小さいと見込めますが、必ず20,000 event / 300秒のboundを維持し、完了しなければ同じsealed tipを再開します。
-- sidecar本体はwatermark、tombstone、verification期限を含む運用stateなので継続保持します。raw event logと評価JSON、collection inventoryは`.tmp/`だけに置き、評価の記録へ必要な集計を転記後に削除できます。
+- sidecar本体はwatermark、tombstone、verification期限を含む運用stateなので継続保持します。raw event logと評価JSON、collection inventoryはGit管理外に置き、評価の記録へ必要な集計を転記後に削除できます。
 - sidecarはJetstreamから再構築可能なため定期backupは作りません。schema変更や破壊的maintenanceを行う時だけSQLiteのonline backupを`data/backups/`へ1世代作り、検証後に旧世代を削除します。`cleanup-workspace-temp`は`.tmp`だけが対象で、恒久sidecarを削除しません。
 
 ## SQLite schema version 3
