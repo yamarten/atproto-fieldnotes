@@ -1,6 +1,6 @@
 # 変更の検証方法と技術的な注意点
 
-この文書は、変更の影響を確かめるための環境の選び方、検証方法、操作に伴う技術的な注意点を説明します。エージェントへの必須検証・実データ操作の承認境界は[AGENTS](../../../AGENTS.md)を参照してください。
+この文書は、変更の影響を確かめるための環境の選び方、検証方法、操作に伴う技術的な注意点を説明します。
 
 ## 確認環境と接続先
 
@@ -37,7 +37,7 @@ heuristicの検証では、既知fixtureで誤りが解消することに加え�
 bin/project-registry dev-db
 ```
 
-Gitで管理するのは[架空定義](../../../scripts/fixtures/dev-registry.json)と生成入口です。SQLite本体はgit管理外の`data/dev/survey.db`で、繰り返す手動確認に再利用できます。保存は既存のproject codecと調査履歴APIを使い、schemaをfixture側へ複製しません。自動unit testは引き続きtestごとのtemp DBを使い、この可変DBに依存しません。
+Gitで管理するのは[架空定義](../../../scripts/fixtures/dev-registry.json)と生成入口です。生成したDBファイルはGit管理外の`data/dev/survey.db`に保存され、繰り返す手動確認に再利用できます。生成処理は既存のproject codecと調査履歴APIでデータを保存し、fixtureはschemaを持ちません。自動unit testはtestごとのtemp DBを使い、この可変DBに依存しません。
 
 | 登録プロジェクト（key末尾） | 代表的な確認導線 |
 | --- | --- |

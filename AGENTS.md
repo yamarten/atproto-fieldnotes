@@ -11,6 +11,4 @@
 
 - code変更は対象testに加え、commit前に`bin/project-registry-test`で全unit testを実行する。
 - Web UI変更は関連API test、JavaScript syntax check、変更した主要導線の実ブラウザ確認を行う。
-- 文書だけの変更はlink、記載したcommand、現行実装との整合性を確認する。code testを省略した場合と、実施できなかった検証の範囲・理由を報告する。
 - 正本DBは`data/survey.db`。書込み検証には開発用DBか必要な複製を使い、正本への変更と実運用serverへの反映は明示的な承認を得る。
-- 実装の検証と実運用への反映を分ける。反映の依頼がない限り、service restart、reload API、正本DBへの変更を行わない。
