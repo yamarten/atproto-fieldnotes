@@ -19,7 +19,7 @@
 | 通常保存の`lexicon_count`投影 | `resolved_nsids`に値があっても`lexicons`が空のままfetch→saveすると、`state_json.evidence.lexicon_count`が`len(lexicons)`へ再投影され0になる観測がある。NSID行の消失とは別。candidate／confirmed NSIDを持つ一時DBで無変更roundtripと変更後saveを再現し、hydrate/saveの責務を確認する |
 | Tangled owner解決後の同期 | ownerの`getProfile`失敗で全体停止した経路は、[DID・handle双方向検証と解決不能recordの保留](specs/discovery-and-sync.md#ownerのidentityと解決不能record)へ置換済み。2026-09-20のread-only smokeは途中終了で、本番の保留保存・owner復旧後の取り込み・定期preset再開・実運用反映は未確認。現在のjob／preset／watermarkを先に照合し、手動watermark変更・全履歴再走査で代替しない |
 | Tangled forkの既存候補 | [新規発見の除外規則](specs/discovery-and-sync.md#forkの新規発見と明示登録)の本番での除外件数・sequence進行と、2026-09-20の監査で見つかった既存44件の処遇は未確認。[fork宣言の4例](../../tests/fixtures/project_registry/tangled-fork-records.json)は独立性を確定した例ではなく、READMEの親サイトlinkも独立性の根拠にはならない。既存行は更新対象のままなので、fork元・独立した提供面・追加価値を個別に確認し、一括ignoreやrepairへ変換しない。確認のための追加jobは指示されていない |
-| Python専用世代移行後の運用 | 2026-10-02の移行後、ブラウザ・ログイン起動・通常定期job・長時間運用は未検証。次の通常job成功を確認してから`.venv-legacy`撤去を判断する。権限障害の原因確定とは別。復旧は[専用世代の再準備・切替](../user/python-environment.md#切替と復旧)を使い、旧venvをそのまま起動可能とは扱わない。 |
+| Python専用世代移行後の運用 | 2026-10-02の移行後、通常定期jobの成功を10/5に確認して旧venvを撤去済み。ブラウザ・ログイン起動・長時間運用は未検証で、次のログイン・通常利用時にserviceの起動とPython実path、主要導線を確認する。権限障害の原因確定とは別。復旧は[専用世代の再準備・切替](../user/python-environment.md#切替と復旧)を使う |
 | 実運用反映の未確認 | 説明文の検索、未紹介stableの通常候補への包含、triage入力の縮約、presetの失敗step再開は、記録上は本番反映未確認。現在の稼働コードを[反映手順](workflows/change-acceptance.md#アプリ変更の反映)に沿って照合する。triage縮約後の実LLM生成、実外部取得を伴うpreset障害からの再開も未確認 |
 | 同じ発行元のLexicon信頼補強 | 一時DBとSifaの小規模sample確認まで。正本一括適用・実運用反映・全体の誤採用率と省力効果は未確認。[適用条件](specs/project-boundaries.md#承認済みlexiconと同じ発行元による信頼の補強) |
 | マージ済みprojectの一括調査 | 一括enrich中にmerge済みの旧project keyで失敗した観測がある。対象確定後のmergeと再開時のalias解決を一時DBで再現し、現在の実装で同じ失敗が起きるか確認する |
