@@ -323,6 +323,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                     enriched_before=_date(query.get("enriched_before", [""])[0]),
                     sort=str(query.get("sort", [""])[0]),
                     limit=_int(query.get("limit", [50])[0], 50),
+                    lexicon_type=str(query.get("lexicon_type", [""])[0]),
                     identifier_kind=str(query.get("identifier_kind", [""])[0]),
                     identifier_value=str(query.get("identifier_value", [""])[0]),
                     identifier_classification=str(query.get("identifier_classification", [""])[0]),
@@ -609,7 +610,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
     def sync_job_parameters(self, payload: dict[str, Any]) -> dict[str, Any]:
         source = _choice(
             str(payload.get("source") or ""),
-            {"introduced", "github", "collections", "semble", "tangled"},
+            {"introduced", "github", "collections", "lexicons", "semble", "tangled"},
             default="",
         )
         all_history = _boolean(payload.get("all_history"))

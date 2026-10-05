@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from . import identifiers as identifier_core
-from .registry import registrable_namespace_from_namespace
 
 
 LEXICON_COLLECTION = "com.atproto.lexicon.schema"
@@ -94,6 +93,7 @@ def _definition_types(record: dict[str, Any]) -> list[str]:
 
 
 def inspect_schema(event: dict[str, Any]) -> dict[str, Any]:
+    from .registry import registrable_namespace_from_namespace
     record = dict(event.get("record") or {})
     record_type = str(record.get("$type") or "")
     schema_id = identifier_core.normalize_nsid(str(record.get("id") or ""))
@@ -126,15 +126,17 @@ def inspect_schema(event: dict[str, Any]) -> dict[str, Any]:
         problems.append("record_type_mismatch")
     if rkey != schema_id:
         problems.append("rkey_id_mismatch")
-    if lexicon != 1:
+    if type(lexicon) is not int or lexicon != 1:
         problems.append("unsupported_lexicon_version")
-    if not isinstance(record.get("defs"), dict):
+    if not isinstance(record.get("defs"), dict) or not record["defs"] or any(not isinstance(value, dict) or not value.get("type") for value in defs.values()):
         problems.append("missing_or_invalid_defs")
     unknown_types = sorted(set(definition_types) - DEFINITION_TYPES)
     if unknown_types:
         problems.append("unknown_definition_type")
     if any(space["invalid_collections"] for space in spaces):
         problems.append("invalid_space_collection")
+    if any(space["collections_shape"] != "list" for space in spaces):
+        problems.append("invalid_space_collections_shape")
     authority_group = registrable_namespace_from_namespace(schema_id) if identifier_core.is_valid_nsid(schema_id) else ""
     return {
         "did": event["did"],
@@ -164,6 +166,7 @@ def open_read_only_database(path: Path) -> sqlite3.Connection:
 
 
 def load_database_index(conn: sqlite3.Connection) -> dict[str, Any]:
+    from .registry import registrable_namespace_from_namespace
     known_nsids: dict[str, set[str]] = defaultdict(set)
     authority_projects: dict[str, set[str]] = defaultdict(set)
     for row in conn.execute("SELECT project_key, value FROM project_identifiers WHERE kind='nsid'"):
@@ -210,6 +213,7 @@ def collection_inventory_nsids(payload: Any) -> set[str]:
 
 
 def compare(events: Iterable[Any], database_index: dict[str, Any], observed_collections: set[str], *, sample_limit: int = 20) -> dict[str, Any]:
+    from .registry import registrable_namespace_from_namespace
     folded = fold_events(events)
     schemas = [inspect_schema(event) for event in folded["current"]]
     known_schemas = database_index.get("known_schemas", {})

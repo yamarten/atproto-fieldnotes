@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from . import lexicon_types
+
 import copy
 import sqlite3
 import time
@@ -159,7 +161,7 @@ def collect_initial(project: dict[str, Any]) -> InitialCollection:
 
     if should_refresh_recent_record_samples(project):
         try:
-            collections = unique_list(project.get("resolved_nsids", []) + project.get("input_nsids", []))[:6]
+            collections = lexicon_types.record_sample_nsids(project)[:6]
             sample_evidence = collector_adapter_core.collect_record_samples(
                 str(project.get("project_key") or ""), collections,
                 operation_timer.call("fetch_recent_record_samples", fetch_recent_record_samples, collections, timeout=REQUEST_TIMEOUT_LEXICON_HTTP), iso_now(),

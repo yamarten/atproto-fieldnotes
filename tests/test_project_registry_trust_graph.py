@@ -433,11 +433,12 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
         def lexicon_result() -> dict:
             return {
                 "did": "did:plc:schema",
-                "did_doc": {},
+                "did_doc": {"id": "did:plc:schema"},
+                "authority_domain": "example.com",
                 "pds_url": "https://pds.example.net",
                 "record": {
                     "uri": "at://did:plc:schema/com.atproto.lexicon.schema/com.example.post",
-                    "value": {"lexicon": 1, "id": "com.example.post", "defs": {"main": {"type": "record"}}},
+                    "value": {"$type": "com.atproto.lexicon.schema", "lexicon": 1, "id": "com.example.post", "defs": {"main": {"type": "record"}}},
                 },
             }
 

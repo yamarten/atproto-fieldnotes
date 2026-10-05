@@ -1,4 +1,12 @@
 {
+  "lexicon_publications": {
+    "enabled": true,
+    "url": "https://jetstream.us-west.bsky.network",
+    "max_events": 20000,
+    "max_seconds": 300,
+    "verify_limit": null,
+    "verification_seconds": 3600
+  },
   "collection_inventory": {
     "enabled": true,
     "url": "https://collectiondata.usounds.work/collection_count_view",

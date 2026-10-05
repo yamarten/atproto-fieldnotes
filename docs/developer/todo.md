@@ -2,7 +2,7 @@
 
 未完了の作業と、条件が揃った時に再検討する案を管理します。目的・優先順位は[Brief](../brief.md#開発の優先順位)、現行機能と制約は[仕様一覧](../documentation-policy.md#開発仕様)を参照してください。列挙順は実施順や着手承認を意味しません。
 
-現在は、帰属・根拠・手動判断の責務分離を維持し、取得済み情報を候補選定と予備調査の負担軽減へつなげる段階です。情報源の拡大より選定への接続を重視します。Promotionの利用者による整理やLexicon sidecarの4週蓄積を、この改善への着手条件にはしません。追加実験・実装と正本の一括再評価は別途判断します。
+現在は、帰属・根拠・手動判断の責務分離を維持し、取得済み情報を候補選定と予備調査の負担軽減へつなげる段階です。情報源の拡大より選定への接続を重視します。Promotionの利用者による整理を、この改善への着手条件にはしません。追加実験・実装と正本の一括再評価は別途判断します。
 
 - [運用の確認・適用待ち](#運用の確認適用待ち): 実装後に残る確認と、解除していない保留。
 - [選定・説明の改善](#選定説明の改善): 日常の予備調査の負担を減らすための判断。
@@ -36,15 +36,17 @@ Web履歴readerの実運用反映は未確認で、report・CLIから確認で�
 
 紹介候補一覧は完全runtime viewの復元が重く、2026-09-23の複製DBでは通常一覧約3秒・すべて約5秒でした。日常利用を妨げる場合に、現在のデータと同時収集条件で再計測してcacheや推薦projectionの必要性を判断します。詳細マージ解析は別経路です。
 
-### Lexicon週次観測の初回確認
+### Lexicon publicationの本体統合
 
-2026-09-10の保存snapshotでは有効period数0です。最初の比較可能な実行で、[評価条件](specs/lexicon-publication-catalog.md#post-sync週次評価と再評価gate)に沿って一度だけ加算されることと、実行前後の正本registry不変を確認します。保存状態だけでは前後不変を確認できていません。継続・統合・停止の判断は[4週分の再評価](#jetstreamでのlexicon-publication観測)へ進めます。
+公開情報の初回全件検証と、定期実行での増分・期限到来分の処理時間は未計測です。[検証の処理量と保存先](specs/lexicon-publication-catalog.md#通常導線と処理量)に沿い、初回取込と次の定期syncで試行・成功・失敗・残件・所要時間を確認します。未処理が継続する場合は時間枠と実行頻度を見直します。
+
+[運用への切替](specs/lexicon-publication-catalog.md#運用への切替)では、正本DBの移行、初回取込、設定切替・再起動を具体的なdry-run結果と合わせて承認後に実行します。初回enrichは件数を絞らず全件実施する方針です。旧sidecarの削除は切替確認後に扱います。
 
 ## 選定・説明の改善
 
 ### 既存評価を日常の選定判断へつなげる
 
-有用候補が判断に必要な時点で届いたか、人がどの確認・訂正・再調査を必要としたか、取りこぼしの原因が情報源・取込条件・帰属・説明・順位のどこにあったかを確認します。情報源評価、manual gold、紹介実績、sidecar観測で答えられる範囲を分け、改善判断に必要な情報が欠ける時だけ追加観測を検討します。評価期間・記録方法は未固定で、記録負担に見合う判断が得られることを条件にします。現在値から当時の推薦を推定せず、未紹介projectを負例にしません。
+有用候補が判断に必要な時点で届いたか、人がどの確認・訂正・再調査を必要としたか、取りこぼしの原因が情報源・取込条件・帰属・説明・順位のどこにあったかを確認します。情報源評価、manual gold、紹介実績、公開Lexicon観測で答えられる範囲を分け、改善判断に必要な情報が欠ける時だけ追加観測を検討します。評価期間・記録方法は未固定で、記録負担に見合う判断が得られることを条件にします。現在値から当時の推薦を推定せず、未紹介projectを負例にしません。
 
 ### atproto寄与度と紹介候補の順位
 
@@ -140,16 +142,6 @@ serviceとcollectionの対応確認を省力化するため、次を検討しま
 
 現行のnormalized検索で不足する具体例が出たら、自然語・概念検索を優先して検討します。「ブログサービス」からblogging／publishing／CMS等を探すquery expansion、category・feature・summary evidenceの利用、SQLite FTS、typo tolerance、OR／否定条件、保存済み検索・filterのURL保持・paginationが候補です。raw JSON任意path検索は通常探索での必要例が出た場合に限ります。
 
-### JetstreamでのLexicon publication観測
-
-Jetstream v2で`com.atproto.lexicon.schema`を観測できるため、public recordの活動を集計する`sync-collections`では見つからないLexiconの存在検知に使える可能性があります。既存collectionの網羅性改善より、recordをまだ持たないschema、query / procedure / subscription等の非record Lexicon、Permissioned Data提案のspace typeとその`collections`宣言の発見を主な価値候補とします。
-
-緊急性は低く、独立観測を続ける価値とregistry表現へ進む必要性を判断することが目標です。再開時の確認は[初回確認](#lexicon週次観測の初回確認)、保存・取得上限・publisher検証・periodの数え方は[sidecar catalog仕様](specs/lexicon-publication-catalog.md)を参照してください。
-
-今後は比較条件を満たした週（valid period）が4週分揃った時、固有候補数、再検証での変化、非record Lexiconを表現する需要を人が再評価し、registryへ新しい役割・関係の表現を設計する、専用DBでの観測を継続する、定期実行設定（preset）を停止する、のいずれかを決めます。4週分が揃う前でも、検証済み公開者による公開記録の削除、公開者DIDの置き換わり、具体的な非record利用要求があれば前倒しします。判定に使う保存signalは[再評価gate](specs/lexicon-publication-catalog.md#post-sync週次評価と再評価gate)を参照してください。新規未登録authority / spaceは週次指標として蓄積し、即時の個別候補レビューにはしません。
-
-非record Lexiconをregistryで追跡する具体的用途が生じた場合にだけ、project role / relation表現を別途設計します。その際はprojectへの一意な帰属、独立project候補、catalogだけの観測を区別してsample reviewします。全publisherの周期verify、自動project作成、identifier採用、ownership / promotion変更はこの観測フェイズの非目標です。
-
 ### Model構成の継続評価
 
 年数回程度を目安にmodel構成を見直し、通常enrichの品質・安定性・処理時間・常駐コストに改善の余地があるか評価を続けたいと考えています。具体的な時期と候補は未定です。通常enrichの置換候補と低優先度処理用の候補を分け、既存の[評価手順](workflows/llm-model-evaluation.md)で比較します。個別modelの[試用停止・再開材料](../notes/llm-model-evaluation.md)を踏まえ、評価結果から既定modelを維持するか変更するかを判断します。
@@ -206,7 +198,7 @@ DB共有はsource公開とは別に扱います。共有先・用途が決まっ
 
 ### データmodelの拡張
 
-developer node、provider account、native appのbundle / package / store identifier、record以外を含む汎用NSIDは、既存DID、handle、identifier role、relationで表現できない実例が確認された場合だけ追加します。
+developer node、provider account、native appのbundle / package / store identifierは、既存DID、handle、identifier role、relationで表現できない実例が確認された場合だけ追加します。
 
 ### 用途・着手条件の具体化待ち
 

@@ -106,7 +106,7 @@ cancel・fail-fast・snapshot変更・対象外化等で使えなかった先行
 
 enrichは結果または元requestで特定できる実在するcheckpointのpathとrun IDを保持して再開します。checkpoint作成前に失敗した初回stepは、同じ選択条件で新規実行します。起動失敗時はstepに既にある再開指定を保持します。sync/reviewとcheckpointを持たない観測stepは、そのstepを最新状態から再実行します。成功済みstepは繰り返しません。ただしsync再試行が新しいprojectを作り得るため、その後は`new_only` enrichを行います。元checkpointの再開もある場合は、その対象を処理した後に未調査projectを新たに選択します。再開後に再び停止した場合も、その時点の未完了stepだけへ保留を更新します。保留step・結果・停止理由はserver再起動後も維持します。
 
-Lexicon publication週次presetの固定sidecar、source、budget、比較可能period、再評価gateは[sidecar catalog仕様](lexicon-publication-catalog.md#週次観測preset)を正本とします。job eventは汎用runner、観測集計と評価stateはsidecarがそれぞれ保持します。
+Lexiconは通常sync presetのcollection inventory直後に実行します。`new_only`は最終調査日時がないprojectだけを対象とし、既存調査済みprojectのschema変更で調査対象を広げません。取得・検証の上限、partialの再開、初回切替は[Lexicon公開情報](lexicon-publication-catalog.md)を参照してください。
 
 ## Web Runner
 

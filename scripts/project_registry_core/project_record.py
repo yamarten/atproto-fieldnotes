@@ -160,6 +160,8 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "investigation_log",
         "input_nsids",
         "resolved_nsids",
+        "publication_schemas",
+        "publication_review",
         "lexicon_resolution_entries",
         "lexicons",
         "lexicon_count",
@@ -1149,7 +1151,7 @@ def normalize_lexicon_resolution_entries(entries: list[dict[str, Any]]) -> list[
             "resolved_at": str(entry.get("resolved_at") or ""),
             **({"publication_validation": {
                 key: str(entry["publication_validation"].get(key) or "")
-                for key in ("version", "schema_id", "schema_type", "schema_hash")
+                for key in ("version", "schema_id", "schema_type", "schema_hash", "type_changed")
             }} if isinstance(entry.get("publication_validation"), dict) else {}),
         }
         if key not in indexes:
@@ -1673,6 +1675,8 @@ def save_project(
         pending = project.get(runtime_view.RUNTIME_PENDING_RUN)
         if pending:
             investigation_storage.save_investigation_run(conn, **pending)
+            from .publication_verification import share_investigation
+            share_investigation(conn, pending)
         _save_project(conn, project, enriched, preserve_timestamps=preserve_timestamps, commit=False)
         project[runtime_view.RUNTIME_PROJECT_REVISION] = concurrency.revision(conn, str(project["project_key"]))
         runtime_view.mark_complete(project)
@@ -2372,7 +2376,7 @@ def normalize_trust_node_value(kind: str, value: str) -> str:
         return normalize_confirmed_service_url(value) or ""
     if kind == "repo_url":
         return repo_url_core.canonical_repo_url(value)
-    if kind == "collection":
+    if kind in {"collection", "nsid"}:
         return identifier_core.normalize_nsid(value)
     if kind == "domain":
         return str(value or "").strip().lower().rstrip(".")

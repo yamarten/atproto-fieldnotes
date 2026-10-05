@@ -34,7 +34,7 @@ flowchart TD
 
 CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をtext/JSONまたはHTTP responseへ変換します。長時間処理ではCLIはserviceを直接呼び、Webは別processの`worker.py`を介します。serviceが進捗eventと終了resultを返し、enrichでは対象選択・保存・checkpoint・再開も担当します。
 
-通常enrichとは別に、[Lexicon観測](specs/lexicon-publication-catalog.md)は専用のsidecar DBへ保存し、registryを照合用にだけ読みます。[App record export](specs/app-record-export.md)は保存済みprojectから公開用JSONを生成します。[LLM事例保存](specs/llm-case-store.md)は明示登録した入力・出力・判断をGit管理外のJSONへ保存し、通常enrichには接続しません。
+[App record export](specs/app-record-export.md)は保存済みprojectから公開用JSONを生成します。[LLM事例保存](specs/llm-case-store.md)は明示登録した入力・出力・判断をGit管理外のJSONへ保存し、通常enrichには接続しません。
 
 ### CLI・Webとapplication service
 
@@ -66,6 +66,8 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 | `application/` | CLI/Web共通service。`argparse.Namespace`やstdoutへ依存しない |
 | `jobs.py` / `worker.py` | request/event/resultと協調的中断。workerはstdinの`OperationRequest`を実行しJSON Linesを返す |
 | `application/sync.py` / `source_sync.py` | source別取得、watermark、既存projectへの接続 |
+| `application/publications.py` / `publication_registry.py` | [Lexicon公開情報](specs/lexicon-publication-catalog.md)の取得・検証、保存、project候補への照合 |
+| `publication_verification.py` | syncとenrichの検証結果保存。公開本文・観測時刻の照合と調査保存への接続 |
 | `introduced_review.py` | 紹介投稿のURL別要確認・手動解消。判断はqueryの`sync_state`、紹介URLはproject本体へ保存 |
 | `application/enrichment.py` | enrichの対象選択・transaction・保存・checkpoint |
 | `enrichment_pipeline.py` | 1 projectのcollector・LLM・保存前更新の実行順序 |

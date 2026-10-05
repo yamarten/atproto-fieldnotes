@@ -1,128 +1,72 @@
-# Lexicon publication sidecar catalog
+# Lexicon公開情報
 
-この文書は、Jetstreamで観測したLexiconの公開記録（`com.atproto.lexicon.schema` publication）を発見用途で保持する専用SQLite DBと、Codex向け評価JSONの保存・更新契約を定めます。registry本体と独立して観測を保持するこのDBをsidecarと呼び、Lexiconを公開したDIDをpublisherと呼びます。
+Lexicon公開情報は、`com.atproto.lexicon.schema`の公開recordから得たschema本文・型・発行元と、DNS委譲先およびPDSからの再取得による検証結果です。registry DBに保存し、project候補の発見、帰属の調査、詳細表示、検索に使います。この文書は、その取得・保存・検証と型別の扱いを定めます。
 
-## 独立させている理由と見直し
+## 発見と帰属
 
-非record Lexiconを含むpublication観測の価値を評価する暫定の独立機能です。registryのproject/owned NSID表現へ未確定な対象を押し込まず、独自の観測DBと評価結果を保持します。入力はJetstream publicationと検証先、registryはread-onlyの照合入力です。出力は観測・評価JSONとjob表示で、registryへのidentifier・relation・decision追加やpromotion更新は行いません。
+登録するidentityは完全なNSIDです。`record / space / query / procedure / subscription / permission-set`と定義のみのLexiconで`nsid` kind・`owned_nsid` roleを共有し、schema型を観測として別に保持します。直属namespaceはNSID末尾のnameを除いたものです。同じアプリの複数schemaを別々の暫定projectにしないための照合単位であり、identityをnamespaceへ置き換えません。
 
-観測は、publicationの増分を取り込む、選んだpublisherを検証する、registryと照合して発見価値を評価する、という流れです。publicationの存在と、そのpublisherの正当性やregistryでの採用は区別します。週次presetはこの流れを上限付きで実行し、通常sync後に比較条件を満たした週（valid period）を数えて再評価が必要かを示します。この結果から継続・統合・停止を決める目標は[TODO](../todo.md#jetstreamでのlexicon-publication観測)で管理します。
+照合は完全なNSID一致、同じ直属namespace、新規暫定projectの順です。一意に照合できたprojectへ候補を追加し、未知のnamespaceは暫定projectを作ります。複数projectに一致する場合は、既存projectに競合する観測と要確認理由を保存します。帰属判断の共通規則は[Sync時の既存projectへの取込](project-boundaries.md#sync時の既存projectへの取込を分ける)に従います。
 
-## 境界と入口
+有効な公開schemaは未検証でも調査候補になります。syncは所有を自動確定しません。検証済みの公開も帰属とは別で、通常enrichで[既存の採用規則](project-boundaries.md#承認済みlexiconと同じ発行元による信頼の補強)を満たした場合だけ確定します。未検証候補を他identifierの自動採用・mergeの信頼起点にしません。
 
-developer/operator入口は`scripts/lexicon_publication_catalog.py`です。加えてWeb Operationsの固定preset `lexicon_publication_weekly`が、registry DBと同じdirectoryの`lexicon-publication-catalog.db`を導出して週次観測を実行します。presetは任意command、sidecar path、source URLを受け付けず、初期状態はdisabledです。developer scriptではsidecar pathを毎回明示し、`survey.db`と同じpathは拒否します。registry照合はSQLite URIの`mode=ro`と`PRAGMA query_only=ON`を併用します。既存の別用途tableを持つSQLiteへ`init`することも拒否します。既定sourceは現行Jetstream v2 archive host `https://jetstream.us-west.bsky.network`で、別hostは`--service`で明示します。
+spaceの`collections`は参照宣言です。projectには`mentions_collection` relation（method `space_collections`）として保存し、所有・実利用とは区別します。宣言だけから対象collectionの`owned_nsid`候補を作りません。対象自身の公開や活動が発見された時に別途照合します。mirrorはNSIDごとの表示でまとめ、不正schema・削除記録・処理途中eventから新projectを作りません。
 
-恒久sidecarは`data/lexicon-publication-catalog.db`へ置き、観測stateと、人による再評価が必要になったことを示す状態（再評価gate）の正本として継続保持します。pathを設定やpublic commandの既定値にせず、developer scriptの実行ごとに明示します。将来`survey.db`へ統合する場合はschemaとreaderを置換し、このpathを維持する互換layerは作りません。
+## 保存と原子的な適用
 
-実行例:
+registry DBに以下を保存します。projectの手動判断と公開元の状態は分離します。
 
-```bash
-bin/_project-registry-python lexicon-publication-catalog scripts/lexicon_publication_catalog.py init \
-  --sidecar-db .tmp/lexicon-publications/catalog.db
+| Table / field | 内容 |
+| --- | --- |
+| `publication_catalog` | DID+rkeyごとの現在record、本文hash、schema id/type、space宣言、問題点、tombstone、revision |
+| `publication_verifications` | DNS委譲先、record再取得結果、検証した本文hash、検証日時・次回日時 |
+| `pending_publication_events` | sealed snapshotの未完了segment |
+| `catalog_metadata` | 適用済みwatermark、revision、処理途中のsealed tipと再開sequence |
+| `collection_inventory_members` | 完全なcollection NSIDの一覧・取得時点・元資料 |
+| `registry_meta` | inventoryの最新取得状態・取得時点、直近publication syncの件数 |
+| `state_json.evidence.publication_schemas` | projectに帰属・照合された公開観測の投影 |
+| `state_json.evidence.publication_review` | 発行根拠や帰属の変化についての要確認理由 |
 
-bin/_project-registry-python lexicon-publication-catalog scripts/lexicon_publication_catalog.py update \
-  --sidecar-db data/lexicon-publication-catalog.db \
-  --registry-db data/survey.db \
-  --max-events 20000 --max-seconds 300 --verify-limit 0 \
-  --output .tmp/lexicon-publications/evaluation.json
+Jetstream v2 snapshotは同一sealed tipまで揃ってから現在状態へ原子的に適用します。途中segmentではwatermarkとprojectを進めず、pending位置を次回へ引き継ぎます。gap、sealed tipの混在、不正event、取得中のcatalog競合を拒否します。適用失敗はrollbackし、直前の再開点を保持します。外部取得中にregistryのwrite lockを保持せず、projectの照合と登録は一つの短いtransactionで行います。
 
-bin/_project-registry-python lexicon-publication-catalog scripts/lexicon_publication_catalog.py verify \
-  --sidecar-db data/lexicon-publication-catalog.db \
-  --registry-db data/survey.db \
-  --schema-id example.app.record --verify-limit 10 \
-  --output .tmp/lexicon-publications/verification.json
+本文は最大64 KiBの資料を保持し、それを超える場合はhashと要約・truncated状態を残します。切り詰めた資料をrecord型と推定してsample取得しません。
 
-bin/_project-registry-python lexicon-publication-catalog scripts/lexicon_publication_catalog.py \
-  signal-non-record-usage --sidecar-db data/lexicon-publication-catalog.db \
-  --request-key query-consumer:concrete-workflow
+## 検証と型別処理
 
-bin/_project-registry-python lexicon-publication-catalog scripts/lexicon_publication_catalog.py \
-  rebaseline-evaluation --sidecar-db data/lexicon-publication-catalog.db \
-  --reason 'begin post-sync four-period evaluation'
-```
+検証はNSIDからDNS委譲先DIDを解決し、そのDID documentのPDSから現在のschema recordを取得します。mirrorを順番に検証しません。同じauthority内のDNSとDID documentをrun内で再利用し、authority間は最終検証時刻を使って巡回します。authority内では未検証・space・古い検証・変更revisionを使って選び、同じ一群による枠の独占を避けます。
 
-途中終了した取り込みは同じcommandを再実行します。sidecarに保存した取得範囲の終端sequence（pending sealed tip）と再開位置の`afterSeq`を使い、完了まで同じ終端を維持します。取得範囲を区切った一回分をsegmentと呼びます。offline fixtureまたは保存済みsnapshot segmentを使う場合は、順番に`--events-jsonl`へ指定します。`report`はnetworkへ接続せず現在stateを評価し、`--advance`指定時だけ差分基準revisionを進めます。space宣言の活動比較はregistry内の保存済み`collection_observations`をread-onlyで使い、より新しいinventoryを照合する場合は`--collection-inventory-json`を追加して集合を併合します。inventoryはsidecarやregistryへ保存しません。
+成功にはDNS authority、DID document id、record URI、`$type`、整数`lexicon=1`、完全なschema id、型、本文hashの一致が必要です。spaceではcollection配列と各NSIDも検査します。署名付きrepository proofではありません。成功結果の有効期限は7日です。週次実行が期限直前の結果を取り逃さないよう、成功は期限の1日前から更新対象とし、失敗は1日後に再試行します。本文hashの変更は期限を待たず対象にします。実際の検証は各syncの処理上限内で行います。新しいauthorityの回答は兄弟schemaにも適用し、別のpublisherを示した場合に古い発行元を支持しません。
 
-`verify`は評価対象をrepeatableな`--schema-id`または`--did`で明示し、期限切れ、content変更後、または未検証のcurrent publicationだけを検証します。両方を指定した場合はschemaとDIDの積集合です。全catalogを辞書順に少しずつ検証することは初期coverageにも再検証期限にも適さないため、通常の`update`は`--verify-limit 0`とし、Codexが候補を評価する時に対象限定`verify`を使います。
+型は共通identityに付随する観測であり、samplingと信頼経路の適用条件に使います。record samplingはrecord型、範囲付きpublication policyは各Lexicon型を対象とします。spaceのcollection宣言は`mentions_collection`として参照関係を表します。型変更は要確認に残し、明示的なNSID採用で解除されるまで新しい自動採用の支持に使いません。
 
-## 週次観測preset
+内容・型・publisher変更、不正化、削除、期限切れで古い検証を新しい支持に流用しません。既存identifier・手動採用は自動削除せず、`lexicon_publication_changed`の要レビュー理由を保存します。要レビューを非表示にした後でも、新しい変化があれば再表示します。詳細は現在のcatalogと期限を読み直して表示します。
 
-この節以降のrunは、一回のLexicon観測処理を指します。同じ週に再試行などで複数runがあっても、評価期間であるperiodは週単位で数えます。判定条件は[post-sync週次評価](#post-sync週次評価と再評価gate)で定めます。
+## 公開活動との比較
 
-- preset IDは`lexicon_publication_weekly`、既定は毎週日曜05:00 Asia/Tokyo、disabledです。土曜23:00の`sync_sources_then_enrich`完了後に実行し、固定Jetstream hostから20,000 event / 300秒の1 segmentを取り込み、固定collection inventory URLを60秒で取得します。
-- segmentがsealed tipへ届かなければrunは`partial`で失敗表示され、sidecarのpending tip / after sequenceから次回同じtipを再開します。server reloadで実行中だったstepはschedulerが再試行し、新run開始時に残った`running`履歴をfailedへ閉じます。
-- inventory timeoutはcatalog反映と別fieldへ保存し、run全体を`partial`として成功回数へ含めません。publisher検証の個別失敗は観測結果として対象・成功・失敗・理由を保持します。
-- publisher検証は1 run最大12件です。未検証またはcontent更新を期限到来より優先し、未登録authority / space、非record、その他の順で選びます。期限到来は最古の確認時刻から選び、同一schemaの複数publisherは1 runで重複検証しません。全publisherを周期的に走査しません。
-- 成功検証の7日TTLは同じ候補を評価する際の再取得抑制に使います。失敗の1日TTLは翌日以降に対象限定で再試行できる境界であり、失敗全件を日次で再走査する指示ではありません。
-- sidecar本体はwatermark、tombstone、verification期限を含む運用stateなので継続保持します。raw event logと評価JSON、collection inventoryはGit管理外に置き、評価の記録へ必要な集計を転記後に削除できます。
-- sidecarはJetstreamから再構築可能なため定期backupは作りません。schema変更や破壊的maintenanceを行う時だけSQLiteのonline backupを`data/backups/`へ1世代作り、検証後に旧世代を削除します。`cleanup-workspace-temp`は`.tmp`だけが対象で、恒久sidecarを削除しません。
+`sync-collections --execute`で、処理上限に達していない完全なinventoryを保存します。project単位に集約したcollection observationは不在判定に使いません。完全なNSID一致があれば`observed`、取得済みの一覧になければ観測範囲内の`not_observed`です。未取得・取得失敗は`unknown`とし、最後の成功一覧を消しません。空一覧を不在の証拠にはしません。
 
-## SQLite schema version 3
+活動比較の対象はrecordとspace宣言先collectionです。space等のschema自身は`not_applicable`です。未観測を非公開での実利用、利用されていないこと、宣言一覧の網羅性へ読み替えません。表示にはinventoryの取得時点を付けます。
 
-sidecarは独自のschema versionで管理し、project tableへの外部キーやproject schemaへの暗黙依存を持ちません。registryとの照合時にproject情報をread-onlyで参照します。
+## 通常導線と処理量
 
-- `catalog_metadata`: schema version、適用済みsealed watermark、catalog/report revision、処理中sealed tipとresume位置
-- `pending_publication_events`: 未完了sealed snapshotのeventを取得上限内で一時保持する領域（staging）。snapshot完了後に全行を削除する
-- `publication_catalog`: `(did, rkey)`ごとの現存record（current）または削除記録（tombstone）。event sequence、revision、time、schema shape、record hash、最大64 KiBのrecord内容、row変更revisionを保持する
-- `publication_verifications`: exact DNSとcurrent record再取得を別fieldで保持する。理由、観測時刻、次回期限、retry可否、検証対象content hashも保持する
-- `publication_observation_runs`: runの時刻、watermark / sealed tip、new/update/delete、inventory、最大12件のverification対象・成否・理由、Asia/Tokyoの週次period、通常syncの完了時刻/period/経過秒、比較可否、category件数、再評価signalとreasonを直近16回だけ保持する。raw event、inventory、評価JSONは保存しない
-- `publication_observation_state`: 評価の比較開始点（baseline）のrevision/time、異なる比較可能period数、一度成立したら再評価まで保持する`review_due / review_reasons`、旧評価countを履歴の保持期間から独立して保存する
-- `publication_observation_requests`: 具体的な非record Lexicon利用要求の短いkeyを最大50件保持する
+`config/sources.json`の`lexicon_publications`でsource URL、event数、時間、検証件数を設定します。取得は既定20,000 event / 300秒です。検証は開始時点の未検証・変更・更新時期に達したNSIDを全件対象とし、`verify_limit`は既定`null`（件数制限なし）、`verification_seconds`は3,600秒です。`verify_limit`に整数を指定した場合はその件数に制限し、0は検証を省略します。
 
-schema version 1/2の既存sidecarは初回openでcolumnを加えるversion 3へ移行します。v2までのrun rowは削除せず`pre_evaluation_baseline`として比較不能にし、従来の成功回数とnew authority/space由来のsticky reasonは新しい4期間評価へ読み替えません。旧成功回数は`legacy_successful_run_count`へ退避し、現catalog revisionをbaselineとしてvalid period countを0へ戻します。再度区切り直す場合は`rebaseline-evaluation`を理由付きで実行します。この操作もrun履歴を削除しません。
+外部取得は最大4並列、同じauthority内は直列です。各取得のtimeoutを残り時間に合わせ、時間切れ・取消し時は新規取得を停止して実行中の取得を回収します。取得中はDBのwrite transactionを保持せず、完了した結果から短いtransactionで保存します。取得開始時の本文hashと保存時のcatalogが一致しない結果や、保存済み検証より古い結果は適用しません。
 
-`publication_catalog`はdelete後もtombstoneを残すため、削除差分とstale event拒否に必要な最後のsequenceを失いません。schema ID単位のmirror groupingはreport時のprojectionで、publisher DIDをcatalogから削除またはcanonical化しません。raw secret、API key、無制限event logは保存しません。
+処理量の目安は、2026-10-04取得のcatalogで5,880 NSID・1,386 authorityです。12 NSIDの逐次取得は合計14.6秒、4並列の16 NSID検証は8.2秒でした。これらの小規模sampleから全件一巡を約30〜50分と見積もり、1時間を既定の時間枠にしています。失敗先や遅い接続を含む全件実測ではなく、期限内の完了保証ではありません。catalogの日時分布は各recordの最終eventだけを持つため、定期的な増分件数の実測には使いません。
 
-## sealed snapshotとtransaction
+eventの取り込み時に形式を検査し、snapshotの適用後に発行元を外部検証します。event数とNSID数は一対一ではありません。検証待ちが残っていても有効なschemaはproject候補になり、取り込みは完了できます。検証の結果は`verification.status`、`attempted`、`verified`、`failed`、`remaining`、`stop_reason`で区別します。時間・件数上限で残った対象は次のsyncで再開し、更新・再試行の時期に達していない同じ本文は再取得しません。`remaining=0`は対象の試行完了を示し、全件の検証成功とは区別します。
 
-初回segmentでplannerが返した`sealedTipSeq`をpending stateへ固定します。後続segmentは直前の`lastEventSeq`をexclusive `afterSeq`にし、同じtipだけを受け入れます。gap、overlap、別tip、範囲外event、summaryとevent最大sequenceの不一致、同じkeyの衝突するduplicateは拒否します。
+通常の`sync_sources_then_enrich`はGitHub、collection inventory、Lexicon、Semble、Tangled、`enrich --all --new-only`の順です。`new_only`は`last_enriched_at`がないprojectを指します。既存projectにschemaが追加・変更されたことだけでは追加enrichせず、保存した観測を直ちに表示し、説明更新は通常の週次enrichか明示調査で行います。LLMへ渡す公開観測はprojectあたり最大12 schemaに制限します。
 
-time/event boundで`truncated=true`になったsegmentはstagingだけをcommitし、watermarkとcurrent catalogを変更しません。最終segmentを受け取ると、staging全eventをsequence順に一transactionでcurrent/tombstoneへ反映し、成功した時だけwatermarkをsealed tipへ進め、stagingを消します。DID+rkeyの保存済みsequence以下のstale/duplicate eventは無視します。最終transactionが失敗した場合はcatalog、watermark、staging消去をまとめてrollbackします。
+enrichは対象projectのNSIDについて、調査資料の充足状態に応じてDNS・PDSから取得・検証します。今回取得した結果と失敗を、project・調査履歴の保存と同じtransactionで`publication_verifications`にも反映します。catalogとの本文・発行元の照合と検証条件はsyncと共有し、観測時刻は元の取得時点を保持します。保存競合で適用されなかった調査や、途中でcatalogが変わった対象は検証台帳へ反映しません。後続syncはこの検証結果を使って取得対象を選びます。
 
-## publisher検証
+CLIは`sync-lexicons`、Webは「外部情報の取り込み」のLexicon sourceを使います。dry-runも外部取得・検証を行いますが、catalogの小さな一時コピーで計算し、registryへ書き込みません。結果には新規・更新project数、競合、拒否、検証結果、残件を含めます。途中snapshotはjobのpartialとして表示し、再実行時にpending位置から続けます。
 
-検証対象は、未検証、record hash更新後、または再検証期限到来のvalid current publicationだけです。1 runの`--verify-limit`でrequest数を限定します。既存のLexicon解決部品とHTTP transportを使い、次を別々に記録します。
+project詳細の「Lexicon公開情報」で型・発行元・宣言・活動比較を確認し、登録プロジェクトのLexicon filterでspace、record、非record、宣言先活動の未観測を絞り込めます。宣言は関係tabでも参照できます。
 
-1. schema IDのexact authorityに対する`_lexicon` TXTのDIDがevent DIDと一致するか
-2. 一致したDID documentのPDSから同じ`com.atproto.lexicon.schema/<rkey>`を再取得でき、URI、schema ID、event record hashが一致するか
+## 運用への切替
 
-両方が期限内で成功したrowだけを`verified_publisher_candidates`へ出します。DNS mismatch、DNS取得失敗、DID document/PDS/record取得失敗、record/URI/hash不一致は理由とretry状態を保持します。既定の再検証期限は成功7日、失敗1日です。DNS成功後にHTTPが失敗した場合も`dns_same_did=true`を失いません。
+DBの対応versionと移行方法は[Schema Version](project-record.md#schema-version)を参照してください。初回の`sync-lexicons`は全公開状態を取得します。sidecarで収集したデータがある場合も同じ取得経路を使い、不要になったDBの削除は切替確認後の別操作とします。
 
-## 評価JSON contract version 2
-
-JSON keyと配列順序は安定させ、配列はschema ID、DID、rkey等の決定的な順序で出します。主な区分は次の通りです。
-
-- `changes.new_schemas` / `updated_schemas` / `deleted` / `verification_changed`: 指定revision以後の差分
-- `verified_publisher_candidates`: DNSとcurrent recordを両方確認したpublication
-- `existing_project_unique_candidates`: exact schema/NSIDを優先し、なければauthority groupがregistryの1 projectだけに対応するverified候補。照合根拠を別fieldで示し、自動帰属はしない
-- `unregistered_authority_groups`: registryにauthority groupがないverified候補。単一DIDが2 schema以上をpublishする場合は`independent_candidate=true`を付ける
-- `space_declared_collections`: space宣言とregistryのcollection活動観測を`activity_observed`で分離した一覧
-- `space_declared_collections_without_activity`: 宣言されたが活動未観測のcollection
-- `mirror_or_catalog_only`: publisher未検証のcatalog観測。複数publisher schemaでは未検証mirrorをここへ出し、verified候補と同じDID+rkeyを重複させない。verified側にもschemaのpublisher数を付けてambiguityを残す
-- `deleted_or_verification_failed_or_expired`: delete、検証失敗、期限切れ
-
-この分類は候補提示用です。space宣言から`owned_nsid`や`collection_observations`を書かず、projectとの関連候補からproject identifier、relation、decisionを作りません。採用する場合はCodexまたはoperatorが既存の明示操作とtrust policyを別途使います。
-
-## post-sync週次評価と再評価gate
-
-run開始時に固定`job-schedules.json`の`sync_sources_then_enrich`状態を読みます。preset全体が成功しており、その完了後48時間以内に開始したrunだけを`comparison_status=available`とします。state欠落/不正、failed、観測後の完了時刻、48時間超は理由付きで比較不能です。segment適用とfresh inventoryも完了した比較可能runだけを、Asia/TokyoのISO週で一意に数えます。同じ週の手動run、設定保存、再試行は履歴とcategory値を残しますがperiod countを増やしません。
-
-4つの異なるvalid periodに達すると`four_successful_weekly_observations`で`review_due=true`になります。4期間未満で前倒しするのは次だけです。
-
-- 検証済みpublisherのdelete、または旧DIDがcurrentでなく別DIDへ置換されたidentity変化: `reviewed_publisher_delete_or_identity_change`
-- developer/operatorが具体的な利用要求keyを明示記録した非record Lexicon需要: `non_record_lexicon_usage_request`
-
-新しく検証できたauthority/spaceは週次の分類別件数と保存上限付きのsignalへ残しますが、単独では再評価gateを成立させません。またbaseline以前に初めて観測されたpublicationは、baseline後に初回verificationが成功しても新規発見へ数えません。
-
-週次categoryは、recordをfresh inventoryで活動あり/未観測へ分け、non-record、spaceと宣言collection活動を数えます。12件のverification boundで未選択だったものと、期限切れの過去成功は`verification_pending`へ置き、実際に今回以前のverificationを試みて最新結果が失敗しているものだけを`mirror_or_verification_failure`へ置きます。これにより未検証backlogを否定的な結果へ読み替えません。verified publicationのregistry対応はexact unique/ambiguous、authority-only unique/ambiguous、未登録を分けます。Operationsは各periodの件数と前valid periodとの差分を表示します。
-
-再評価gateと直近履歴は`Operations`の`Scheduled Presets`内およびjob resultから確認できます。gateは一度成立すると人が判断するまで保持します。現時点の観測段階の終了条件は、4 valid period後または前倒しsignal時に、固有候補数、再検証変化、非record表現需要を人が再評価し、registry表現へ進むか、sidecar観測を継続するか、presetを停止するかを決めることです。定期job自身はregistryを変更しません。
-
-初期運用では次の接続境界を使います。
-
-- `verified_publisher_candidates`は調査入力です。DNSとcurrent recordはpublisherを確認しますが、publisher DIDのproject roleやproject境界までは確認しません。
-- `existing_project_unique_candidates`はproject detailと既存identifierを人が照合します。`definition_types`に`record`を含み、そのprojectへのownershipも確認できたNSIDだけ、既存の`add-seed --type nsid --project-key ...`へ渡せます。exact一致は既登録なら無変更でよく、authority groupだけの一致は自動採用しません。
-- `unregistered_authority_groups`は新規調査候補です。`independent_candidate=true`も自動project作成条件ではありません。独立projectと確認できたrecord NSIDだけ、operatorが既存`add-seed`を明示実行します。
-- query、procedure、subscription、permission-set、spaceは現行`owned_nsid`のrecord collection表現へ押し込みません。`space_declared_collections`はinventoryとの比較と調査候補抽出だけに使い、宣言を活動・ownershipへ変換しません。
-- `mirror_or_catalog_only`と`deleted_or_verification_failed_or_expired`は採用操作へ渡しません。再評価が必要なら期限後に対象限定`verify`を行います。
-- sidecar結果からpromotionを直接変更しません。record NSIDを明示採用したprojectは通常`enrich`で既存のDNS/schema evidenceを再観測し、その後に既存`lexicon_publisher_confirmed` signalを評価します。
+正本移行・初回取込・設定切替・実運用Web再起動は、dry-runの件数と初回enrich量を提示して別途承認を得ます。通常syncの設定が有効なら新しいLexicon stepも含まれるため、コード更新だけで運用切替を済ませたとは扱いません。旧専用presetは読込み時に対象外となります。

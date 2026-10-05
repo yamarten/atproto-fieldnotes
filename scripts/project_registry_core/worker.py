@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from . import database, project_record
-from .application import enrichment, investigation, lexicon_observation, review, sync
+from .application import enrichment, investigation, review, sync
 from .jobs import CancellationToken, OperationEvent, OperationRequest, OperationResult, utc_now
 
 
@@ -53,6 +53,8 @@ def _run_sync(conn: Any, request: OperationRequest, *, progress: Any = None, can
             screen_unmatched=bool(parameters.get("screen_unmatched")),
             **common,
         )
+    if source == "lexicons":
+        return sync.lexicons(conn, create_unmatched=bool(parameters.get("create_unmatched", True)), **common)
     if source == "collections":
         return sync.collections(
             conn,
@@ -132,25 +134,6 @@ def _run_verify_service(conn: Any, request: OperationRequest) -> dict[str, Any]:
     )
 
 
-def _run_lexicon_observation(
-    db_path: Path,
-    request: OperationRequest,
-    *,
-    cancel_requested: Any = None,
-) -> dict[str, Any]:
-    if not request.execute:
-        raise ValueError("Lexicon publication observation must update its fixed sidecar")
-    allowed = {"_scheduled_preset_id", "_scheduled_step"}
-    unexpected = sorted(set(request.parameters) - allowed)
-    if unexpected:
-        raise ValueError(f"Lexicon publication observation does not accept parameters: {unexpected[0]}")
-    return lexicon_observation.run(
-        db_path,
-        run_id=request.operation_id,
-        cancel_requested=cancel_requested,
-    )
-
-
 def _run_simple(
     conn: Any,
     request: OperationRequest,
@@ -218,9 +201,7 @@ def _run_simple(
                 progress=progress, cancel_requested=lambda: cancellation.cancel_requested,
             )
         else:
-            payload = _run_lexicon_observation(
-                Path(conn), request, cancel_requested=lambda: cancellation.cancel_requested,
-            )
+            raise ValueError(f"unsupported worker operation: {request.operation}")
     except project_record.StaleProjectWriteError as exc:
         conn.rollback()
         completed_at = utc_now()
@@ -280,21 +261,17 @@ def run_payload(payload: dict[str, Any]) -> int:
     def emit(event: OperationEvent) -> None:
         _write({"type": "event", "payload": event.to_dict()})
 
-    if request.operation not in {"enrich", "sync", "review", "verify_service", "monitor_services", "lexicon_publication_observation"}:
+    if request.operation not in {"enrich", "sync", "review", "verify_service", "monitor_services"}:
         raise ValueError(f"unsupported worker operation: {request.operation}")
-    if request.operation == "lexicon_publication_observation":
+    conn = database.open_database(db_path, create=False)
+    try:
         with contextlib.redirect_stdout(sys.stderr):
-            result = _run_simple(str(db_path), request, cancellation, emit)
-    else:
-        conn = database.open_database(db_path, create=False)
-        try:
-            with contextlib.redirect_stdout(sys.stderr):
-                if request.operation == "enrich":
-                    result = enrichment.run(conn, request, emit=emit, cancellation=cancellation)
-                else:
-                    result = _run_simple(conn, request, cancellation, emit)
-        finally:
-            conn.close()
+            if request.operation == "enrich":
+                result = enrichment.run(conn, request, emit=emit, cancellation=cancellation)
+            else:
+                result = _run_simple(conn, request, cancellation, emit)
+    finally:
+        conn.close()
     _write({"type": "result", "payload": result.to_dict()})
     return 0
 

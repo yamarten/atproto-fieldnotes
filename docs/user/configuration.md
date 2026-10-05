@@ -67,6 +67,8 @@ export GITHUB_TOKEN='ghp_...'
 export ATPROTO_SURVEY_WEB_TOKEN='your-web-login-token'
 ```
 
+`config/sources.json`の`lexicon_publications`は公開Lexiconの情報源です。`enabled`、`url`、`max_events`（既定20,000）、`max_seconds`（300）、`verify_limit`（`null`で件数制限なし、0で検証省略）、`verification_seconds`（3,600）を設定します。検証は未検証・変更・期限到来のNSIDを対象に最大4並列で行い、時間内に処理できなかった対象は次の取り込みで再開します。Jetstream API keyは既存の`ATPROTO_SURVEY_JETSTREAM_API_KEY`を使用します。
+
 ## 設定ファイルと認証情報
 
 環境変数をdirenvで管理する場合は、[設定テンプレート](../../.envrc.example)から始めます。既存の`.envrc`がある場合は上書きせず、必要な項目だけ追加します。

@@ -133,6 +133,7 @@ def search_projects(
     contribution_levels: set[str] | None = None,
     technical_interest_levels: set[str] | None = None,
     has_notes: str = "any",
+    lexicon_type: str = "",
     introduced: str = "any",
     has_candidates: str = "any",
     has_errors: str = "any",
@@ -164,6 +165,7 @@ def search_projects(
         contribution_levels=contribution_levels,
         technical_interest_levels=technical_interest_levels,
         has_notes=has_notes,
+        lexicon_type=lexicon_type,
         identifier_kind=identifier_kind,
         identifier_value=identifier_value,
         identifier_classification=identifier_classification,
@@ -648,6 +650,11 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
     row = conn.execute("SELECT * FROM projects WHERE project_key = ?", (resolved,)).fetchone()
     if row is None:
         raise KeyError(project_key)
+    if project.get("publication_schemas"):
+        from .. import publication_registry
+        current = publication_registry.schemas(conn, now=project_record.iso_now(),
+                    schema_ids={item["schema_id"] for item in project["publication_schemas"]})
+        project["publication_schemas"] = [{**item, **current.get(item["schema_id"], {})} for item in project["publication_schemas"]]
     prepared = core.apply_promotion_state(project)
     promotion_signals = core.compute_showcase_signals(prepared, include_ineligible=True)
     promotion_policy = core.promotion_policy_projection(prepared, promotion_signals)
@@ -663,6 +670,8 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "profile": profile,
         "features": list(prepared.get("features") or []),
         "editorial": {**dict(prepared.get("editorial") or {}), "automatic": editorial.automatic(prepared)},
+        "publication_schemas": list(prepared.get("publication_schemas") or []),
+        "publication_review": list(prepared.get("publication_review") or []),
         "service_observations": [service.observation_summary(item) for item in prepared.get("service_verification_results", [])
                                  if item.get("lane") in {"static", "deep", "authority", "browser"}
                                  and item.get("requested_url") in prepared.get("service_urls", [])],

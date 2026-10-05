@@ -201,3 +201,20 @@ def tangled(
         progress=progress,
         cancel_requested=cancel_requested,
     )
+
+
+def lexicons(conn: sqlite3.Connection, *, execute: bool = False, create_unmatched: bool = True,
+             incremental: bool = True, all_history: bool = False,
+             progress=None, cancel_requested=None) -> dict[str, Any]:
+    from . import publications
+    if all_history or not incremental:
+        raise ValueError("Lexicon sync resumes its sealed snapshot; resetting the cursor is not supported")
+    config = _source_config("lexicon_publications")
+    _require_enabled("lexicon_publications", config)
+    return publications.run(conn, execute=execute, create_unmatched=create_unmatched,
+        service=str(config.get("url") or "https://jetstream.us-west.bsky.network"),
+        max_events=_positive_int(None, config, "max_events", 20000),
+        max_seconds=_positive_int(None, config, "max_seconds", 300),
+        verify_limit=None if config.get("verify_limit") is None else max(0, int(config["verify_limit"])),
+        verification_seconds=_positive_int(None, config, "verification_seconds", 3600),
+        progress=progress, cancel_requested=cancel_requested)

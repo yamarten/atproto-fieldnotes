@@ -32,7 +32,7 @@
 | [Project評価](developer/specs/project-evaluation.md) | 説明更新、分類、稼働状態、紹介候補・順位、活動・追跡状態 | 観測方法はinvestigation、fieldの保存はproject recordへ |
 | [Background jobs](developer/specs/background-jobs.md) | request/event/result、中断・再開、checkpoint、定期実行 | 各jobが行う業務処理はその機能仕様へ |
 | [App record export](developer/specs/app-record-export.md) | field投影、readiness、validation、manifest、出力 | registry内部保存形や公開目標を担当しない |
-| [Lexicon観測](developer/specs/lexicon-publication-catalog.md) | 独立したsidecarの収集・保存・更新・評価、本体との境界 | 暫定の独立機能。継続・統合・停止の判断目標はTODOへ |
+| [Lexicon観測](developer/specs/lexicon-publication-catalog.md) | Lexicon公開情報の取得・保存・検証・型別処理 | 通常のproject候補への照合と運用切替。共通判断規則はproject境界へ |
 
 開発・検証の手順は[変更の受入](developer/workflows/change-acceptance.md)と[LLM model評価](developer/workflows/llm-model-evaluation.md)を正本にします。通常調査でLLMに何を任せるかと、LLM構成を変更する際に何を比較するかを分けます。
 
@@ -42,7 +42,7 @@
 
 削除を検討するときは、その段落がなくなると何を判断・実行できなくなるかを確かめます。必要な意味が他の箇所にあれば重複を削り、現在の利用・保守・再開に不要なら移動せず削除します。短くするために操作の途中を省いたり、基本説明までリンク先へ追い出したりしません。
 
-現行仕様はコード・通常経路と照合します。合意済みでも未実現の設計、比較用・暫定経路はその範囲を明示します。Lexicon観測のように本体と独立した機能は、用途・本体との入出力・権限境界を示す仕様にまとめ、統合・撤去時に担当正本も整理します。
+現行仕様はコード・通常経路と照合します。合意済みでも未実現の設計、比較用・暫定経路はその範囲を明示します。独立した機能は用途・本体との入出力・権限境界を示し、統合・撤去時に担当正本も整理します。
 
 ## TODOとnotesの更新
 

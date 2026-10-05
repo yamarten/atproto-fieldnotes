@@ -97,7 +97,7 @@ Project Registryの操作は、次の3点を分けて判断します。
 
 正本DBへ書く前は、Web UI、別のCLI、バックグラウンド処理が同時に動いていないか確認してください。特に修復、マージ、整理、履歴削除、`VACUUM`はバックアップを取り、DBへ書き込む処理を止めた保守時間帯に実行します。
 
-別DBを使うCLIは`project-registry --db-path PATH COMMAND ...`、Webは`project-registry-web --db-path PATH`です。schema version 4のDBが必要で、`--db-path`は認証や外部アクセスを隔離する設定ではありません。初期化・移行やcheckpointの扱いは[CLIの共通事項](cli.md#共通の入力と出力)を参照してください。
+別DBを使うCLIは`project-registry --db-path PATH COMMAND ...`、Webは`project-registry-web --db-path PATH`です。schema version 5のDBが必要で、`--db-path`は認証や外部アクセスを隔離する設定ではありません。初期化・移行やcheckpointの扱いは[CLIの共通事項](cli.md#共通の入力と出力)を参照してください。
 
 ## 扱うシード
 

@@ -26,6 +26,7 @@ def search_project_rows(
     contribution_levels: set[str] | None = None,
     technical_interest_levels: set[str] | None = None,
     has_notes: str = "any",
+    lexicon_type: str = "",
     identifier_kind: str = "",
     identifier_value: str = "",
     identifier_classification: str = "",
@@ -43,6 +44,16 @@ def search_project_rows(
     """Return lightweight project rows without hydrating normalized children."""
     conditions: list[str] = []
     parameters: list[Any] = []
+
+    if lexicon_type:
+        if lexicon_type == "unobserved_declaration":
+            conditions.append("EXISTS (SELECT 1 FROM registry_meta WHERE key='collection_inventory_status' AND value='completed')")
+            conditions.append("EXISTS (SELECT 1 FROM json_each(p.state_json, '$.evidence.publication_schemas') s, json_each(s.value, '$.declarations') d WHERE NOT EXISTS (SELECT 1 FROM collection_inventory_members m WHERE m.nsid=json_extract(d.value, '$.collection')))")
+        elif lexicon_type == "non_record":
+            conditions.append("EXISTS (SELECT 1 FROM json_each(p.state_json, '$.evidence.publication_schemas') s WHERE json_extract(s.value, '$.schema_type') IN ('space','query','procedure','subscription','permission-set','definitions'))")
+        else:
+            conditions.append("EXISTS (SELECT 1 FROM json_each(p.state_json, '$.evidence.publication_schemas') s WHERE json_extract(s.value, '$.schema_type')=?)")
+            parameters.append(lexicon_type)
 
     def values_condition(column: str, values: set[str] | None) -> None:
         if not values:

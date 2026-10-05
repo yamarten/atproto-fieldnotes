@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from . import lexicon_types
+
 from . import concurrency
 
 import copy
@@ -607,6 +609,10 @@ def add_confirmed_identifier_decision(
         }
     )
     project["confirmed_identifiers"] = confirmations
+    if identifier_type == "nsid" and identifier_storage.adoption_kind_for_source(source) == "operator":
+        for entry in project.get("lexicon_resolution_entries", []):
+            if entry.get("input_nsid") == normalized:
+                entry.get("publication_validation", {}).pop("type_changed", None)
     return normalized
 
 
@@ -6169,7 +6175,7 @@ def fetch_collection_first_creator_did(collection: str) -> str:
 
 
 def refresh_recent_record_samples(project: dict[str, Any], *, timeout: float = REQUEST_TIMEOUT_LEXICON_HTTP) -> None:
-    collections = project_record.unique_list(project.get("resolved_nsids", []) + project.get("input_nsids", []))[:6]
+    collections = lexicon_types.record_sample_nsids(project)[:6]
     if not collections:
         project["recent_record_samples"] = []
         return
@@ -6194,7 +6200,7 @@ def project_content_is_clear_enough(project: dict[str, Any]) -> bool:
 
 
 def should_refresh_recent_record_samples(project: dict[str, Any]) -> bool:
-    collections = project_record.unique_list(project.get("resolved_nsids", []) + project.get("input_nsids", []))[:6]
+    collections = lexicon_types.record_sample_nsids(project)[:6]
     if not collections:
         return False
     if not project.get("recent_record_samples"):
@@ -6234,13 +6240,19 @@ def fetch_lexicon_record(
     *,
     dns_timeout: float = REQUEST_TIMEOUT_LEXICON_DNS,
     http_timeout: float = REQUEST_TIMEOUT_LEXICON_HTTP,
+    authority_cache: dict[str, str] | None = None,
+    document_cache: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     normalized = identifier_core.normalize_nsid(nsid)
     authority_domain = identifier_core.derive_authority_domain(normalized)
     if not authority_domain:
         raise ValueError(f"invalid NSID: {nsid}")
-    did = resolve_lexicon_authority_did(authority_domain, timeout=dns_timeout)
-    did_doc = resolve_did_document(did, timeout=http_timeout)
+    did = (authority_cache or {}).get(authority_domain) or resolve_lexicon_authority_did(authority_domain, timeout=dns_timeout)
+    if authority_cache is not None:
+        authority_cache[authority_domain] = did
+    did_doc = (document_cache or {}).get(did) or resolve_did_document(did, timeout=http_timeout)
+    if document_cache is not None:
+        document_cache[did] = did_doc
     pds_url = extract_pds_url(did_doc)
     if not pds_url:
         raise ValueError(f"no PDS endpoint found for DID: {did}")
@@ -6267,8 +6279,28 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
         return
     admitted_candidates = {item.value for item in runtime_view.project_identifiers(project)
                            if item.kind == "nsid" and item.role == "owned_nsid" and item.classification == "candidate"}
+    validation = collection_trust.publication_validation(nsid, result)
+    previous_entries = [e for e in project.get("lexicon_resolution_entries", []) if e.get("input_nsid") == nsid]
+    previous_type = next((e.get("publication_validation", {}).get("schema_type") for e in reversed(previous_entries)
+                          if e.get("publication_validation", {}).get("schema_type")), None)
+    if not validation:
+        project.setdefault("lexicon_resolution_entries", []).append({
+            "input_nsid": nsid, "resolved_nsid": str((result.get("record", {}).get("value") or {}).get("id") or nsid),
+            "repo_did": str(result.get("did") or ""), "authority_domain": str(result.get("authority_domain") or ""),
+            "record_uri": str(result.get("record", {}).get("uri") or ""),
+            "resolved_at": str(result.get("resolved_at") or project_record.iso_now()),
+            "publication_validation": {"schema_type": previous_type or "", "type_changed": bool(previous_entries and previous_entries[-1].get("publication_validation", {}).get("type_changed"))},
+        })
+        trust_graph_core.remove_edges(project, source=f"lexicon_resolution:{nsid}")
+        return
+    type_changed = bool(previous_type and previous_type != validation["schema_type"]) or any(
+        e.get("publication_validation", {}).get("type_changed") for e in previous_entries[-1:])
+    if type_changed:
+        project["publication_review"] = project_record.unique_list(list(project.get("publication_review", [])) + [f"schema型の変更: {nsid}"])
+        trust_graph_core.remove_edges(project, source=f"lexicon_resolution:{nsid}")
     record = result["record"]
     schema = record.get("value", {})
+    schema_node_kind = "collection" if validation["schema_type"] == "record" else "nsid"
     resolved_nsid = identifier_core.normalize_nsid(
         str(record.get("uri", "")).rsplit("/", 1)[-1]
         or str(schema.get("id") or nsid)
@@ -6280,7 +6312,8 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
         for value in project.get("resolved_nsids", [])
     }
     project["lexicons"] = project_record.add_unique(project.get("lexicons", []), resolved_nsid)
-    project["record_creators"] = project_record.add_unique(project.get("record_creators", []), result["did"])
+    if schema_node_kind == "collection":
+        project["record_creators"] = project_record.add_unique(project.get("record_creators", []), result["did"])
     project["lexicon_resolution_entries"] = project.get("lexicon_resolution_entries", [])
     project["lexicon_resolution_entries"].append(
         {
@@ -6291,7 +6324,7 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
             "pds_url": result["pds_url"],
             "record_uri": str(record.get("uri") or ""),
             "resolved_at": str(result.get("resolved_at") or project_record.iso_now()),
-            "publication_validation": collection_trust.publication_validation(nsid, result),
+            "publication_validation": {**validation, **({"type_changed": True} if type_changed else {})},
         }
     )
     project_record.record_trust_edge(
@@ -6299,13 +6332,13 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
         "did",
         result["did"],
         "did_publishes_schema",
-        "collection",
+        schema_node_kind,
         resolved_nsid,
         source=f"lexicon_resolution:{identifier_core.normalize_nsid(nsid)}",
         locator=str(record.get("uri") or ""),
         method="repo_record",
         classification="confirmed",
-        eligible_for_auto_confirm=True,
+        eligible_for_auto_confirm=not type_changed,
         observed_at=project_record.iso_now(),
     )
     for handle in did_document_handles(dict(result.get("did_doc") or {})):
@@ -6320,7 +6353,7 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
             locator=resolve_did_document_url(str(result["did"])),
             method="alsoKnownAs",
             classification="confirmed",
-            eligible_for_auto_confirm=True,
+            eligible_for_auto_confirm=not type_changed,
             observed_at=project_record.iso_now(),
         )
     authority_domain = identifier_core.derive_authority_domain(resolved_nsid)
@@ -6329,7 +6362,7 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
         add_authority_service_candidates(project, authority_domain, verified=True)
         project_record.record_trust_edge(
             project,
-            "collection",
+            schema_node_kind,
             resolved_nsid,
             "collection_authority_domain",
             "domain",
@@ -6338,7 +6371,7 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
             locator=str(record.get("uri") or ""),
             method="lexicon_record_authority",
             classification="confirmed",
-            eligible_for_auto_confirm=True,
+            eligible_for_auto_confirm=not type_changed,
             observed_at=project_record.iso_now(),
         )
         project_record.record_trust_edge(
@@ -6346,16 +6379,16 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
             "domain",
             authority_domain,
             "domain_publishes_lexicon_record",
-            "collection",
+            schema_node_kind,
             resolved_nsid,
             source=f"lexicon_resolution:{identifier_core.normalize_nsid(nsid)}",
             locator=str(record.get("uri") or ""),
             method="lexicon_dns_and_repo_record",
             classification="confirmed",
-            eligible_for_auto_confirm=True,
+            eligible_for_auto_confirm=not type_changed,
             observed_at=project_record.iso_now(),
         )
-    evaluation = trust_collection_ownership_evaluation(project, resolved_nsid) if not was_confirmed else {}
+    evaluation = trust_collection_ownership_evaluation(project, resolved_nsid) if not was_confirmed and not type_changed and schema_node_kind == "collection" else {}
     if was_confirmed or (evaluation.get("auto_confirm") and evaluation.get("policy_version") != collection_trust.POLICY_VERSION):
         project["resolved_nsids"] = project_record.add_unique(project.get("resolved_nsids", []), resolved_nsid)
         project["input_nsids"] = [
@@ -7219,6 +7252,7 @@ def build_llm_evidence_bundle(
         "recorded_lexicon_namespaces": project.get("recorded_lexicon_namespaces", []),
         "lexicon_resolution_entries": project.get("lexicon_resolution_entries", []),
         "lexicon_schema_samples": project.get("lexicon_schema_samples", [])[:6],
+        "publication_schemas": project.get("publication_schemas", [])[:12],
         "recent_record_samples": project.get("recent_record_samples", [])[:12],
         "record_creators": project.get("record_creators", []),
         "authority_domains": project.get("authority_domains", []),
@@ -8354,6 +8388,9 @@ def compute_review_signals(
         signals.append({"kind": "service_observation_changed", "priority": 5,
                         "details": {"observations": changed_services,
                                     "action_basis": ["review_description_and_tracking_separately"]}})
+    if shaped.get("publication_review"):
+        signals.append({"kind": "lexicon_publication_changed", "priority": 5,
+                        "details": {"reasons": list(shaped["publication_review"]), "action_basis": ["review_lexicon_publication"]}})
     if shaped.get("tracking_state") == "out_of_scope":
         return [signal for signal in signals if signal["kind"] not in dismissed_kinds]
     blockers = set(str(item) for item in shaped.get("promotion_blockers", []))
@@ -10245,6 +10282,10 @@ def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dic
     merged["lexicon_resolution_entries"] = project_record.normalize_lexicon_resolution_entries(
         list(merged.get("lexicon_resolution_entries", [])) + list(source.get("lexicon_resolution_entries", []))
     )
+    publication_items = sorted(list(merged.get("publication_schemas", [])) + list(source.get("publication_schemas", [])),
+                               key=lambda item: str(item.get("checked_at") or ""))
+    merged["publication_schemas"] = list({item["schema_id"]: item for item in publication_items}.values())
+    merged["publication_review"] = project_record.unique_list(list(merged.get("publication_review", [])) + list(source.get("publication_review", [])))
     merged["authority_domains"] = project_record.unique_list(list(merged.get("authority_domains", [])) + list(source.get("authority_domains", [])))
     merged["record_creators"] = project_record.unique_list(list(merged.get("record_creators", [])) + list(source.get("record_creators", [])))
 

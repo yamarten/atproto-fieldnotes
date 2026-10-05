@@ -51,8 +51,8 @@ CLI/Webの手動確認には`project-registry dev-db`で架空データ5件を�
 | `enrich` | `--project-key`、`--seed`、`--all`のいずれか。調査深度、対象の追跡状態、LLM、チェックポイントのオプション | 進捗、失敗、結果のJSON Lines | 外部接続、LLM、常時書き込み |
 | `show` | 登録プロジェクト、シード、または`--all`。任意の追跡状態フィルター | textまたはJSON | なし |
 | `explain` | プロジェクトキー、topic、format | 保存済み結論の根拠をtextまたはJSON | なし |
-| `validate-app-record-export` | schema v4 DBと`--output` | `community.lexicon.app.entry`として書き出す条件の充足状況（readiness report） | DBはread-only。指定JSONだけを書き込み |
-| `export-app-records` | schema v4 DB、公開対象・時刻を指定するmanifest、`--output` | PDS処理へ渡せるentry record配列 | DBはread-only。全対象の検証成功後に指定JSONだけを書き込み |
+| `validate-app-record-export` | registry DBと`--output` | `community.lexicon.app.entry`として書き出す条件の充足状況（readiness report） | DBはread-only。指定JSONだけを書き込み |
+| `export-app-records` | registry DB、公開対象・時刻を指定するmanifest、`--output` | PDS処理へ渡せるentry record配列 | DBはread-only。全対象の検証成功後に指定JSONだけを書き込み |
 
 `add-seed`でサービスURLから新規登録する時は、Websiteが空なら同じURLを初期値にします。その後の候補採用や収集はWebsiteを自動設定せず、サービスURLと代表サイトは別々に変更できます。NSIDの`owned`はcollection所有を表し、単なる利用・言及ではありません。
 
@@ -97,16 +97,16 @@ project-registry enrich --all --resume-run weekly-20260714
 
 `--llm-max-output-tokens`は、調査計画の補助（planning）、採用済みリポジトリの解析、登録プロジェクトの説明・分類の補助（triage）の各LLMリクエストに同じ最大出力トークン数を指定します。省略時は接続先の設定を使います。モデル比較では、固定した評価用入力の集合（corpus）を使う評価と通常`enrich`で同じ値を明示してください。
 
-### schema v3からv4への移行
+### schema v4からv5への移行
 
 通常起動は旧DBを自動移行しません。先にWeb・CLI・workerの書込みを停止し、backupを確保してから実行します。正本DBへの適用は開発用DBの検証とは別作業です。
 
 ```bash
-project-registry --db-path PATH migrate-db-v4
-project-registry --db-path PATH migrate-db-v4 --execute
+project-registry --db-path PATH migrate-db-v5
+project-registry --db-path PATH migrate-db-v5 --execute
 ```
 
-最初のcommandはversionと対象pathの確認だけです。`--execute`が更新番号・履歴の適用状態を追加し、既存データを同じDB内でv4へ移行します。旧binaryと新binaryを同じDBへ並行接続しないでください。
+最初のcommandはversionと対象pathの確認だけです。`--execute`がLexicon公開情報のtableを追加し、既存データを同じDB内でv5へ移行します。v3からは先に`migrate-db-v4 --execute`を実行します。旧binaryと新binaryを同じDBへ並行接続しないでください。
 
 ## 要レビュー一覧と紹介候補一覧
 
@@ -172,6 +172,7 @@ bin/project-registry set-atproto-usage -p PROJECT_KEY --clear
 | `sync-bluesky-lexicons` | 設定済みBluesky公式repositoryの`app.bsky.*` / `chat.bsky.*` record schema | Bluesky projectへ追加するcollectionのJSON | 外部接続。`--execute`で書き込み。`com.atproto.*`は対象外 |
 | `sync-introduced` | Bluesky投稿検索。検索条件、ページ上限、遡る期間、増分実行 | 紹介URLとの照合結果のJSON | 外部接続。`--execute`でintroduced情報を書き込み |
 | `sync-github-search` | GitHubリポジトリ検索。検索条件、ページ上限、事前選別 | リポジトリの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
+| `sync-lexicons` | 公開Lexiconのsnapshotと発行元検証 | 新規・既存projectへの候補、競合、検証残件のJSON | 外部接続。`--execute`で観測・候補を保存 |
 | `sync-collections` | collection一覧URL。遡る期間、保存先、項目上限 | collectionの照合・作成候補のJSON | 外部接続。`--execute`で書き込み。`--save-path`はファイル書き込み |
 | `sync-semble-collections` | 設定済みSemble collection。ページ上限、遡る期間 | カード由来シードの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
 | `sync-tangled-repos` | Jetstream v2 snapshot。sequence、項目上限、増分実行 | Tangledリポジトリの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
@@ -191,6 +192,8 @@ Tangledのowner確認はBlueskyプロフィールの公開状態に依存せず�
 外部情報源の有効・無効、既定URL・検索条件、対象範囲、リクエスト上限は`config/sources.json`から読み、CLIオプションはその実行だけ上書きします。無効な情報源はネットワークリクエスト前に拒否されます。照合・分類方針は設定ファイルでは変更できません。
 
 取り込み結果のJSONでは、既存の登録プロジェクトとの照合、作成候補・作成結果、未一致または弱い一致による提案、事前選別での除外、走査範囲と完全性、watermark更新の有無を分けて確認してください。ホストの弱い類似だけでは既存の登録プロジェクトへ自動追加せず、提案として返す経路があります。`--no-incremental`は保存済みwatermarkを読み書きせず、`--all-history`がなければ初回に遡る期間を適用します。
+
+`sync-lexicons`は設定の件数・時間上限で実行します。`--execute`なしは候補確認、`--no-create-unmatched`は既存projectへの接続だけに限定します。途中snapshotは実行時だけ再開位置を保存し、次回同じcommandで続行します。通常取得後の調査は未調査projectだけです。詳細は[Lexicon公開情報](../developer/specs/lexicon-publication-catalog.md)を参照してください。
 
 ## 手動判断と登録プロジェクトの修正
 

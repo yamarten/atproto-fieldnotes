@@ -586,6 +586,10 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertEqual(error["error"]["code"], "validation_error")
 
     def test_sync_and_review_job_endpoints_validate_allowlists(self) -> None:
+        status, _, _ = self.request("/api/jobs/sync", method="POST", payload={"source": "lexicons", "execute": False})
+        self.assertEqual(status, 202)
+        self.assertEqual(self.server.jobs.parameters["source"], "lexicons")
+        self.assertFalse(self.server.jobs.execute)
         status, sync_job, _ = self.request(
             "/api/jobs/sync",
             method="POST",

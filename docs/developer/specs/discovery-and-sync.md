@@ -84,6 +84,12 @@
 - `collection_observations`は親namespace単位の`count` / `recent_count` / `min` / `max`を保存し、member一覧は永続化しません
 - `--all-history`のsummaryは`collection_observation_rebuild_project_count`と`collection_observation_cleanup_count`を返します
 
+### `sync-lexicons`
+
+公開Lexiconの完全なNSIDを発見し、同一NSID、直属namespace、新規暫定projectの順で候補を照合します。spaceのcollection宣言は参照として保存し、対象collectionの所有候補は作りません。取得・検証・再開・dry-run・予算の契約は[Lexicon公開情報](lexicon-publication-catalog.md)を参照してください。
+
+`sync-collections`の完全取得成功時には、project集約とは別に完全NSIDのinventoryを保存します。失敗時は比較不能状態にし、最後の成功一覧を保持します。
+
 ### `sync-bluesky-lexicons`
 
 - `config/sources.json`のBluesky公式repositoryを走査し、`lexicons/app/bsky/`と`lexicons/chat/bsky/`配下にある`defs.main.type=record`のschemaだけを対象にします

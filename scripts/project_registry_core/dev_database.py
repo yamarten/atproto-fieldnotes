@@ -74,6 +74,8 @@ def _reset_database(path: Path) -> dict[str, int]:
             for table in tables:
                 quoted = '"' + table.replace('"', '""') + '"'
                 conn.execute(f"DELETE FROM {quoted}" + (" WHERE key != 'schema_version'" if table == "registry_meta" else ""))
+            from .publication_registry import install_schema
+            install_schema(conn)
             counts = seed_database(conn)
             conn.commit()
             return counts

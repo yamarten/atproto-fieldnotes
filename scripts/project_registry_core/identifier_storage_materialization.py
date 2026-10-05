@@ -50,6 +50,7 @@ def _create_shadow_schema(conn: sqlite3.Connection) -> None:
     version = database.database_schema_version(conn)
     if version == 2:
         database.migrate_v2_schema(conn)
+        database.migrate_v4_schema(conn)
     elif version == database.SCHEMA_VERSION:
         database.ensure_schema(conn)
     else:

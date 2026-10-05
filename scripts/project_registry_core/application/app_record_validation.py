@@ -548,7 +548,7 @@ def _input_fingerprint(conn: sqlite3.Connection) -> str:
 
 def build_report(conn: sqlite3.Connection) -> dict[str, Any]:
     if database.database_schema_version(conn) != database.SCHEMA_VERSION:
-        raise database.SchemaMismatchError("app record validation requires schema version 4")
+        raise database.SchemaMismatchError(f"app record validation requires schema version {database.SCHEMA_VERSION}")
     fingerprint = _input_fingerprint(conn)
     projects = [validate_project(conn, project) for project in project_record.list_projects(conn)]
     projects.sort(key=lambda item: item["project_key"])

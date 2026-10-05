@@ -9,7 +9,7 @@ from typing import Any
 from . import runtime_view
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 CLASSIFICATIONS = {"confirmed", "candidate", "derived", "heuristic"}
 SQLITE_BUSY_TIMEOUT_SECONDS = 30.0
 SQLITE_BUSY_TIMEOUT_MS = int(SQLITE_BUSY_TIMEOUT_SECONDS * 1000)
@@ -232,7 +232,7 @@ def migrate_v2_schema(conn: sqlite3.Connection) -> None:
     _migrate_investigation_application_columns(conn)
     conn.execute(
         "UPDATE registry_meta SET value=? WHERE key='schema_version'",
-        (str(SCHEMA_VERSION),),
+        ("4",),
     )
 
 
@@ -259,6 +259,16 @@ def migrate_v3_schema(conn: sqlite3.Connection) -> None:
             raise SchemaMismatchError("concurrency migration requires schema version 3")
         install_revision_schema(conn)
         _migrate_investigation_application_columns(conn)
+        conn.execute("UPDATE registry_meta SET value=? WHERE key='schema_version'", ("4",))
+
+
+def migrate_v4_schema(conn: sqlite3.Connection) -> None:
+    from .concurrency import write_transaction
+    from .publication_registry import install_schema
+    with write_transaction(conn):
+        if database_schema_version(conn) != 4:
+            raise SchemaMismatchError("publication migration requires schema version 4")
+        install_schema(conn)
         conn.execute("UPDATE registry_meta SET value=? WHERE key='schema_version'", (str(SCHEMA_VERSION),))
 
 
@@ -273,6 +283,8 @@ def create_schema(conn: sqlite3.Connection) -> None:
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (str(SCHEMA_VERSION),),
     )
+    from .publication_registry import install_schema
+    install_schema(conn)
     conn.commit()
 
 
@@ -357,7 +369,7 @@ def open_database(path: Path, *, create: bool = False) -> sqlite3.Connection:
         objects = {str(row[0]) for row in conn.execute("SELECT name FROM sqlite_master WHERE type IN ('table', 'trigger')")}
         required_tables = {"project_revisions", "project_key_aliases", "projects", "project_identifiers", "project_relations", "project_decisions", "project_noncurrent_identifiers", "project_identifier_adoptions", "project_identifier_transitions"}
         required_triggers = {f"revision_{table}_{operation}" for table in required_tables - {"project_revisions"} for operation in ("insert", "update", "delete")}
-        required_tables |= {"investigation_runs", "collector_runs"}
+        required_tables |= {"investigation_runs", "collector_runs", "catalog_metadata", "publication_catalog", "publication_verifications", "pending_publication_events", "collection_inventory_members"}
         history_columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(investigation_runs)")}
         if not (required_tables | required_triggers) <= objects or not {"application_status", "conflict_reason", "resolved_at"} <= history_columns:
             conn.close()

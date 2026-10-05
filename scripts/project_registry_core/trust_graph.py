@@ -13,7 +13,7 @@ TRUST_GRAPH_VERSION = 1
 TRUST_POLICY_VERSION = "trust-graph-v2"
 TRUST_GRAPH_FIELD = "trust_graph"
 
-NODE_KINDS = {"service_url", "repo_url", "handle", "did", "domain", "collection"}
+NODE_KINDS = {"service_url", "repo_url", "handle", "did", "domain", "collection", "nsid"}
 URL_NODE_KINDS = {"service_url", "repo_url"}
 IDENTITY_NODE_KINDS = {"did", "handle", "domain"}
 CLASSIFICATION_RANK = {"heuristic": 0, "candidate": 1, "derived": 2, "confirmed": 3}
@@ -138,6 +138,12 @@ def graph(project: Mapping[str, Any]) -> dict[str, Any]:
         *(edge for edge in current["edges"] if not repository_trust.is_repository_edge(edge)),
         *repository_trust.project_edges(project),
     ])
+    if project.get("publication_schemas"):
+        from .collection_trust import verified_publications
+        valid = verified_publications(project)
+        current["edges"] = [edge for edge in current["edges"]
+                            if not str(edge.get("source") or "").startswith("lexicon_resolution:")
+                            or str(edge["source"]).removeprefix("lexicon_resolution:") in valid]
     return current
 
 

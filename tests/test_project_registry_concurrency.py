@@ -384,9 +384,10 @@ class ProjectConcurrencyTest(TempRegistryDbTestCase):
             with self.assertRaises(database.SchemaMismatchError):
                 database.open_database(path)
             self.assertEqual(maintenance_commands.cmd_migrate_db_v4(argparse.Namespace(execute=True)), 0)
+            self.assertEqual(maintenance_commands.cmd_migrate_db_v5(argparse.Namespace(execute=True)), 0)
         upgraded = database.open_database(path)
         try:
-            self.assertEqual(database.database_schema_version(upgraded), 4)
+            self.assertEqual(database.database_schema_version(upgraded), 5)
             self.assertFalse(upgraded.in_transaction)
             self.assertIn("application_status", {row[1] for row in upgraded.execute("PRAGMA table_info(investigation_runs)")})
             self.assertEqual(upgraded.execute("SELECT application_status FROM investigation_runs WHERE run_id='legacy'").fetchone()[0], "applied")

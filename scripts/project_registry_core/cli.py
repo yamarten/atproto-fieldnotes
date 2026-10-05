@@ -40,6 +40,10 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser.add_argument("--db-path", type=Path, help="SQLite DB path. Defaults to data/survey.db.")
     init_parser.set_defaults(func=maintenance_commands.cmd_init_db)
 
+    publication_migration = subparsers.add_parser("migrate-db-v5", help="Explicitly migrate an offline schema v4 DB to v5.")
+    publication_migration.add_argument("--execute", action="store_true")
+    publication_migration.set_defaults(func=maintenance_commands.cmd_migrate_db_v5)
+
     migrate_parser = subparsers.add_parser("migrate-db-v4", help="Explicitly migrate an offline schema v3 DB to v4.")
     migrate_parser.add_argument("--execute", action="store_true", help="Apply the migration; stop other writers first.")
     migrate_parser.set_defaults(func=maintenance_commands.cmd_migrate_db_v4)
@@ -239,6 +243,11 @@ def build_parser() -> argparse.ArgumentParser:
     sync_github_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=True, help="Create new projects for unknown GitHub repos. Default: enabled; use --no-create-unmatched to list only.")
     sync_github_parser.add_argument("--screen-unmatched", action="store_true", help="Before creating unmatched repos, fetch repo metadata/README/tree and keep only entries with atproto-related signals.")
     sync_github_parser.set_defaults(func=sync_commands.cmd_sync_github_search)
+
+    lexicon_parser = subparsers.add_parser("sync-lexicons", help="Discover published Lexicons, including space and non-record schemas.")
+    lexicon_parser.add_argument("--execute", action="store_true")
+    lexicon_parser.add_argument("--create-unmatched", action=argparse.BooleanOptionalAction, default=True)
+    lexicon_parser.set_defaults(func=sync_commands.cmd_sync_lexicons)
 
     sync_collections_parser = subparsers.add_parser("sync-collections", help="Fetch the collection inventory URL and import it.")
     sync_collections_parser.add_argument("--source-url", help="Override the collection inventory URL from config.")

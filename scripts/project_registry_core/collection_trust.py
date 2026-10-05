@@ -6,8 +6,11 @@ publication facts, not inferred ownership between two collections.
 """
 from __future__ import annotations
 
+from . import lexicon_types
+
 import hashlib
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from . import identifier_storage, identifiers, relations, runtime_view, trust_graph
@@ -34,7 +37,6 @@ def publication_validation(nsid: str, result: Mapping[str, Any]) -> dict[str, An
     if not isinstance(schema, Mapping):
         return {}
     definitions = schema.get("defs") or {}
-    main = definitions.get("main") if isinstance(definitions, Mapping) else None
     if (
         not identifiers.is_valid_nsid(nsid)
         or not did.startswith("did:")
@@ -45,13 +47,16 @@ def publication_validation(nsid: str, result: Mapping[str, Any]) -> dict[str, An
         or schema.get("$type") != "com.atproto.lexicon.schema"
         or type(schema.get("lexicon")) is not int or schema["lexicon"] != 1
         or schema.get("id") != nsid
-        or not isinstance(main, Mapping) or main.get("type") != "record"
+        or lexicon_types.schema_type(schema) == "unknown"
+        or any(definition.get("type") == "space" and (not isinstance(definition.get("collections"), list)
+               or any(not identifiers.is_valid_nsid(str(n)) for n in definition["collections"]))
+               for definition in definitions.values())
     ):
         return {}
     return {
         "version": VALIDATION_VERSION,
         "schema_id": nsid,
-        "schema_type": "record",
+        "schema_type": lexicon_types.schema_type(schema),
         "schema_hash": hashlib.sha256(json.dumps(schema, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest(),
     }
 
@@ -99,6 +104,27 @@ def publisher_only_adoption(project: Mapping[str, Any], nsid: str) -> bool:
     return bool(rows) and all(row.get("source") == ADOPTION_SOURCE for row in rows)
 
 
+def publication_matches_catalog(project: Mapping[str, Any], nsid: str, entry: Mapping[str, Any]) -> bool:
+    for item in project.get("publication_schemas", []):
+        if item.get("schema_id") != nsid:
+            continue
+        if item.get("status") in {"deleted", "invalid"}:
+            return False
+        if item.get("authority_dids") and set(item["authority_dids"]) != {entry.get("repo_did")}:
+            return False
+        witnesses = {(p.get("did"), p.get("hash")) for p in item.get("publishers", [])}
+        if (entry.get("repo_did"), entry.get("publication_validation", {}).get("schema_hash")) not in witnesses:
+            return False
+        if item.get("publisher_did") and item["publisher_did"] != entry.get("repo_did"):
+            return False
+        try:
+            if datetime.fromisoformat(str(entry.get("resolved_at") or "").replace("Z", "+00:00")) + timedelta(days=7) <= datetime.now(timezone.utc):
+                return False
+        except (ValueError, TypeError):
+            return False
+    return True
+
+
 def verified_publications(project: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     # A newer response (including an unvalidated response or publisher change)
     # supersedes an old witness. Select latest before checking validity.
@@ -127,13 +153,17 @@ def verified_publications(project: Mapping[str, Any]) -> dict[str, dict[str, Any
         and isinstance(entry.get("publication_validation"), Mapping)
         and entry["publication_validation"].get("version") == VALIDATION_VERSION
         and entry["publication_validation"].get("schema_id") == nsid
-        and entry["publication_validation"].get("schema_type") == "record"
+        and entry["publication_validation"].get("schema_type") in lexicon_types.PRIMARY_TYPES | {"definitions"}
+        and publication_matches_catalog(project, nsid, entry)
         and entry["publication_validation"].get("schema_hash")
+        and not entry["publication_validation"].get("type_changed")
     )}
 
 
 def evaluate_publisher_support(project: Mapping[str, Any], nsid: str) -> dict[str, Any]:
-    candidate = trust_graph.node("collection", nsid)
+    publications = verified_publications(project)
+    node_kind = lambda value: "collection" if publications.get(value, {}).get("publication_validation", {}).get("schema_type", "record") == "record" else "nsid"
+    candidate = trust_graph.node(node_kind(nsid), nsid)
     unsupported = {"auto_confirm": False, "reason": "no_scoped_publication_path", "candidate": candidate, "policy_version": POLICY_VERSION}
     claims = {item.value: item for item in runtime_view.project_identifiers(project)
               if item.kind == "nsid" and item.role == "owned_nsid"}
@@ -156,7 +186,7 @@ def evaluate_publisher_support(project: Mapping[str, Any], nsid: str) -> dict[st
     edges = []
     for value in [nsid, *sorted(roots)]:
         entry = publications[value]
-        collection = trust_graph.node("collection", value)
+        collection = trust_graph.node(node_kind(value), value)
         domain = trust_graph.node("domain", entry["authority_domain"])
         for subject, predicate, obj in (
             (collection, "collection_authority_domain", domain),
@@ -169,8 +199,8 @@ def evaluate_publisher_support(project: Mapping[str, Any], nsid: str) -> dict[st
                           "context": {**scope, "publication_validation": entry["publication_validation"]}})
     evaluation = trust_graph.evaluate_auto_confirm(
         project, candidate=candidate,
-        anchors=[trust_graph.node("collection", value) for value in sorted(roots)],
-        allowed_node_kinds={"collection", "domain"}, allowed_predicates=PUBLICATION_PREDICATES,
+        anchors=[trust_graph.node(node_kind(value), value) for value in sorted(roots)],
+        allowed_node_kinds={"collection", "nsid", "domain"}, allowed_predicates=PUBLICATION_PREDICATES,
         scoped_edges=edges,
     )
     evaluation.update(policy_version=POLICY_VERSION, scope=scope)

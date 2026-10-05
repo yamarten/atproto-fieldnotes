@@ -370,7 +370,16 @@ def sync_collection_inventory(
     scope = {"source_url": identifier_core.normalize_url(source_url)}
     state = read_sync_state(conn, "collections", scope)
     stored_watermark = sync_watermark_datetime(state) if incremental and not all_history else None
-    payload = fetch_collection_inventory(source_url)
+    try:
+        payload = fetch_collection_inventory(source_url)
+        if not payload:
+            raise ValueError("empty collection inventory cannot establish absence")
+    except Exception:
+        if execute:
+            from .concurrency import write_transaction
+            with write_transaction(conn):
+                conn.execute("INSERT OR REPLACE INTO registry_meta VALUES('collection_inventory_status','failed')")
+        raise
     processing_limit = max(1, int(max_items)) if max_items is not None else None
     processing_payload = payload[:processing_limit] if processing_limit is not None else payload
     truncated = len(processing_payload) < len(payload)
@@ -388,6 +397,12 @@ def sync_collection_inventory(
     if save_path is not None:
         save_path.parent.mkdir(parents=True, exist_ok=True)
         save_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    if execute and not truncated:
+        from .publication_registry import save_inventory
+        from .concurrency import write_transaction
+        from .project_record import iso_now
+        with write_transaction(conn):
+            save_inventory(conn, payload, observed_at=iso_now())
     projects = all_projects(conn)
     filtered_payload, filter_stats = filter_sync_collection_inventory_payload(
         processing_payload,

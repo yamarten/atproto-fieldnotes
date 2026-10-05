@@ -100,3 +100,8 @@ def cmd_sync_tangled_repos(args: argparse.Namespace) -> int:
     ))
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
+
+
+def cmd_sync_lexicons(args: argparse.Namespace) -> int:
+    return _print(_run_with_db(lambda conn: services.lexicons(conn, execute=bool(args.execute),
+                  create_unmatched=bool(args.create_unmatched))), execute=bool(args.execute))

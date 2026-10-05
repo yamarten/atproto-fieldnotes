@@ -94,7 +94,6 @@ const displayLabels = {
   "sync_introduced": "紹介済み投稿の取り込み",
   "sync_sources_then_enrich": "外部情報の取り込み・新規分の調査",
   "enrich_all_states": "全追跡状態の調査・見直し",
-  "lexicon_publication_weekly": "Lexicon公開状況の観測",
   "active": "通常追跡",
   "stable": "安定稼働",
   "stalled": "活動停滞",
@@ -226,7 +225,8 @@ const displayLabels = {
   "review": "追跡状態の見直し",
   "verify_service": "匿名ブラウザー確認",
   "monitor_services": "サービス観測",
-  "lexicon_publication_observation": "Lexicon公開状況の観測",
+  "lexicon_publication_changed": "Lexiconの発行根拠・帰属の確認",
+  "sync lexicons": "Lexicon公開情報の取得",
   "service_status": "サービス状態",
   "ownership": "帰属",
   "contribution": "atproto寄与度",
@@ -296,13 +296,11 @@ const displayLabels = {
   "Sync introduced": "紹介済み投稿の取り込み",
   "Sync sources + enrich": "外部情報の取り込み・新規分の調査",
   "All-state maintenance": "全追跡状態の調査・見直し",
-  "Lexicon publication observation": "Lexicon公開状況の観測",
   "Observe up to 20 confirmed service URLs last checked at least 30 days ago, including stable/stalled/out-of-scope projects. No automatic tracking changes.": "最終確認から30日以上経過した採用済みサービスURLを最大20件観測します。安定稼働・活動停滞・調査範囲外も対象です。追跡状態は変更しません。",
   "Run normal enrich --all for active projects.": "通常追跡中のプロジェクトを一括調査します。",
   "Run introduced-post sync with SQLite updates.": "紹介済み投稿を取り込み、SQLiteを更新します。",
   "Run non-introduced sync sources, then enrich newly created projects only.": "紹介済み投稿以外の外部情報を取り込み、新規登録分だけを調査します。",
   "Run enrich --all across every tracking state, then apply stalled review updates.": "すべての追跡状態を対象に一括調査し、活動停滞・安定稼働への見直しを適用します。",
-  "Update the fixed sidecar and evaluate bounded weekly review signals without changing the registry.": "専用の観測DBを更新し、週次のレビュー材料を確認します。登録プロジェクトのDBは変更しません。",
   "observe due services": "確認時期を迎えたサービスを観測",
   "enrich --all": "通常追跡中の全件調査",
   "enrich --all --all-tracking-states": "全追跡状態の調査",
@@ -450,7 +448,7 @@ const state = {
     candidates: "any",
     errors: "any",
     sort: "last_seen_desc",
-    identifierKind: "", identifierValue: "", identifierClassification: "",
+    lexiconType: "", identifierKind: "", identifierValue: "", identifierClassification: "",
     relationPredicate: "", relationSubjectType: "", relationSubjectValue: "",
     relationObjectType: "", relationObjectValue: "", relationSource: "",
     decisionKind: "", decisionTargetType: "", decisionTargetValue: "", decisionStatus: "",
@@ -622,7 +620,7 @@ function restoreStateFromUrl(query = new URLSearchParams(location.search)) {
     candidates: query.get("candidates") || "any",
     errors: query.get("errors") || "any",
     sort: query.get("sort") || "last_seen_desc",
-    identifierKind: query.get("identifier_kind") || "", identifierValue: query.get("identifier_value") || "",
+    lexiconType: query.get("lexicon_type") || "", identifierKind: query.get("identifier_kind") || "", identifierValue: query.get("identifier_value") || "",
     identifierClassification: query.get("identifier_classification") || "",
     relationPredicate: query.get("relation_predicate") || "", relationSubjectType: query.get("relation_subject_type") || "",
     relationSubjectValue: query.get("relation_subject_value") || "", relationObjectType: query.get("relation_object_type") || "",
@@ -657,7 +655,7 @@ function syncUrl({replace = false} = {}) {
       candidates: state.projectSearch.candidates !== "any" ? state.projectSearch.candidates : "",
       errors: state.projectSearch.errors !== "any" ? state.projectSearch.errors : "",
       sort: state.projectSearch.sort !== "last_seen_desc" ? state.projectSearch.sort : "",
-      identifier_kind: state.projectSearch.identifierKind, identifier_value: state.projectSearch.identifierValue,
+      lexicon_type: state.projectSearch.lexiconType, identifier_kind: state.projectSearch.identifierKind, identifier_value: state.projectSearch.identifierValue,
       identifier_classification: state.projectSearch.identifierClassification,
       relation_predicate: state.projectSearch.relationPredicate, relation_subject_type: state.projectSearch.relationSubjectType,
       relation_subject_value: state.projectSearch.relationSubjectValue, relation_object_type: state.projectSearch.relationObjectType,
@@ -730,6 +728,7 @@ function listControls() {
       <label>候補<select id="filter-candidates">${selectOptions([["any", "すべて"], ["yes", "あり"], ["no", "なし"]], state.projectSearch.candidates)}</select></label>
       <label>エラー<select id="filter-errors">${selectOptions([["any", "すべて"], ["yes", "あり"], ["no", "なし"]], state.projectSearch.errors)}</select></label>
       <label>並び順<select id="filter-sort">${selectOptions([["last_seen_desc", "最終観測が新しい順"], ["first_seen_desc", "登録が新しい順"], ["first_seen_asc", "登録が古い順"], ["last_enriched_asc", "調査が古い順"], ["name_asc", "名前"]], state.projectSearch.sort)}</select></label>
+      <label>Lexicon<select id="filter-lexicon-type">${selectOptions([["", "すべて"], ["space", "spaceあり"], ["record", "recordあり"], ["non_record", "非recordあり"], ["unobserved_declaration", "宣言先の公開活動が未観測"]], state.projectSearch.lexiconType)}</select></label>
       <label>識別子の種類<select id="filter-identifier-kind">${enumOptions(filterOptionValues("identifier_kinds"), state.projectSearch.identifierKind)}</select></label>
       <label>識別子の値<input id="filter-identifier-value" value="${esc(state.projectSearch.identifierValue)}"></label>
       <label>識別子の判定区分<select id="filter-identifier-classification">${enumOptions(filterOptionValues("identifier_classifications"), state.projectSearch.identifierClassification)}</select></label>
@@ -774,6 +773,17 @@ async function loadList() {
   }
 }
 
+function renderPublicationSchemas(schemas, reviews) {
+  const labels = {verified: "発行確認済み", pending: "未検証・再確認待ち", deleted: "公開記録を削除", invalid: "公開記録が不正", observed: "公開活動を観測", not_observed: "公開活動は未観測", unknown: "活動を比較できません"};
+  return `${list(reviews).length ? `<p class="notice">${list(reviews).map(esc).join("<br>")}</p>` : ""}${list(schemas).map(item => `<details><summary>${esc(item.schema_id)} ${pill(item.schema_type)} ${pill(labels[item.status] || item.status)}</summary>
+    ${item.description ? `<p>${esc(item.description)}</p>` : ""}
+    <p class="muted">${item.schema_type === "record" ? `${esc(labels[item.public_activity] || "")} · ` : ""}一覧取得 ${esc(formatTimestamp(item.inventory_observed_at))}</p>
+    ${item.content_conflict ? `<p class="notice">発行元によって内容が異なります。</p>` : ""}
+    <p class="muted">発行元: ${list(item.publishers).map(p => esc(p.did)).join(", ")}</p>
+    ${list(item.declarations).length ? `<p>宣言されたcollection（所有・実利用の確認とは別）</p><ul>${list(item.declarations).map(d => `<li>${esc(d.collection)} — ${esc(labels[d.public_activity] || d.public_activity)}</li>`).join("")}</ul>` : ""}
+  </details>`).join("") || `<p class="muted">保存済みの公開観測はありません。</p>`}`;
+}
+
 function projectSearchPath() {
   const query = new URLSearchParams({limit: state.settings.projectLimit});
   const values = {
@@ -786,7 +796,7 @@ function projectSearchPath() {
     has_candidates: state.projectSearch.candidates,
     has_errors: state.projectSearch.errors,
     sort: state.projectSearch.sort,
-    identifier_kind: state.projectSearch.identifierKind, identifier_value: state.projectSearch.identifierValue,
+    lexicon_type: state.projectSearch.lexiconType, identifier_kind: state.projectSearch.identifierKind, identifier_value: state.projectSearch.identifierValue,
     identifier_classification: state.projectSearch.identifierClassification,
     relation_predicate: state.projectSearch.relationPredicate, relation_subject_type: state.projectSearch.relationSubjectType,
     relation_subject_value: state.projectSearch.relationSubjectValue, relation_object_type: state.projectSearch.relationObjectType,
@@ -841,7 +851,7 @@ function captureProjectSearch() {
     candidates: $("filter-candidates")?.value || "any",
     errors: $("filter-errors")?.value || "any",
     sort: $("filter-sort")?.value || "last_seen_desc",
-    identifierKind: $("filter-identifier-kind")?.value || "", identifierValue: $("filter-identifier-value")?.value || "",
+    lexiconType: $("filter-lexicon-type")?.value || "", identifierKind: $("filter-identifier-kind")?.value || "", identifierValue: $("filter-identifier-value")?.value || "",
     identifierClassification: $("filter-identifier-classification")?.value || "",
     relationPredicate: $("filter-relation-predicate")?.value || "", relationSubjectType: $("filter-relation-subject-type")?.value || "",
     relationSubjectValue: $("filter-relation-subject-value")?.value || "", relationObjectType: $("filter-relation-object-type")?.value || "",
@@ -1379,6 +1389,7 @@ function renderDetail(data) {
     ${section("紹介情報", `<dl class="kv"><dt>公式サイト</dt><dd>${project.website_url ? link(project.website_url) : "なし"}</dd><dt>採用済みサービス</dt><dd>${list(overview.confirmed_services).map(link).join("<br>") || "なし"}</dd><dt>リポジトリ</dt><dd>${list(overview.repositories).map(link).join("<br>") || "なし"}</dd><dt>アカウント</dt><dd>${esc(overview.account || "なし")}</dd><dt>紹介済み</dt><dd>${project.introduced_url ? link(project.introduced_url) : "なし"}</dd><dt>短い説明</dt><dd>${esc(profileValue(profile, "tagline")) || "なし"}</dd><dt>説明</dt><dd>${esc(profileValue(profile, "summary")) || "なし"}</dd><dt>メモ</dt><dd>${esc(profileValue(profile, "notes")) || "なし"}</dd><dt>システム履歴</dt><dd>${renderSystemNotes(project)}</dd>${projectTimestampRows(project)}</dl><div class="actions"><button id="edit-profile">編集</button></div>`)}
     ${project.features?.length ? section("特徴", `<ul>${project.features.map((value) => `<li>${esc(value)}</li>`).join("")}</ul>`) : ""}
     ${project.editorial?.proposal ? `<p class="notice">根拠付きの説明更新案があります。紹介情報の「編集」から確認できます。</p>` : ""}
+    ${section("Lexicon公開情報", renderPublicationSchemas(project.publication_schemas, project.publication_review))}
     ${section("確認時点", renderServiceObservations(project.service_observations))}
     ${section("主機能でのatproto利用", renderAtprotoUsage(promotionPolicy.atproto_usage))}
     ${section("リンク・資料", renderProjectLinks(overview))}
@@ -2032,7 +2043,7 @@ function renderOperations() {
       <button id="start-enrich" class="primary">調査を開始</button>
     </div><code>project-registry enrich --all</code></article>
     <article class="operation-card"><h3>外部情報の取り込み</h3><p>候補の確認にも外部通信を行います。保存は下のチェックで指定します。</p><div class="controls">
-      <label>情報源<select id="sync-source"><option value="introduced">紹介済み投稿</option><option value="github">GitHubのリポジトリ検索</option><option value="collections">コレクション一覧</option><option value="semble">Sembleのコレクション</option><option value="tangled">Tangledのリポジトリ</option></select></label>
+      <label>情報源<select id="sync-source"><option value="introduced">紹介済み投稿</option><option value="github">GitHubのリポジトリ検索</option><option value="collections">コレクション一覧</option><option value="lexicons">Lexicon公開情報</option><option value="semble">Sembleのコレクション</option><option value="tangled">Tangledのリポジトリ</option></select></label>
       <label>初回に遡る日数<input id="sync-lookback" type="number" min="1" max="3650" value="10"></label>
       <div class="check-options" role="group" aria-label="取り込みオプション">
         <label class="check-option"><input id="sync-create" type="checkbox"> 未登録のプロジェクトを新規登録</label>
@@ -2121,12 +2132,15 @@ function startEnrich(payload, target) {
 
 function updateSyncControls() {
   const source = $("sync-source").value;
+  $("sync-lookback").disabled = source === "lexicons";
+  $("sync-all-history").disabled = source === "lexicons";
+  if (source === "lexicons") $("sync-all-history").checked = false;
   $("sync-screen").disabled = source !== "github";
   if (source !== "github") $("sync-screen").checked = false;
   if (source === "introduced") $("sync-lookback").value = "7";
   else if (source === "semble") $("sync-lookback").value = "14";
   else $("sync-lookback").value = "10";
-  if (source === "tangled") $("sync-create").checked = true;
+  if (source === "tangled" || source === "lexicons") $("sync-create").checked = true;
 }
 
 function startSyncJob() {
@@ -2231,21 +2245,7 @@ function renderSchedules(data) {
   if (!items.length) return `<p class="muted">定期実行の設定はありません。</p>`;
   const queue = list(data.queue);
   const queueHtml = queue.length ? `<p class="notice">実行待ち: ${esc(queue.map((item) => `${displayLabel(item.preset_id)}: ${item.current_job_id || "待機中"}`).join(", "))}</p>` : "";
-  const observation = data.lexicon_publication_observation || {};
-  const observationRuns = list(observation.items);
-  const observationHtml = `<article class="operation-card">
-    <div class="card-title"><strong>Lexicon取得後の評価</strong>${observation.review_due ? pill("review due", "warning") : pill("monitoring")}</div>
-    <p class="muted">${esc(observation.valid_period_count || 0)} / 4 比較可能な週 · 比較開始点 ${esc(formatTimestamp(observation.evaluation_baseline_at))} · ${esc(observation.history_limit || 16)}件の履歴を保持</p>
-    ${list(observation.review_reasons).length ? `<p class="notice">${esc(list(observation.review_reasons).map(displayLabel).join("、"))}</p>` : ""}
-    ${observation.error ? `<p class="job-error">${esc(apiErrorMessage({message: observation.error}))}</p>` : ""}
-    ${observationRuns.length ? `<details><summary>最近の観測履歴</summary>${observationRuns.map((run) => {
-      const categories = Object.entries(run.categories || {}).filter(([, value]) => Number(value) > 0).map(([key, value]) => `${displayLabel(key)} ${value}`).join(", ");
-      const deltas = Object.entries(run.category_deltas || {}).filter(([, value]) => Number(value) !== 0).map(([key, value]) => `${displayLabel(key)} ${Number(value) > 0 ? "+" : ""}${value}`).join(", ");
-      const comparison = run.comparison_status === "available" ? `比較可能${run.valid_period_counted ? " · 週数に加算済み" : " · 同じ週の再実行"}` : `比較不可: ${displayLabel(run.comparison_reason || "unknown")}`;
-      return `<p class="muted"><strong>${esc(displayLabel(run.status))}</strong> ${esc(formatTimestamp(run.completed_at))} · ${esc(run.evaluation_period || "期間なし")} · ${esc(comparison)} · 取得 ${esc(formatTimestamp(run.sync_completed_at))}${run.sync_age_seconds === null || run.sync_age_seconds === undefined ? "" : ` (${esc(formatDuration(run.sync_age_seconds))}前)`} · 取得位置 ${esc(run.starting_watermark_seq)} → ${esc(run.ending_watermark_seq)} · 変更 +${esc(run.new_count)}/~${esc(run.updated_count)}/-${esc(run.deleted_count)} · コレクション一覧 ${esc(displayLabel(run.inventory_status))} (${esc(run.inventory_collection_count)}) · 検証 ${esc(run.verification_success_count)}/${esc(run.verification_target_count)}${categories ? ` · 分類 ${esc(categories)}` : ""}${deltas ? ` · Δ ${esc(deltas)}` : ""}${run.review_due ? ` · レビュー: ${esc(list(run.review_reasons).map(displayLabel).join("、"))}` : ""}</p>`;
-    }).join("")}</details>` : `<p class="muted">保存済みの観測履歴はありません。</p>`}
-  </article>`;
-  return `${queueHtml}${observationHtml}<div class="operation-grid">${items.map((item) => {
+  return `${queueHtml}<div class="operation-grid">${items.map((item) => {
     const schedule = item.schedule || {};
     const steps = list(item.steps).map((step) => esc(displayLabel(step.label || step.operation))).join(" → ");
     const statusLine = [displayLabel(item.last_status), scheduleMessage(item.last_message), item.last_started_at ? `開始 ${formatTimestamp(item.last_started_at)}` : "", item.last_completed_at ? `完了 ${formatTimestamp(item.last_completed_at)}` : ""].filter(Boolean).join(" · ");

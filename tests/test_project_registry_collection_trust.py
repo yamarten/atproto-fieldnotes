@@ -111,7 +111,7 @@ class CollectionPublicationTrustTest(TempRegistryDbTestCase):
             result = publication(B)
             result[key] = value
             cases.append(result)
-        for key, value in (("$type", "app.bsky.feed.post"), ("lexicon", 2), ("id", C), ("defs", {"main": {"type": "query"}})):
+        for key, value in (("$type", "app.bsky.feed.post"), ("lexicon", 2), ("id", C), ("defs", {"main": {"type": "unsupported-type"}})):
             result = publication(B)
             result["record"]["value"][key] = value
             cases.append(result)

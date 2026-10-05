@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import SCRIPTS, TempRegistryDbTestCase, registry
-from project_registry_core import lexicon_publication_catalog, source_sync, worker, runtime_view
+from project_registry_core import source_sync, worker, runtime_view
 from project_registry_core.jobs import CancellationToken, OperationRequest
 from project_registry_core.application import review as review_services
 from project_registry_web.jobs import JobConflictError, JobManager, JobRecord, _schedule_due
@@ -250,26 +250,13 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
                 OperationRequest.create("verify_service", parameters={"project_key": "proj:example"}),
             )
 
-    def test_lexicon_observation_worker_rejects_paths_urls_and_other_parameters(self) -> None:
-        request = OperationRequest.create(
-            "lexicon_publication_observation",
-            parameters={"sidecar_path": "/tmp/arbitrary.db"},
-            execute=True,
-        )
-        with self.assertRaisesRegex(ValueError, "does not accept parameters"):
-            worker._run_lexicon_observation(self.db_path, request)
-        with self.assertRaisesRegex(ValueError, "must update"):
-            worker._run_lexicon_observation(
-                self.db_path,
-                OperationRequest.create("lexicon_publication_observation", parameters={}),
-            )
 
-    def test_partial_lexicon_observation_is_a_failed_worker_result_with_summary(self) -> None:
-        request = OperationRequest.create("lexicon_publication_observation", execute=True)
+    def test_partial_sync_is_a_failed_worker_result_with_summary(self) -> None:
+        request = OperationRequest.create("sync", parameters={"source": "lexicons"}, execute=True)
         emitted = []
         with mock.patch.object(
             worker,
-            "_run_lexicon_observation",
+            "_run_sync",
             return_value={"operation_status": "partial", "inventory": {"status": "failed"}},
         ):
             result = worker._run_simple(str(self.db_path), request, CancellationToken(), emitted.append)
@@ -287,36 +274,6 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         preset = next(item for item in self.manager.list_schedules()["items"] if item["preset_id"] == "service_observation")
         self.assertFalse(preset["schedule"]["enabled"])
 
-    def test_lexicon_weekly_preset_is_fixed_and_disabled_by_default(self) -> None:
-        state = self.manager.list_schedules()
-        preset = next(item for item in state["items"] if item["preset_id"] == "lexicon_publication_weekly")
-        self.assertFalse(preset["schedule"]["enabled"])
-        self.assertEqual(preset["schedule"], {
-            "enabled": False, "week_of_month": 0, "weekday": 6,
-            "time": "05:00", "timezone": "Asia/Tokyo",
-        })
-        queued = self.manager.run_scheduled_preset("lexicon_publication_weekly")
-        job_id = queued["queue"][0]["current_job_id"]
-        completed = self.wait_for(job_id, {"completed"})
-        self.assertEqual(completed["operation"], "lexicon_publication_observation")
-        self.assertEqual(set(completed["request"]["parameters"]), {"_scheduled_preset_id", "_scheduled_step"})
-        self.assertTrue(completed["request"]["execute"])
-
-    def test_schedule_api_snapshot_reads_durable_lexicon_review_gate(self) -> None:
-        sidecar = lexicon_publication_catalog.initialize_catalog(
-            self.db_path.parent / "lexicon-publication-catalog.db"
-        )
-        try:
-            lexicon_publication_catalog.record_non_record_usage_request(
-                sidecar, "procedure-consumer:operator-workflow",
-            )
-        finally:
-            sidecar.close()
-        observation = self.manager.list_schedules()["lexicon_publication_observation"]
-        self.assertTrue(observation["available"])
-        self.assertTrue(observation["review_due"])
-        self.assertEqual(observation["review_reasons"], ["non_record_lexicon_usage_request"])
-        self.assertEqual(observation["non_record_usage_requests"], ["procedure-consumer:operator-workflow"])
 
     def test_manual_scheduled_preset_runs_sequence_steps(self) -> None:
         queued = self.manager.run_scheduled_preset("sync_sources_then_enrich")
@@ -326,7 +283,7 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertEqual(started["operation"], "sync")
         self.assertEqual(started["request"]["parameters"]["source"], "github")
 
-        for expected_source in ("collections", "semble", "tangled"):
+        for expected_source in ("collections", "lexicons", "semble", "tangled"):
             state = self.manager.run_scheduler_once()
             current_job_id = state["queue"][0]["current_job_id"]
             completed = self.wait_for(current_job_id, {"completed"})
@@ -396,11 +353,11 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         with self.manager._lock:
             self.manager._jobs[job_id].status = "retry_wait"
         operations = []
-        for _ in range(4):
+        for _ in range(5):
             state = self.manager.run_scheduler_once()
             job = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
             operations.append(job["request"]["parameters"].get("source") or job["operation"])
-        self.assertEqual(operations, ["collections", "semble", "tangled", "enrich"])
+        self.assertEqual(operations, ["collections", "lexicons", "semble", "tangled", "enrich"])
         state = self.manager.run_scheduler_once()
         schedule = next(item for item in state["items"] if item["preset_id"] == "sync_sources_then_enrich")
         self.assertEqual(schedule["last_status"], "retry_wait")
@@ -416,13 +373,13 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
     def test_sync_and_enrich_conflicts_resume_checkpoint_then_select_new_projects(self) -> None:
         state = self.manager.run_scheduled_preset("sync_sources_then_enrich")
         enrich_id = ""
-        for index in range(5):
+        for index in range(6):
             job_id = state["queue"][0]["current_job_id"]
             job = self.wait_for(job_id, {"completed"})
-            if index in {0, 4}:
+            if index in {0, 5}:
                 with self.manager._lock:
                     self.manager._jobs[job_id].status = "retry_wait"
-            if index == 4:
+            if index == 5:
                 enrich_id = job["operation_id"]
             state = self.manager.run_scheduler_once()
         schedule = next(item for item in state["items"] if item["preset_id"] == "sync_sources_then_enrich")
@@ -441,7 +398,7 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
     def test_failed_sync_resumes_pending_after_restart_without_repeating_successes(self) -> None:
         preset_id = "sync_sources_then_enrich"
         state = self.manager.run_scheduled_preset(preset_id)
-        for source in ("github", "collections", "semble"):
+        for source in ("github", "collections", "lexicons", "semble"):
             job = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
             self.assertEqual(job["request"]["parameters"]["source"], source)
             if source != "semble":
@@ -463,7 +420,7 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertEqual(schedule["last_status"], "retry_wait")
         self.assertIn("failed: sync tangled", schedule["last_message"])
         self.assertEqual([step["label"] for step in schedule["pending_steps"]], ["sync tangled", "enrich --all --new-only"])
-        self.assertEqual([step["status"] for step in schedule["last_steps"]], ["completed"] * 3 + ["failed"])
+        self.assertEqual([step["status"] for step in schedule["last_steps"]], ["completed"] * 4 + ["failed"])
 
         self.manager.close(timeout=1)
         self.manager = JobManager(self.db_path, worker_command=[sys.executable, str(self.worker_path)], enable_scheduler=False)
@@ -558,7 +515,7 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
                 self.manager._jobs[job_id].status = status
             state = self.manager.run_scheduler_once()
         schedule = next(item for item in state["items"] if item["preset_id"] == "sync_sources_then_enrich")
-        expected = ["sync collections", "sync github", "sync semble", "sync tangled", "enrich --all --new-only"]
+        expected = ["sync collections", "sync github", "sync lexicons", "sync semble", "sync tangled", "enrich --all --new-only"]
         self.assertEqual([step["label"] for step in schedule["pending_steps"]], expected)
         state = self.manager.run_scheduled_preset("sync_sources_then_enrich")
         for label in expected:
@@ -600,7 +557,7 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.wait_for(job_id, {"completed"})
         with self.manager._lock:
             self.manager._jobs[job_id].status = "retry_wait"
-        for _ in range(4):
+        for _ in range(5):
             state = self.manager.run_scheduler_once()
             self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
         self.manager.run_scheduler_once()

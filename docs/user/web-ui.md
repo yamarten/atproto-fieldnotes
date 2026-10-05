@@ -1,6 +1,6 @@
 # Project Registry Web UIガイド
 
-`project-registry-web`はschema version 4のSQLite DBを操作する、1人の利用者向けのローカルWeb UIです。日常的な登録、調査、候補整理、登録プロジェクトの修正はWeb UIを主導線とし、低水準の監査や保守は[CLIガイド](cli.md)へ分けています。基本用語は[利用ガイド](guide.md#基本用語)を参照してください。
+`project-registry-web`はschema version 5のSQLite DBを操作する、1人の利用者向けのローカルWeb UIです。日常的な登録、調査、候補整理、登録プロジェクトの修正はWeb UIを主導線とし、低水準の監査や保守は[CLIガイド](cli.md)へ分けています。基本用語は[利用ガイド](guide.md#基本用語)を参照してください。
 
 画面の操作・説明・状態は日本語で表示します。プロジェクト名、引用、URL、NSID、OAuth scopeの原文、JSON、システム履歴・外部エラーの技術詳細は原表記を保ちます。
 
@@ -17,7 +17,7 @@ project-registry-web --host 127.0.0.1 --port 8765
 | --- | --- |
 | `--host` | 接続を待ち受けるアドレス。既定は同じ端末からだけ接続できるループバックアドレス。 |
 | `--port` | ポート。既定は`8765`。 |
-| `--db-path` | 接続するschema v4 SQLite DB。既定は`data/survey.db`。 |
+| `--db-path` | 接続するSQLite DB。既定は`data/survey.db`。 |
 | `--token` | Web UIのログインとAPI認証に使うトークン。`ATPROTO_SURVEY_WEB_TOKEN`でも指定できる。 |
 | `--reload` | Web実装変更時にサーバープロセスを再起動する。 |
 | `--reload-interval` | reload確認間隔。 |
@@ -175,6 +175,8 @@ tailscale serve status
 
 識別子の再付着防止・保留・分割は、同じ値のrole単位ではなく、画面に示す識別子全体へ作用します。保留解除は自動採用ではありません。
 
+登録プロジェクトの「絞り込み」→「Lexicon」ではspace、record、非record、宣言先の公開活動が未観測のものを選べます。詳細の「Lexicon公開情報」は型・発行元・宣言先と一覧取得時点を表示します。spaceの宣言は所有や実利用の確認とは別です。取得失敗・未取得は活動を比較できない状態として表示します。
+
 ## レビュー
 
 `editorial_refresh`は保護された説明への更新案、`service_observation_changed`は利用面または保存範囲のページ内容の変化です。後者だけで機能変更や終了が確定したわけではありません。`out_of_scope`についてはこの2種の新しい材料も通常一覧へ表示し、説明と追跡状態をそれぞれ見直せます。
@@ -230,6 +232,8 @@ introducedの保存実行で取得した投稿は、URLが自動照合できな�
 一覧の上部に直近の取得が未完走だったか、watermarkと取得投稿数を表示します。要確認0件は検索結果の完全取得を意味しません。従来の未一致保留は投稿本文を持たない状態で同じ一覧に表示されます。
 
 TangledはJetstream v2 snapshotを使います。Webサーバー環境に`ATPROTO_SURVEY_JETSTREAM_API_KEY`とNode.js 22.15以上、ワークスペースに`npm install`済みの公式SDKが必要です。APIキーはUI、ジョブ設定、結果へ保存しません。通常は1回1,000イベントを上限として、途中終了時の処理位置（sequence）から次回の取り込みを再開します。
+
+Lexiconの公開からも候補を取り込めます。通常の定期取り込みではcollection一覧の次に実行し、最後に未調査projectだけを調査します。schemaが追加・変更された調査済みprojectの説明は、通常の週次調査または個別の「調査」で更新します。
 
 ### 追跡状態の見直し
 

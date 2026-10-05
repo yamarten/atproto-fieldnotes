@@ -1,6 +1,6 @@
 # Project Record Schema
 
-registry schema version 4では、紹介・検索・要レビュー項目の確認に使う現在状態と、判断の根拠・履歴を分けて保存します。同じSQLite DBで、観測履歴の保持と現在のproject情報の更新をそれぞれ担います。
+registry DBは、紹介・検索・要レビュー項目の確認に使う現在状態と、判断の根拠・履歴を分けて保存します。同じSQLite DBで、観測履歴の保持と現在のproject情報の更新をそれぞれ担います。
 
 | 保存するもの | 役割 |
 | --- | --- |
@@ -16,15 +16,19 @@ registry schema version 4では、紹介・検索・要レビュー項目の確�
 
 ## Schema Version
 
-実装上の現行schemaはversion 4です。通常openはversion 4と変更検出用table/triggerを必須とし、欠落時に補修・暗黙移行しません。既存version 3は`project-registry --db-path PATH migrate-db-v4`で対象を確認し、`--execute`で明示移行します。更新番号の初期化、履歴の適用状態column追加、version更新は一transactionです。既存履歴は`applied`として扱い、過去に実際に消失した更新や保存の正しさを遡って認定するものではありません。正本DBへの移行は別承認・別作業とし、旧processを停止してから適用します。
+schema versionはDBの保存構造と実装の互換性を確認するための番号です。現行のregistry schemaはversion 5です。通常openは対応versionと必要なtable/triggerを検査し、不一致や欠落があれば拒否します。補修・暗黙移行は行いません。
+
+Lexicon公開情報の`catalog_metadata.schema_version=3`は、公開情報table群の内部layoutを表します。registry全体のversionとは別の番号であり、DB接続時の互換性判定と移行はregistry側で管理します。
+
+既存version 4は`project-registry --db-path PATH migrate-db-v5`で対象確認後、`--execute`で公開情報tableを追加します。追加とversion更新は一transactionです。既存version 3はまず`project-registry --db-path PATH migrate-db-v4`で対象を確認し、`--execute`で明示移行します。更新番号の初期化、履歴の適用状態column追加、version更新は一transactionです。既存履歴は`applied`として扱い、過去に実際に消失した更新や保存の正しさを遡って認定するものではありません。正本DBへの移行は別承認・別作業とし、旧processを停止してbackupを確保してから適用します。
 
 ## DB接続と初期化
 
 SQLite接続は30秒のbusy timeoutとWAL modeを使います。Web background jobが無い時でも、detail表示、merge analysis、CLI操作、別Web requestが同じDBを開くため短いlock競合は起こり得ます。WALは通常のread/write競合を減らしますが、同時writeや長いtransactionを完全に排除するものではありません。Web server内のwrite操作は`mutation_lock`で直列化しますが、CLIや別processとの排他はSQLiteのlockとbusy timeoutに委ねます。
 
-空のregistry DBの初期化は`project-registry init-db [--db-path PATH]`で明示的に行います。通常CLI、Web、background workerは既存のschema version 4 DBを必須とし、missing pathや未初期化fileから空DBを暗黙作成しません。旧versionのDBも通常openでは暗黙移行しません。新規schema初期化はschema versionの保存まで同じ接続内でcommitします。既存DBのopenではschema versionを同値upsertせず、table/triggerの存在確認だけを行います。open処理由来のwrite transactionを保持しません。
+空のregistry DBの初期化は`project-registry init-db [--db-path PATH]`で明示的に行います。通常CLI、Web、background workerは初期化済みのDBを必須とし、missing pathや未初期化fileから空DBを暗黙作成しません。新規schema初期化はschema versionの保存まで同じ接続内でcommitします。既存DBのopenではschema versionを同値upsertせず、互換性の検査だけを行います。open処理由来のwrite transactionを保持しません。
 
-`repair-db`はschema v4 current stateの正規化と派生評価更新を行い、schema migrationには使いません。
+`repair-db`はcurrent stateの正規化と派生評価更新を行い、schema migrationには使いません。
 
 CLI/Webの手動確認用の`dev-db`は、既存schema・project保存・調査履歴保存の入口を使って架空データを生成します。`registry_meta.dev_fixture`はこの入口で生成したDBのリセット許可を示すmarkerで、schema versionや運用データの移行状態とは別物です。保存先・排他・リセットの範囲は[共通ダミーDBの手順](../workflows/change-acceptance.md#cliwebの共通ダミーdb)を参照してください。
 
@@ -155,7 +159,7 @@ registry全体のsource設定・watermark・identifier exclusionはproject snaps
 
 ### 説明の編集制御と観測時点
 
-schema v4の`state_json.evidence.editorial`に説明の更新方法（`mode=automatic / review`）、現在文面の`profile_hash`、直近の`last_update`、必要な場合だけ更新案`proposal`と見送り案のhashを保存します。更新案は本文3field、比較元のhash、変更種別、理由、最大4件の根拠抜粋、生成時点を持ちます。全文の版履歴や全変更のevent列は作りません。説明本体は従来どおりprofileの`tagline / summary`とstateの`features`です。
+schema v5の`state_json.evidence.editorial`に説明の更新方法（`mode=automatic / review`）、現在文面の`profile_hash`、直近の`last_update`、必要な場合だけ更新案`proposal`と見送り案のhashを保存します。更新案は本文3field、比較元のhash、変更種別、理由、最大4件の根拠抜粋、生成時点を持ちます。全文の版履歴や全変更のevent列は作りません。説明本体は従来どおりprofileの`tagline / summary`とstateの`features`です。
 
 Editで説明を変更すると保護側になります。明示的な自動反映の許可も同じpreview／revision検査／保存を通します。採用案と文面が一致した場合は`last_update`へ案の変更種別・理由・根拠を残し、手動で別の文面へ変えた場合はoperator editと記録します。mergeで文面を組み合わせる場合は保護側に戻し、古い案を持ち越しません。来歴未記録の既存文面の作成者や旧観測日時は推定で埋めません。
 
@@ -177,7 +181,13 @@ exact identifier lookupは`project_identifiers(kind, value, classification)` ind
 
 `audit-url-fields`はcanonical fieldの件数とinvariant違反を読み取り専用で報告します。
 
+## Lexicon公開観測
+
+registry DBにpublication、検証、pending event、完全NSID inventoryを保持します。物理tableと鮮度・削除の契約は[Lexicon公開情報](lexicon-publication-catalog.md#保存と原子的な適用)を参照してください。projectへ割り当てた投影は`state_json.evidence.publication_schemas`、要確認理由は`publication_review`に保存し、通常のrevision検査とmergeを通ります。
+
 ## NSIDの扱い
+
+NSID identityはrecord、space、query等で共有し、schema型は公開観測に保存します。`owned_nsid`のcandidate/confirmedと型を混同せず、record sampleはrecordだけを対象とします。
 
 NSID は storage / UI / external lookup で観測されたcaseを保持します。authority domain 由来の比較や alias token 化では小文字化した派生値を使うことがありますが、NSID本体、特にname部を正規化目的で小文字化しません。`listReposByCollection` などcase-sensitiveな外部APIへ渡す値も、保存済み値または観測値のcaseを保ちます。
 
@@ -319,7 +329,7 @@ operatorがcandidateをconfirmすると、同じ`kind + value`を対象とする
 - `last_action_at` / `last_outcome`: 直近操作時刻と`defer / lower / restore`（旧記録の`reviewed`も保持）
 - `outcome_counts`: 上記操作別の累積件数。閲覧回数・紹介採用率を表さない
 
-snapshotは直近1件で、全event・順位・session履歴は保存しません。紹介の結果は既存`introduced_url`で参照できますが、判断当時の全profileや履歴遷移を復元する用途には使えません。schema v4の既存JSONとdecision行を使い、保存は既存revision検査を通ります。mergeではtargetのcurrent stateを保持し、両projectの保留decisionを残します。合成後の根拠が異なれば、対応する保留効果は外れます。
+snapshotは直近1件で、全event・順位・session履歴は保存しません。紹介の結果は既存`introduced_url`で参照できますが、判断当時の全profileや履歴遷移を復元する用途には使えません。schema v5の既存JSONとdecision行を使い、保存は既存revision検査を通ります。mergeではtargetのcurrent stateを保持し、両projectの保留decisionを残します。合成後の根拠が異なれば、対応する保留効果は外れます。
 
 旧`reviewed_fingerprint` / `reviewed_until`を持つデータは、子行の読込み時に同じfingerprint・期限の`defer_promotion`へ変換します。開始時刻は旧仕様の固定30日を期限から引いて復元し、利用可能な旧attention全体をmetadataの`legacy_review`に保存します。current stateから旧抑制fieldを取り除き、累積件数・直近操作は維持します。旧仕様で既に失われた過去の個別eventは作りません。解除済みで期限がない旧記録はcurrent stateの件数・直近操作だけをそのまま保持します。
 

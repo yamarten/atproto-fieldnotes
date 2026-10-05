@@ -6,6 +6,7 @@ local -a promotion_kinds
 subcommands=(
   'dev-db:Create or reset the fictional CLI/Web database'
   'init-db:Explicitly initialize a schema v4 registry database'
+  'migrate-db-v5:Explicitly migrate an offline schema v4 database'
   'migrate-db-v4:Explicitly migrate an offline schema v3 database'
   'add-seed:Register one manual seed'
   'enrich:Enrich one or more projects'
@@ -22,6 +23,7 @@ subcommands=(
   'import-seed-list:Import a mixed text seed list'
   'sync-introduced:Mark matching projects as introduced from Bluesky posts'
   'sync-github-search:Search GitHub repositories and import repo seeds'
+  'sync-lexicons:Import published Lexicon candidates'
   'sync-collections:Fetch and import collection inventory'
   'sync-bluesky-lexicons:Import official Bluesky record lexicons'
   'sync-semble-collections:Sync fixed Semble collections into project seeds'
@@ -295,6 +297,12 @@ case "$cmd" in
       '--no-create-unmatched[List only without creating unknown GitHub repos]' \
       '--screen-unmatched[Fetch metadata before creating unmatched repos]'
     ;;
+  sync-lexicons)
+    _arguments -S \
+      '--execute[Apply imports]' \
+      '--create-unmatched[Create provisional projects]' \
+      '--no-create-unmatched[Only attach to existing projects]'
+    ;;
   sync-collections)
     _arguments -S \
       '--source-url[Override the collection inventory URL]:url:' \
@@ -471,6 +479,10 @@ case "$cmd" in
       '--url[Override the project service URL]:url:' \
       '--lane[Verification method]:method:(static deep browser)' \
       '--execute[Apply the result and save an investigation run]'
+    ;;
+  migrate-db-v5)
+    _arguments -S \
+      '--execute[Apply the schema v4 to v5 migration]'
     ;;
   migrate-db-v4)
     _arguments -S \

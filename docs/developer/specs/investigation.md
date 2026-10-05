@@ -125,10 +125,10 @@ collectorの観測からrelationを作ることと、identifierの帰属・採�
   - confirmed developer DID、またはconfirmed root serviceとの相互trust pathが成立したcandidate NSID
   - 同じprojectの独立して採用済みLexiconと、直属authority・検証済み発行DIDが一致する既存candidate NSID（[範囲付きpublication policy](project-boundaries.md#承認済みlexiconと同じ発行元による信頼の補強)）
 - 解決結果として保存するもの:
-  - `record_creators`
+  - record schemaの場合の`record_creators`
   - `authority_domains`
   - `lexicon_resolution_entries`と`did_publishes_schema` / `domain_publishes_lexicon_record` / `collection_authority_domain` edge
-  - 新しい取得結果ではDNSを引いた`authority_domain`をsnapshotに明示し、DID documentのid、schema record URI、`$type=com.atproto.lexicon.schema`、`lexicon=1`、matching schema id、`defs.main.type=record`を照合した場合だけ`publication_validation`を保存します。検証version・schema id/type・本体の正規化JSON SHA-256を保持し、署名付きrepository proofとは区別します。query/procedure/permission-setはこのcollection用の検証対象外です
+  - 新しい取得結果ではDNSを引いた`authority_domain`をsnapshotに明示し、DID documentのid、schema record URI、`$type=com.atproto.lexicon.schema`、`lexicon=1`、matching schema id、record、space、query等の型別条件を照合した場合だけ`publication_validation`を保存します。検証version・schema id/type・本体の正規化JSON SHA-256を保持し、署名付きrepository proofとは区別します。非recordは`nsid` nodeを使い、record samplingとcollection固有経路から外します。space宣言を所有・実利用へ読み替えません。型別条件・期限・hash照合は[公開情報仕様](lexicon-publication-catalog.md#検証と型別処理)を参照してください
   - 同じ解決対象・発行DIDの重複は最新の観測を優先し、未検証になった応答も古い検証結果を置き換えます。snapshotの観測時刻を再利用するため、replayで新しい外部観測を行ったようには扱いません
 - ここで candidate に留めるもの:
   - lexicon description 由来の `summary_candidates` / `tagline_candidates`
