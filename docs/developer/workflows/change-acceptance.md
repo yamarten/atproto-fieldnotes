@@ -144,6 +144,12 @@ WALは未反映のcommit済みデータを持つため、単なるcacheとして
 
 ## 実運用への反映
 
+### 復旧用バックアップとtaskの完了
+
+既存の復旧手段と必要な復旧時点を確認し、それでは不足する場合だけ追加バックアップを作ります。作成時に用途・保持先・削除条件を決め、SQLiteはonline backupを使います。書込み検証用の複製は[正本DBの確認と複製](#正本dbの確認と複製)に従います。
+
+本番変更は、適用後の動作確認と必要な復旧まで含めて完了を判断します。不要になった退避物は片付け、保持を続ける理由・所在・削除条件はGit管理外の運用記録へ残します。正本変更や復旧操作には承認が必要です。
+
 ### HTTPS入口の運用確認
 
 Tailscale Serveの実運用設定変更を明示的に依頼された場合は、[Web UIガイドの設定・解除手順](../../user/web-ui.md#tailscale経由のhttps)に従います。転送先は実運用の`127.0.0.1:8888`で、worktreeの確認用serverへ向けません。設定前後の`tailscale serve status --json`で既存入口が不変であること、専用HTTPSポートだけが追加・解除されたこと、Funnelが有効になっていないことを確認します。
@@ -162,4 +168,4 @@ Python本体の更新は通常reloadで切り替わりません。[Python環境�
 
 ## Maintenance適用の確認
 
-共有hostingのtenant境界を定める接尾辞（hosted suffix）の変更に伴う分割監査は`audit-source-config`、URL監査はread-onlyの`audit-url-fields`を使います。判定規則の変更を既存DBへ反映する場合は、まず`repair-db`で足りるかを確認し、補助pageやblock/defer等の採用抑止条件（guard）に該当するURLのservice採用、repo/NSIDの採用条件を満たさない`defines_schema`等を監査し、dry-runの全差分を確認します。`repair-db --execute`は特定補正だけを選ばず、同じsummaryに含まれる正規化・派生値更新も保存します。正本DBへの適用は承認とbackupを経て、他のenrich・CLI・Webからの書込みと競合しないことを確認して行い、保存・再監査の確認範囲を作業記録へ残します。
+共有hostingのtenant境界を定める接尾辞（hosted suffix）の変更に伴う分割監査は`audit-source-config`、URL監査はread-onlyの`audit-url-fields`を使います。判定規則の変更を既存DBへ反映する場合は、まず`repair-db`で足りるかを確認し、補助pageやblock/defer等の採用抑止条件（guard）に該当するURLのservice採用、repo/NSIDの採用条件を満たさない`defines_schema`等を監査し、dry-runの全差分を確認します。`repair-db --execute`は特定補正だけを選ばず、同じsummaryに含まれる正規化・派生値更新も保存します。正本DBへの適用は承認を得て、[復旧用バックアップの方針](#復旧用バックアップとtaskの完了)に沿って追加退避の要否を判断します。他のenrich・CLI・Webからの書込みと競合しないことを確認して行い、保存・再監査の確認範囲を作業記録へ残します。
