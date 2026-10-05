@@ -18,9 +18,7 @@ registry DBは、紹介・検索・要レビュー項目の確認に使う現在
 
 schema versionはDBの保存構造と実装の互換性を確認するための番号です。現行のregistry schemaはversion 5です。通常openは対応versionと必要なtable/triggerを検査し、不一致や欠落があれば拒否します。補修・暗黙移行は行いません。
 
-Lexicon公開情報の`catalog_metadata.schema_version=3`は、公開情報table群の内部layoutを表します。registry全体のversionとは別の番号であり、DB接続時の互換性判定と移行はregistry側で管理します。
-
-既存version 4は`project-registry --db-path PATH migrate-db-v5`で対象確認後、`--execute`で公開情報tableを追加します。追加とversion更新は一transactionです。既存version 3はまず`project-registry --db-path PATH migrate-db-v4`で対象を確認し、`--execute`で明示移行します。更新番号の初期化、履歴の適用状態column追加、version更新は一transactionです。既存履歴は`applied`として扱い、過去に実際に消失した更新や保存の正しさを遡って認定するものではありません。正本DBへの移行は別承認・別作業とし、旧processを停止してbackupを確保してから適用します。
+Lexicon公開情報の`catalog_metadata.schema_version=3`は、公開情報table群の内部layoutを表します。registry全体のversionとは別の番号であり、DB接続時の互換性判定はregistry側で管理します。
 
 ## DB接続と初期化
 

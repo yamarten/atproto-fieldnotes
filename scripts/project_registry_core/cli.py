@@ -36,17 +36,9 @@ def build_parser() -> argparse.ArgumentParser:
     dev_parser.add_argument("--reset", action="store_true", help="Reset only a generated dev DB; stop its CLI/Web/workers first.")
     dev_parser.set_defaults(func=maintenance_commands.cmd_dev_db)
 
-    init_parser = subparsers.add_parser("init-db", help="Explicitly initialize a schema v4 registry database.")
+    init_parser = subparsers.add_parser("init-db", help="Explicitly initialize a registry database.")
     init_parser.add_argument("--db-path", type=Path, help="SQLite DB path. Defaults to data/survey.db.")
     init_parser.set_defaults(func=maintenance_commands.cmd_init_db)
-
-    publication_migration = subparsers.add_parser("migrate-db-v5", help="Explicitly migrate an offline schema v4 DB to v5.")
-    publication_migration.add_argument("--execute", action="store_true")
-    publication_migration.set_defaults(func=maintenance_commands.cmd_migrate_db_v5)
-
-    migrate_parser = subparsers.add_parser("migrate-db-v4", help="Explicitly migrate an offline schema v3 DB to v4.")
-    migrate_parser.add_argument("--execute", action="store_true", help="Apply the migration; stop other writers first.")
-    migrate_parser.set_defaults(func=maintenance_commands.cmd_migrate_db_v4)
 
     add_parser = subparsers.add_parser("add-seed", help="Register one manual seed.")
     add_parser.add_argument("seed", help="NSID, repository URL, or service URL.")

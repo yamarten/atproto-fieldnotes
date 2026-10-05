@@ -5,7 +5,6 @@ import collections
 import hashlib
 import json
 import sys
-import sqlite3
 from pathlib import Path
 
 from .. import registry as core
@@ -40,41 +39,6 @@ def cmd_init_db(args: argparse.Namespace) -> int:
     finally:
         conn.close()
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
-    return 0
-
-
-def cmd_migrate_db_v4(args: argparse.Namespace) -> int:
-    path = core.DB_PATH.resolve()
-    mode = "rw" if args.execute else "ro"
-    conn = sqlite3.connect(path.as_uri() + f"?mode={mode}", uri=True)
-    conn.row_factory = sqlite3.Row
-    try:
-        database.configure_connection(conn)
-        before = database.database_schema_version(conn)
-        if before != 3:
-            raise database.SchemaMismatchError(f"migration requires schema version 3, got {before}")
-        if args.execute:
-            database.migrate_v3_schema(conn)
-        print(json.dumps({"db_path": str(path), "mode": "execute" if args.execute else "dry_run", "from_version": before, "to_version": 4}))
-    finally:
-        conn.close()
-    return 0
-
-
-def cmd_migrate_db_v5(args: argparse.Namespace) -> int:
-    path = core.DB_PATH.resolve()
-    conn = sqlite3.connect(path.as_uri() + ("?mode=rw" if args.execute else "?mode=ro"), uri=True)
-    conn.row_factory = sqlite3.Row
-    try:
-        database.configure_connection(conn)
-        before = database.database_schema_version(conn)
-        if before != 4:
-            raise database.SchemaMismatchError(f"migration requires schema version 4, got {before}")
-        if args.execute:
-            database.migrate_v4_schema(conn)
-        print(json.dumps({"db_path": str(path), "mode": "execute" if args.execute else "dry_run", "from_version": before, "to_version": 5}))
-    finally:
-        conn.close()
     return 0
 
 

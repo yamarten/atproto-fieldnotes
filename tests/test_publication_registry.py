@@ -209,15 +209,15 @@ class PublicationRegistryTest(TempRegistryDbTestCase):
         self.assertEqual(project_record.list_projects(self.conn), [])
         self.assertEqual(catalog.catalog_state(self.conn)['watermark_seq'], 0)
 
-    def test_explicit_migration_is_required(self):
+    def test_old_schema_is_rejected_without_changes(self):
         for table in ['publication_verifications', 'publication_catalog', 'pending_publication_events', 'catalog_metadata', 'collection_inventory_members']:
             self.conn.execute(f'DROP TABLE {table}')
         self.conn.execute("UPDATE registry_meta SET value='4' WHERE key='schema_version'")
         self.conn.commit()
+        before = list(self.conn.iterdump())
         with self.assertRaises(database.SchemaMismatchError):
             database.open_database(self.db_path)
-        database.migrate_v4_schema(self.conn)
-        self.assertEqual(database.database_schema_version(self.conn), 5)
+        self.assertEqual(list(self.conn.iterdump()), before)
 
     def test_authorities_rotate_across_runs_and_retry_after_failure(self):
         self.run_sync([event(1, 'did:plc:a', 'com.alpha.one'), event(2, 'did:plc:a', 'com.alpha.two'),

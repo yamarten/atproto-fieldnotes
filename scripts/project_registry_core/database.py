@@ -220,58 +220,6 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     )
 
 
-def migrate_v2_schema(conn: sqlite3.Connection) -> None:
-    if database_schema_version(conn) != 2:
-        raise SchemaMismatchError("identifier storage migration requires schema version 2")
-    decision_columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(project_decisions)")}
-    if "target_role" not in decision_columns:
-        conn.execute("ALTER TABLE project_decisions ADD COLUMN target_role TEXT NOT NULL DEFAULT ''")
-    ensure_schema(conn)
-    from .concurrency import install_revision_schema
-    install_revision_schema(conn)
-    _migrate_investigation_application_columns(conn)
-    conn.execute(
-        "UPDATE registry_meta SET value=? WHERE key='schema_version'",
-        ("4",),
-    )
-
-
-def _migrate_investigation_application_columns(conn: sqlite3.Connection) -> None:
-    from .storage import ensure_investigation_tables
-
-    ensure_investigation_tables(conn)
-    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(investigation_runs)")}
-    for name, definition in (
-        ("application_status", "TEXT NOT NULL DEFAULT 'applied'"),
-        ("conflict_reason", "TEXT NOT NULL DEFAULT ''"),
-        ("resolved_at", "TEXT NOT NULL DEFAULT ''"),
-    ):
-        if name not in columns:
-            conn.execute(f"ALTER TABLE investigation_runs ADD COLUMN {name} {definition}")
-
-
-def migrate_v3_schema(conn: sqlite3.Connection) -> None:
-    """Explicit, atomic migration. Normal open never calls this function."""
-    from .concurrency import install_revision_schema, write_transaction
-
-    with write_transaction(conn):
-        if database_schema_version(conn) != 3:
-            raise SchemaMismatchError("concurrency migration requires schema version 3")
-        install_revision_schema(conn)
-        _migrate_investigation_application_columns(conn)
-        conn.execute("UPDATE registry_meta SET value=? WHERE key='schema_version'", ("4",))
-
-
-def migrate_v4_schema(conn: sqlite3.Connection) -> None:
-    from .concurrency import write_transaction
-    from .publication_registry import install_schema
-    with write_transaction(conn):
-        if database_schema_version(conn) != 4:
-            raise SchemaMismatchError("publication migration requires schema version 4")
-        install_schema(conn)
-        conn.execute("UPDATE registry_meta SET value=? WHERE key='schema_version'", (str(SCHEMA_VERSION),))
-
-
 def create_schema(conn: sqlite3.Connection) -> None:
     ensure_schema(conn)
     from .concurrency import install_revision_schema

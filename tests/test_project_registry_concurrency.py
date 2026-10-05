@@ -15,7 +15,6 @@ from project_registry_core.application import decisions, enrichment, merge, pres
 from project_registry_core.evidence import EvidenceBundle
 from project_registry_core.jobs import OperationRequest
 from project_registry_core.commands import review as review_commands
-from project_registry_core.commands import maintenance as maintenance_commands
 
 
 def update_from_process(path: str, key: str, ready, proceed, result) -> None:
@@ -354,42 +353,3 @@ class ProjectConcurrencyTest(TempRegistryDbTestCase):
         self.assertIsNone(storage.latest_investigation_run(self.conn, self.key))
         for run_id in run_ids:
             self.assertIsNotNone(storage.load_investigation_run(self.conn, run_id))
-
-    def test_explicit_v3_migration_is_atomic_and_normal_open_is_read_only(self):
-        path = Path(self.tempdir.name) / "v3.db"
-        legacy = sqlite3.connect(path)
-        legacy.row_factory = sqlite3.Row
-        database.ensure_schema(legacy)
-        storage.ensure_investigation_tables(legacy)
-        legacy.execute("INSERT INTO investigation_runs VALUES ('legacy', ?, 'start', 'end', 1, 'old', '{}', '{}', '{}', '{}', 'applied', '', '')", (self.key,))
-        for column in ("application_status", "conflict_reason", "resolved_at"):
-            legacy.execute(f"ALTER TABLE investigation_runs DROP COLUMN {column}")
-        legacy.execute("INSERT INTO registry_meta VALUES ('schema_version','3')")
-        legacy.commit()
-        with self.assertRaises(database.SchemaMismatchError):
-            database.open_database(path)
-        real_install = concurrency.install_revision_schema
-        def fail(conn):
-            real_install(conn)
-            raise RuntimeError("migration failure")
-        with mock.patch.object(concurrency, "install_revision_schema", side_effect=fail):
-            with self.assertRaises(RuntimeError):
-                database.migrate_v3_schema(legacy)
-        self.assertEqual(database.database_schema_version(legacy), 3)
-        self.assertFalse(legacy.in_transaction)
-        self.assertIsNone(legacy.execute("SELECT 1 FROM sqlite_master WHERE name='project_revisions'").fetchone())
-        legacy.close()
-        with mock.patch.object(registry, "DB_PATH", path), mock.patch("builtins.print"):
-            self.assertEqual(maintenance_commands.cmd_migrate_db_v4(argparse.Namespace(execute=False)), 0)
-            with self.assertRaises(database.SchemaMismatchError):
-                database.open_database(path)
-            self.assertEqual(maintenance_commands.cmd_migrate_db_v4(argparse.Namespace(execute=True)), 0)
-            self.assertEqual(maintenance_commands.cmd_migrate_db_v5(argparse.Namespace(execute=True)), 0)
-        upgraded = database.open_database(path)
-        try:
-            self.assertEqual(database.database_schema_version(upgraded), 5)
-            self.assertFalse(upgraded.in_transaction)
-            self.assertIn("application_status", {row[1] for row in upgraded.execute("PRAGMA table_info(investigation_runs)")})
-            self.assertEqual(upgraded.execute("SELECT application_status FROM investigation_runs WHERE run_id='legacy'").fetchone()[0], "applied")
-        finally:
-            upgraded.close()

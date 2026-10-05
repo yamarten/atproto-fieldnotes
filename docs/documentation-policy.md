@@ -32,7 +32,7 @@
 | [Project評価](developer/specs/project-evaluation.md) | 説明更新、分類、稼働状態、紹介候補・順位、活動・追跡状態 | 観測方法はinvestigation、fieldの保存はproject recordへ |
 | [Background jobs](developer/specs/background-jobs.md) | request/event/result、中断・再開、checkpoint、定期実行 | 各jobが行う業務処理はその機能仕様へ |
 | [App record export](developer/specs/app-record-export.md) | field投影、readiness、validation、manifest、出力 | registry内部保存形や公開目標を担当しない |
-| [Lexicon観測](developer/specs/lexicon-publication-catalog.md) | Lexicon公開情報の取得・保存・検証・型別処理 | 通常のproject候補への照合と運用切替。共通判断規則はproject境界へ |
+| [Lexicon観測](developer/specs/lexicon-publication-catalog.md) | Lexicon公開情報の取得・保存・検証・型別処理 | 通常のproject候補への照合。共通判断規則はproject境界へ |
 
 開発・検証の手順は[変更の受入](developer/workflows/change-acceptance.md)と[LLM model評価](developer/workflows/llm-model-evaluation.md)を正本にします。通常調査でLLMに何を任せるかと、LLM構成を変更する際に何を比較するかを分けます。
 

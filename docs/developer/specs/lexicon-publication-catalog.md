@@ -64,9 +64,3 @@ enrichは対象projectのNSIDについて、調査資料の充足状態に応じ
 CLIは`sync-lexicons`、Webは「外部情報の取り込み」のLexicon sourceを使います。dry-runも外部取得・検証を行いますが、catalogの小さな一時コピーで計算し、registryへ書き込みません。結果には新規・更新project数、競合、拒否、検証結果、残件を含めます。途中snapshotはjobのpartialとして表示し、再実行時にpending位置から続けます。
 
 project詳細の「Lexicon公開情報」で型・発行元・宣言・活動比較を確認し、登録プロジェクトのLexicon filterでspace、record、非record、宣言先活動の未観測を絞り込めます。宣言は関係tabでも参照できます。
-
-## 運用への切替
-
-DBの対応versionと移行方法は[Schema Version](project-record.md#schema-version)を参照してください。初回の`sync-lexicons`は全公開状態を取得します。sidecarで収集したデータがある場合も同じ取得経路を使い、不要になったDBの削除は切替確認後の別操作とします。
-
-正本移行・初回取込・設定切替・実運用Web再起動は、dry-runの件数と初回enrich量を提示して別途承認を得ます。通常syncの設定が有効なら新しいLexicon stepも含まれるため、コード更新だけで運用切替を済ませたとは扱いません。旧専用presetは読込み時に対象外となります。

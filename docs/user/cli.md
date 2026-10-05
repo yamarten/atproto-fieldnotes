@@ -97,17 +97,6 @@ project-registry enrich --all --resume-run weekly-20260714
 
 `--llm-max-output-tokens`は、調査計画の補助（planning）、採用済みリポジトリの解析、登録プロジェクトの説明・分類の補助（triage）の各LLMリクエストに同じ最大出力トークン数を指定します。省略時は接続先の設定を使います。モデル比較では、固定した評価用入力の集合（corpus）を使う評価と通常`enrich`で同じ値を明示してください。
 
-### schema v4からv5への移行
-
-通常起動は旧DBを自動移行しません。先にWeb・CLI・workerの書込みを停止し、backupを確保してから実行します。正本DBへの適用は開発用DBの検証とは別作業です。
-
-```bash
-project-registry --db-path PATH migrate-db-v5
-project-registry --db-path PATH migrate-db-v5 --execute
-```
-
-最初のcommandはversionと対象pathの確認だけです。`--execute`がLexicon公開情報のtableを追加し、既存データを同じDB内でv5へ移行します。v3からは先に`migrate-db-v4 --execute`を実行します。旧binaryと新binaryを同じDBへ並行接続しないでください。
-
 ## 要レビュー一覧と紹介候補一覧
 
 | コマンド | 主な入力 | 出力 | 副作用 |

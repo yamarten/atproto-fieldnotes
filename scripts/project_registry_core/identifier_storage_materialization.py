@@ -49,8 +49,21 @@ def _row_id(prefix: str, *values: str) -> str:
 def _create_shadow_schema(conn: sqlite3.Connection) -> None:
     version = database.database_schema_version(conn)
     if version == 2:
-        database.migrate_v2_schema(conn)
-        database.migrate_v4_schema(conn)
+        from .storage import ensure_investigation_tables
+
+        decision_columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(project_decisions)")}
+        if "target_role" not in decision_columns:
+            conn.execute("ALTER TABLE project_decisions ADD COLUMN target_role TEXT NOT NULL DEFAULT ''")
+        ensure_investigation_tables(conn)
+        columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(investigation_runs)")}
+        for name, definition in (
+            ("application_status", "TEXT NOT NULL DEFAULT 'applied'"),
+            ("conflict_reason", "TEXT NOT NULL DEFAULT ''"),
+            ("resolved_at", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            if name not in columns:
+                conn.execute(f"ALTER TABLE investigation_runs ADD COLUMN {name} {definition}")
+        database.create_schema(conn)
     elif version == database.SCHEMA_VERSION:
         database.ensure_schema(conn)
     else:
