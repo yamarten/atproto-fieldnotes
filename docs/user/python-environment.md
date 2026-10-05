@@ -33,7 +33,7 @@ bin/project-registry --db-path data/dev/survey.db show --all
 bin/project-registry-web --host 127.0.0.1 --port 8765 --db-path data/dev/survey.db --token web-ui-dev
 ```
 
-検証用Webは実運用token・定期設定を使いません。画面・静的asset・設定・一覧APIと、外部通信のないreview dry-run等の実workerを確認して停止します。[変更の受入](../developer/workflows/change-acceptance.md)に従い、使用中8765を避けるために別portへ逃がしません。`status`でPython本体・標準ライブラリが候補世代の`python/`内、実行入口が候補世代の`venv/`内であることを確認します。各世代の`requirements.txt`は実際に導入したversion一覧で、再構築用に保持します。venv・Python本体は絶対pathを含むため別checkoutへコピー・移動せず、移行先で再準備します。
+検証用Webは実運用token・定期設定を使いません。画面・静的asset・設定・一覧APIと、外部通信のないreview dry-run等の実workerを確認して停止します。[確認環境の選び方](../developer/workflows/change-acceptance.md#確認環境と接続先)を参照し、使用中portの既存processを確認して接続先の取り違えを避けます。`status`でPython本体・標準ライブラリが候補世代の`python/`内、実行入口が候補世代の`venv/`内であることを確認します。各世代の`requirements.txt`は実際に導入したversion一覧で、再構築用に保持します。venv・Python本体は絶対pathを含むため別checkoutへコピー・移動せず、移行先で再準備します。
 
 ## 切替と復旧
 

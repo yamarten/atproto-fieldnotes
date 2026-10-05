@@ -16,7 +16,7 @@
 | [CLI](user/cli.md) / [Web UI](user/web-ui.md) | 入出力・副作用・操作・起動方法 |
 | [architecture](developer/architecture.md) | moduleの責務・依存方向・処理の接続 |
 | `developer/specs/` | 現行の機能・データ・判断の契約と制約 |
-| `developer/workflows/` | 開発・検証・評価の手順 |
+| `developer/workflows/` | 開発・検証・評価の方法、技術的な注意点、再現手順 |
 | `notes/` | 有効な保留と、未決事項の判断・再開に必要な材料 |
 
 各文書は担当する内容が変わった時に更新します。プロジェクト全体の目的・統治は`docs/`直下、開発・保守は`docs/developer/`へ置きます。
@@ -34,7 +34,7 @@
 | [App record export](developer/specs/app-record-export.md) | field投影、readiness、validation、manifest、出力 | registry内部保存形や公開目標を担当しない |
 | [Lexicon観測](developer/specs/lexicon-publication-catalog.md) | Lexicon公開情報の取得・保存・検証・型別処理 | 通常のproject候補への照合。共通判断規則はproject境界へ |
 
-開発・検証の手順は[変更の受入](developer/workflows/change-acceptance.md)と[LLM model評価](developer/workflows/llm-model-evaluation.md)を正本にします。通常調査でLLMに何を任せるかと、LLM構成を変更する際に何を比較するかを分けます。
+開発・検証の方法と技術的な注意点は[変更の受入](developer/workflows/change-acceptance.md)と[LLM model評価](developer/workflows/llm-model-evaluation.md)を正本にします。エージェントへの必須検証・承認境界の指示は[AGENTS](../AGENTS.md)に置きます。通常調査でLLMに何を任せるかと、LLM構成を変更する際に何を比較するかを分けます。
 
 ## 残す内容と配置
 
@@ -43,6 +43,10 @@
 削除を検討するときは、その段落がなくなると何を判断・実行できなくなるかを確かめます。必要な意味が他の箇所にあれば重複を削り、現在の利用・保守・再開に不要なら移動せず削除します。短くするために操作の途中を省いたり、基本説明までリンク先へ追い出したりしません。
 
 現行仕様はコード・通常経路と照合します。合意済みでも未実現の設計、比較用・暫定経路はその範囲を明示します。独立した機能は用途・本体との入出力・権限境界を示し、統合・撤去時に担当正本も整理します。
+
+共有文書には、このソフトウェアに由来する制約、操作の影響、検証方法、再現に必要な手順を残します。SQLiteの安全な複製方法やreloadで失われる状態は、環境が変わっても必要な情報です。手順か注意点かは命令形の有無で分けず、読者が技術上の判断・確認に必要とするかで判断します。
+
+個人環境でエージェントをどう動かすかはGit管理外のローカル指示で扱います。退避の実施条件・配置、作業の担当、taskを閉じる条件等を共有workflowへ混ぜません。短い方針はローカル指示、繰り返す一連の操作に固有の分岐や確認が必要ならスキルを候補にし、入口の指示から参照できるようにします。現在の保持物・用途・削除条件等の実状態は運用記録へ分け、方針を重複管理しません。共有文書はこれらの私用ファイルがなくても理解・利用できる内容にします。
 
 ## TODOとnotesの更新
 

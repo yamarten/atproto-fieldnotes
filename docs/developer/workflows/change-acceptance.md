@@ -1,33 +1,33 @@
-# 変更の受入条件と確認手順
+# 変更の検証方法と技術的な注意点
 
-この文書は、実装・文書変更を完了扱いにする前の確認条件、標準環境、実施手順を定めます。
+この文書は、変更の影響を確かめるための環境の選び方、検証方法、操作に伴う技術的な注意点を説明します。エージェントへの必須検証・実データ操作の承認境界は[AGENTS](../../../AGENTS.md)を参照してください。
 
-## 標準環境
+## 確認環境と接続先
 
 | 用途 | DB | 待受アドレス（bind）/ port | 扱い |
 | --- | --- | --- | --- |
 | 自動test | testごとのtemp DB | testが割り当てるloopback port | 毎回新規。外部API、正本DB、実LLMへ接続しない |
-| CLI/Webの手動確認 | `data/dev/survey.db` | Webは`127.0.0.1:8765` | 架空定義から生成。各worktreeで保持・変更・リセットしてよい |
+| CLI/Webの手動確認 | `data/dev/survey.db` | Webは`127.0.0.1:8765` | 架空定義から生成。各worktreeで再利用・編集・リセットできる |
 | 実データのread-only確認 | `data/survey.db` | Web serverは起動しない | CLI、SQL、書き捨てスクリプトから直接読む |
-| 書込みを伴う実データ依存の確認 | `.tmp/`内の正本DB複製 | 必要なら`127.0.0.1:8765` | 必要な場合だけ作り、task終了時に削除 |
-| 実運用Web | `data/survey.db` | `0.0.0.0:8888` | LaunchAgent管理。変更確認のために再起動・操作しない |
+| 書込みを伴う実データ依存の確認 | 正本DBの複製（例: `.tmp/change-acceptance/survey.db`） | 必要ならloopback | 実データ固有の状態を使った書込み検証。復旧用バックアップとは用途が異なる |
+| 実運用Web | `data/survey.db` | service設定で指定（以下の例ではport `8888`） | reload・書込みは稼働中jobや実データへ影響する |
 
-`8765`は手動起動と実ブラウザ確認用、`8888`は実運用専用です。確認用serverは`0.0.0.0`へbindしません。`8765`が使用中なら別portへ逃がさず、既存の確認用serverか残存processを確認します。
+以下の確認例は`127.0.0.1:8765`を使います。loopbackへのbindで他端末からの接続を避け、実運用とはDB・token・portを分けます。port使用中は既存processのDB・用途を確認し、別のserverを確認対象と取り違えないことが必要です。実運用の起動設定は[Web UIガイド](../../user/web-ui.md#macosでの自動起動)を参照してください。
 
 ## 変更種別ごとの確認
 
-すべてのcode変更では、対象testに加えてcommit前に`bin/project-registry-test`を実行します。文書だけの変更では、link、記載したcommand、現行実装との整合性を確認し、code testを省略した場合はその旨を報告します。
+`bin/project-registry-test`は全unit testの入口です。外部API・正本DB・実LLMに接続せず、testごとのtemp DBを使います。文書変更ではlink、記載したcommand、現行実装との整合性が確認対象です。
 
-追加条件は次のとおりです。
+変更が作用する経路ごとの確認方法は次のとおりです。
 
 - Web UI: Python側の関連API test、`node --check scripts/project_registry_web/static/app.js`、変更した主要導線の実ブラウザ確認
 - heuristic: unit testに加え、既知の実誤判定fixtureまたは人間によるsample review
 - DB保存契約・cleanup: temp DBでの機能確認、正本DBに対するread-only audit、必要な場合だけ複製DBで行う書込み確認
 - 外部情報源の取得契約: 通常testと分け、変更内容に応じて件数・page・request数を限定した疎通・動作確認（bounded smoke test）
 
-実施できなかった確認は成功扱いにせず、未検証の範囲と理由を報告します。
+unit test、実データのread-only確認、実外部取得を伴う確認は、それぞれ検証できる範囲が異なります。一つの成功から別の経路の成功を推定せず、未検証の範囲を区別します。
 
-heuristic変更では、特定のproject、URL、source、既知fixtureだけに作用する条件を通常ロジックへ追加せず、既存規則の修正・置換で解消できるかを確認します。一般化できない対応はoperator decision、設定、または期限付きの観測へ分離し、適用範囲と廃止条件を示します。LLM調査・評価・修正で得た誤判定、訂正、判断が分かれる例、有用な正例は、一時資料を片付ける前に[事例保存の手順](llm-model-evaluation.md#作業中に得た事例の保存)に沿って保存を検討します。
+heuristicの検証では、既知fixtureで誤りが解消することに加え、同種例・別の例への退行を確認します。特定のproject、URL、sourceだけに作用する特例では、一般の判定規則が改善したことを確かめられません。判定規則と利用者判断を分ける設計方針は[brief](../../brief.md#原則と責務境界)を参照してください。LLM調査・評価で得た誤判定、訂正、判断が分かれる例、有用な正例の再利用先は[事例保存の手順](llm-model-evaluation.md#作業中に得た事例の保存)で説明します。
 
 ## CLI/Webの共通ダミーDB
 
@@ -37,7 +37,7 @@ heuristic変更では、特定のproject、URL、source、既知fixtureだけに
 bin/project-registry dev-db
 ```
 
-Gitで管理するのは[架空定義](../../../scripts/fixtures/dev-registry.json)と生成入口です。SQLite本体はgit管理外の`data/dev/survey.db`で、task間で保持して構いません。保存は既存のproject codecと調査履歴APIを使い、schemaをfixture側へ複製しません。自動unit testは引き続きtestごとのtemp DBを使い、この可変DBに依存しません。
+Gitで管理するのは[架空定義](../../../scripts/fixtures/dev-registry.json)と生成入口です。SQLite本体はgit管理外の`data/dev/survey.db`で、繰り返す手動確認に再利用できます。保存は既存のproject codecと調査履歴APIを使い、schemaをfixture側へ複製しません。自動unit testは引き続きtestごとのtemp DBを使い、この可変DBに依存しません。
 
 | 登録プロジェクト（key末尾） | 代表的な確認導線 |
 | --- | --- |
@@ -74,7 +74,7 @@ bin/project-registry dev-db --reset
 
 リセットは同じDB file内の単一transactionで全tableのデータを再投入し、途中失敗はrollbackします。WALを解除してexclusive transactionを取り、SQLiteが使用中と判断する場合は待たずに拒否します。接続を閉じたまま待機中のserver／workerの検知は保証しないため、事前停止は必要です。リセット後の通常接続は既存仕様どおりWALを有効にします。DB外の`job-schedules.json`、checkpoint、browserのlocalStorageはリセットしません。
 
-`data/dev/`は正本の定期設定やcheckpointがある`data/`と分けます。開発用の定期実行は有効にせず、確認後はserverを停止します。
+`data/dev/`は正本の定期設定やcheckpointがある`data/`と分けます。定期実行を有効にすると手動操作以外でもjobが動くため、通常の画面確認例では定期実行を使いません。
 
 ## Web UIの実ブラウザ確認
 
@@ -90,13 +90,13 @@ bin/project-registry-web \
 
 `http://127.0.0.1:8765/?token=web-ui-dev`を開き、変更した画面への移動、表示、主要操作を確認します。書込み操作は開発用DBだけに対して行います。画面幅や自動遷移を変えた場合は、対象となるdesktop / mobile幅と遷移前後も確認します。
 
-unit testでしか再現できない内部状態はそのtestで確認し、実ブラウザでは利用者の操作経路を確認します。どこをunit test、どこを画面で確認したかを分けて報告します。確認後はserverを停止し、`data/dev/survey.db`は今後も使うなら残します。
+unit testでしか再現できない内部状態はそのtestで確認し、実ブラウザでは利用者の操作経路を確認します。実ブラウザの成功だけでは、内部の故障・取消し等を網羅した確認にはなりません。
 
 README等の説明用画面も、このダミーDBで撮影します。`docs/images/`に画像を保存し、掲載文で架空データと明示します。画面の導線・ラベルを変更した時は本文と画像を併せて見直し、本番token・実データ・設定画面の環境固有情報を含めません。
 
 ## Enrichの逐次・先行取得比較
 
-外部応答を固定して制御方式の意味と時間を比較する場合は、次をworktreeで実行します。正本DB・外部取得・共有LLMには接続せず、`.tmp/enrich-overlap/`内の一時DBを終了時に削除します。
+外部応答を固定して制御方式の意味と時間を比較する場合は、次をworktreeで実行します。正本DB・外部取得・共有LLMには接続しません。各sampleの一時DBは`.tmp/enrich-overlap/`内に作成され、sample終了時に自動削除されます。
 
 ```bash
 mkdir -p .tmp/enrich-overlap
@@ -110,27 +110,27 @@ bin/_project-registry-python benchmark scripts/benchmark_enrich_overlap.py \
 
 ## 正本DBの確認と複製
 
-現在のproject、件数、保存状態、dry-run結果を読むだけなら、正本DBを直接使います。read-onlyと分かっているCLI、SQLiteの`mode=ro` URI、read-only接続を使う書き捨てスクリプトのためにGB単位の複製を作りません。
+現在のproject、件数、保存状態を読む確認には、正本DBのread-only接続を使えます。以下の`mode=ro` URIはDB書込みを禁止します。CLIのdry-run等を使う場合も、名前だけでread-onlyと判断せず、そのcommandの接続・保存処理を確認する必要があります。
 
 ```bash
 sqlite3 'file:data/survey.db?mode=ro' 'SELECT COUNT(*) FROM projects;'
 ```
 
-通常のCLI/API、画面遷移、表示、入力には`data/dev/survey.db`を使います。保存済み調査履歴とbackground jobの実行状態は別物で、実workerの進捗・停止・再開の確認には別途制御したjobが必要です。実データ固有の誤判定・状態・件数・容量が必要な場合は、正本DBのread-only確認または必要な複製を使います。正本DBの複製は、次のいずれかが確認対象そのものである場合だけ作ります。
+通常のCLI/API、画面遷移、表示、入力は`data/dev/survey.db`で確認できます。保存済み調査履歴とbackground jobの実行状態は別物で、実workerの進捗・停止・再開の確認には別途制御したjobが必要です。実データ固有の誤判定・状態・件数・容量が必要な場合は、正本DBのread-only確認または複製を使い分けます。複製で確認する対象には次があります。
 
 - migration、cleanup、merge、enrichなど、確認中にDBを書き換える処理
 - 保存前後の差分や再実行時の冪等性
 - 正本相当の件数やDB容量を使った書込み時間、lock、transaction
 - read-onlyであることを確認できないcommandやスクリプト
 
-複製前に、なぜ開発用DBや正本へのread-only確認では足りないかを短く示します。同じtask内では1つの複製を使い回し、確認工程ごとのコピーや、単なる退避目的のコピーを作りません。正本DBは単純なfile copyをせず、SQLiteのonline backupを使います。
+稼働中のSQLiteはDB本体のほかにWALへcommit済みデータを保持するため、本体だけのfile copyでは同じ状態を再現できません。整合した複製にはSQLiteのonline backupを使います。以下は検証用DBを作る例で、正本の内容を書き換えるcommandではありません。
 
 ```bash
 mkdir -p .tmp/change-acceptance
 sqlite3 data/survey.db ".backup '.tmp/change-acceptance/survey.db'"
 ```
 
-複製をWebで使う場合も`127.0.0.1:8765`へ起動します。確認後は使用processを停止し、複製DBとWAL/SHMを削除します。再利用する小さな`data/dev/survey.db`と、容量の大きい正本DB複製を区別し、後者はtaskをまたいで残しません。
+複製をWebで使う場合は、[実ブラウザ確認](#web-uiの実ブラウザ確認)の`--db-path`を複製先へ変更します。SQLiteは接続中にWAL/SHMを使うため、複製の削除・差替えには使用processの停止が必要です。再利用する小さな開発用DBと、実データを含む容量の大きい複製では、容量・非公開情報の扱いも異なります。
 
 `.tmp/`内の古いSQLite複製は[cleanup-workspace-temp](../../user/cli.md#auditrepairstorage-maintenance)で確認・削除できます。全unit test起動時の容量警告が出た場合は、この清掃対象と保持中の資料を確認します。
 
@@ -144,11 +144,11 @@ WALは未反映のcommit済みデータを持つため、単なるcacheとして
 
 ## 実運用への反映
 
-### 復旧用バックアップとtaskの完了
+### 復旧時点と検証用複製
 
-既存の復旧手段と必要な復旧時点を確認し、それでは不足する場合だけ追加バックアップを作ります。作成時に用途・保持先・削除条件を決め、SQLiteはonline backupを使います。書込み検証用の複製は[正本DBの確認と複製](#正本dbの確認と複製)に従います。
+書込み検証用の複製は、操作を試すためのDBです。変更前へ戻すための復旧用バックアップとは用途が異なり、検証で変更した複製を変更前状態の退避として扱うことはできません。SQLiteの退避にも[online backup](#正本dbの確認と複製)を使い、必要な復旧時点の内容を保てるかが確認点になります。
 
-本番変更は、適用後の動作確認と必要な復旧まで含めて完了を判断します。不要になった退避物は片付け、保持を続ける理由・所在・削除条件はGit管理外の運用記録へ残します。正本変更や復旧操作には承認が必要です。
+既存の復旧手段で戻せる時点と、操作直前の状態が必要かは環境・変更内容に依存します。必要な復旧時点を満たせるかが、追加退避を判断する材料です。正本変更と復旧はどちらも実データへの書込みです。
 
 ### HTTPS入口の運用確認
 
@@ -156,16 +156,18 @@ Tailscale Serveの実運用設定変更を明示的に依頼された場合は�
 
 追加後は証明書検証を有効にしたHTTPSで、ページと静的asset、無認証・不正tokenのAPI拒否、正しいtokenでの設定・一覧APIを確認します。tokenをコマンド引数・URL・ログ・画像・検証成果へ含めず、実運用環境からprocess内へ読み込みます。実ブラウザではtoken入力、一覧・詳細・Settingsの表示と再読込をread-onlyで確認し、DB更新・job開始・server reloadは行いません。HTTP入口と同じserver instance・DBを返すことも照合します。設定変更のみならアプリの再起動は不要です。
 
-このMac自身からの成功と、別端末からの到達・tailnetのアクセス許可は区別します。別端末・Mac再起動後・証明書の自動更新を実測しなかった場合は、その範囲を未検証として報告し、継続判断に必要な確認だけTODOへ残します。
+serverを動かす端末自身からの成功は、別端末からの到達・tailnetのアクセス許可を保証しません。別端末・端末再起動後・証明書の自動更新は別の確認対象です。
 
 ### アプリ変更の反映
 
-Python本体の更新は通常reloadで切り替わりません。[Python環境の管理](../../user/python-environment.md)で独立世代を準備し、`PROJECT_REGISTRY_PYTHON_ENV`で候補を指定して全testと開発DBのCLI/Web/実workerを確認します。実運用適用は別承認を得て[停止・切替・新規起動](../../user/web-ui.md#python環境の切替)を行い、APIのPython実pathと世代を照合します。本家venv・LaunchAgent・本番DBをworktreeの検証対象にしません。
+Python本体の更新は通常reloadで切り替わりません。[Python環境の管理](../../user/python-environment.md)で独立世代を準備し、`PROJECT_REGISTRY_PYTHON_ENV`で候補を指定すると、実運用環境を切り替えずに全testと開発DBのCLI/Web/実workerを確認できます。実運用の世代切替には[停止・切替・新規起動](../../user/web-ui.md#python環境の切替)が必要で、APIのPython実pathと世代で切替結果を照合できます。
 
-変更の受入確認と実運用serverへの反映は別作業です。通常は利用者がWeb UIのSettingsにある`Reload server`を押します。明示的な反映依頼がない限り、変更を実装したagentは`project-registry-web-service restart`、reload API、正本DBへの変更を実行しません。
+変更の検証と実運用serverへの反映は別作業です。Web UIの設定画面のreload操作は稼働中serverを再起動します。service commandと設定画面での操作方法は[Web UIガイド](../../user/web-ui.md#ジョブ履歴と再起動)を参照してください。
 
-実運用serverのreloadは実行中workerを停止し、process内のjob一覧とeventを失います。明示的に反映する場合も、実行中jobがないことを確認し、影響を説明してから行います。
+実運用serverのreloadは実行中workerを停止し、process内のjob一覧とeventを失います。保存済み調査履歴は残りますが、停止前の実行状態をそのまま復元するものではありません。反映前のactive jobの確認と、反映後の稼働コード・API・画面の確認が、影響と適用結果を判断する材料になります。
 
 ## Maintenance適用の確認
 
-共有hostingのtenant境界を定める接尾辞（hosted suffix）の変更に伴う分割監査は`audit-source-config`、URL監査はread-onlyの`audit-url-fields`を使います。判定規則の変更を既存DBへ反映する場合は、まず`repair-db`で足りるかを確認し、補助pageやblock/defer等の採用抑止条件（guard）に該当するURLのservice採用、repo/NSIDの採用条件を満たさない`defines_schema`等を監査し、dry-runの全差分を確認します。`repair-db --execute`は特定補正だけを選ばず、同じsummaryに含まれる正規化・派生値更新も保存します。正本DBへの適用は承認を得て、[復旧用バックアップの方針](#復旧用バックアップとtaskの完了)に沿って追加退避の要否を判断します。他のenrich・CLI・Webからの書込みと競合しないことを確認して行い、保存・再監査の確認範囲を作業記録へ残します。
+共有hostingのtenant境界を定める接尾辞（hosted suffix）の変更に伴う分割監査は`audit-source-config`、URL監査はread-onlyの`audit-url-fields`を使います。判定規則の変更を既存DBへ反映する場合は、まず`repair-db`で足りるかを確認し、補助pageやblock/defer等の採用抑止条件（guard）に該当するURLのservice採用、repo/NSIDの採用条件を満たさない`defines_schema`等を監査し、dry-runの全差分を確認します。`repair-db --execute`は特定補正だけを選ばず、同じsummaryに含まれる正規化・派生値更新も保存します。
+
+適用中にenrich・CLI・Webから別の書込みが入ると、dry-run時点の差分と適用結果を同じ前提で比較できません。競合する書込みの有無、[必要な復旧時点](#復旧時点と検証用複製)、保存後の再監査が確認点です。確認済み範囲は、commandの成功だけでなく保存内容と再監査の結果で判断します。
