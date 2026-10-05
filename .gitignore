@@ -1,9 +1,7 @@
 __pycache__/
 *.pyc
-.DS_Store
 .venv/
 .venv
-.venv-legacy/
 .runtime/
 node_modules/
 .direnv/
@@ -12,6 +10,3 @@ node_modules/
 
 data/
 config/domain-overrides.json
-tmpdata.txt
-
-reports/*.md
