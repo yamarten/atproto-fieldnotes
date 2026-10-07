@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from . import database, identifiers
+from project_registry_core import database, identifiers
 
 
 SHADOW_SCHEMA_VERSION = 1

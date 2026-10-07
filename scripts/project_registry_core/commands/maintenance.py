@@ -8,15 +8,15 @@ import sys
 from pathlib import Path
 
 from .. import registry as core
-from .. import collector_relation_shadow
+from project_registry_core.maintenance import collector_relation_shadow
 from .. import database
 from .. import domain_policy
-from .. import identifier_storage_shadow
-from .. import identifier_storage_materialization
-from .. import merge_policy_shadow
-from .. import project_repository_materialization, project_repository_review_materialization, project_repository_shadow
-from .. import project_site_materialization, project_site_shadow
-from .. import trust_policy_shadow
+from project_registry_core.maintenance import identifier_storage_shadow
+from project_registry_core.maintenance import identifier_storage_materialization
+from project_registry_core.maintenance import merge_policy_shadow
+from project_registry_core.maintenance import project_repository_materialization, project_repository_review_materialization, project_repository_shadow
+from project_registry_core.maintenance import project_site_materialization, project_site_shadow
+from project_registry_core.maintenance import trust_policy_shadow
 from ..application import maintenance as services
 
 
@@ -69,7 +69,7 @@ def cmd_audit_trust_graph(args: argparse.Namespace) -> int:
 
 
 def cmd_migrate_repository_trust(args: argparse.Namespace) -> int:
-    from .. import repository_trust_migration
+    from project_registry_core.maintenance import repository_trust_migration
     plan = json.loads(Path(args.execute_plan).read_text(encoding="utf-8")) if args.execute_plan else None
     output = Path(args.output).expanduser()
     archive = Path(args.archive).expanduser() if args.archive else None

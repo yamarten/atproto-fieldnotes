@@ -9,7 +9,7 @@ from pathlib import Path
 import sqlite3
 from typing import Any
 
-from . import identifiers, repository_trust, repo_urls, storage, trust_graph
+from project_registry_core import identifiers, repository_trust, repo_urls, storage, trust_graph
 
 
 def _digest(value: Any) -> str:

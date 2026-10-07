@@ -13,12 +13,12 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Iterable
 
-from . import identifiers as identifier_core
-from . import domain_policy
-from . import project_record
-from . import registry
-from . import runtime_view
-from . import storage
+from project_registry_core import identifiers as identifier_core
+from project_registry_core import domain_policy
+from project_registry_core import project_record
+from project_registry_core import registry
+from project_registry_core import runtime_view
+from project_registry_core import storage
 
 
 REPORT_SCHEMA_VERSION = 1

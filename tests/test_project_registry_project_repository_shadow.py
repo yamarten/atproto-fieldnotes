@@ -6,13 +6,8 @@ import unittest
 from pathlib import Path
 
 from helpers import TempRegistryDbTestCase
-from project_registry_core import (
-    cli,
-    project_record,
-    project_repository_materialization,
-    project_repository_review_materialization,
-    project_repository_shadow,
-)
+from project_registry_core import cli, project_record
+from project_registry_core.maintenance import project_repository_materialization, project_repository_review_materialization, project_repository_shadow
 
 
 class ProjectRepositoryShadowUnitTest(unittest.TestCase):

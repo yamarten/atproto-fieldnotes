@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from project_registry_core import collector_relation_shadow, repository_link_context
+from project_registry_core import repository_link_context
+from project_registry_core.maintenance import collector_relation_shadow
 
 
 class RepositoryLinkContextTest(unittest.TestCase):

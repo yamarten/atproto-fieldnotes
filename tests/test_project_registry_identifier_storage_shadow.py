@@ -5,7 +5,8 @@ import sqlite3
 from argparse import Namespace
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase
-from project_registry_core import cli, identifier_storage_materialization, identifier_storage_shadow
+from project_registry_core import cli
+from project_registry_core.maintenance import identifier_storage_materialization, identifier_storage_shadow
 from project_registry_core.commands import maintenance
 
 

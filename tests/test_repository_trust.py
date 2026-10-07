@@ -7,7 +7,8 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import registry, project_record, TempRegistryDbTestCase
-from project_registry_core import repository_trust, repository_trust_migration, trust_graph
+from project_registry_core import repository_trust, trust_graph
+from project_registry_core.maintenance import repository_trust_migration
 
 
 SERVICE = "https://app.example.com"

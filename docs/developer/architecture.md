@@ -77,6 +77,7 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 | `enrichment_pipeline.py` | 1 projectのcollector・LLM・保存前更新の実行順序。Lexicon・record sample・resource pageの収集結果をEvidenceBundleへ梱包する処理も保持 |
 | `application/enrich_prefetch.py` | LLM区間中の次の一件の先行取得。DBとLLMはcaller threadに保ち、使用前にsnapshotを照合 |
 | `registry.py` | collector適用・finalizeの補助処理、queue policy |
+| `maintenance/` | 明示的な比較・移行commandの実装。6つのshadow比較、4つのmaterialization、repo信頼移行を保持し、通常の調査・query・保存から呼ばない |
 | `dev_database.py` | 架空定義から開発DBを生成・リセット。通常CLIのDB選択は`cli.py` |
 
 ### 観測・統合・評価
@@ -122,7 +123,7 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 - `source_sync.py`と`enrichment_pipeline.py`は保存を重複実装せず`project_record.py`を使う。`project_record.py`は`registry.py`へ依存しない。
 - application・commands・pipelineにはdomain facadeとして`registry.py`への依存が残る。Web主要query/mutationはapplicationを通るが、bootstrap・検索・補助read pathには直接依存もある。
 - `database.py`のopen/saveは`registry.py`や`project_record.py`をimportしない。
-- 比較・migration用コピーの生成は`database.materialized_database_copy`がread-onlyの取得元接続、新規コピー先の排他作成、backup、commit・失敗時の削除を担当する。各materializationは必要なschema世代と変換・検証規則を持ち、既存コピーや正本を上書きしない。
+- 比較・migration用コピーの生成は`database.materialized_database_copy`がread-onlyの取得元接続、新規コピー先の排他作成、backup、commit・失敗時の削除を担当する。`maintenance/`内の各materializationは必要なschema世代と変換・検証規則を持ち、既存コピーや正本を上書きしない。
 - 分離したmoduleを旧symbol互換のため`registry.py`からre-exportしない。collectorのtestはHTTP transport、LLMのtestはcommand/endpointをfakeへ差し替える。
 - 名前と取り込みの照合に使うproject・seedの識別token、および候補textの追加は`project_record.py`が担当する。`integration.py`は名前候補を`naming.py`へ直接渡し、名前処理をregistryのcallbackで受け取らない。
 

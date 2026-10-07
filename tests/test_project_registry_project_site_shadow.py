@@ -9,7 +9,8 @@ from pathlib import Path
 from helpers import TempRegistryDbTestCase
 
 from project_registry_core.application import merge as application_merge
-from project_registry_core import cli, database, project_record, project_site_materialization, project_site_shadow
+from project_registry_core import cli, database, project_record
+from project_registry_core.maintenance import project_site_materialization, project_site_shadow
 from project_registry_core.application import presentation
 from project_registry_core.commands import maintenance
 

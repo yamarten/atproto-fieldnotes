@@ -10,7 +10,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Iterable
 
-from . import domain_policy, storage, repository_trust
+from project_registry_core import domain_policy, storage, repository_trust
 
 
 REPORT_SCHEMA_VERSION = 1
@@ -742,7 +742,7 @@ def _load_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         ):
             projects[str(row["project_key"])]["adoptions"].append({key: row[key] for key in row.keys()})
     # URL comparison uses today's production inputs; saved verdicts remain historical.
-    from . import project_record, registry
+    from project_registry_core import project_record, registry
     for project in projects.values():
         url_claims = [claim for claim in project["claims"] if claim["node"][0] in {"service_url", "repo_url"}]
         if not url_claims:

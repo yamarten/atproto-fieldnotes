@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 from . import llm_model_evaluation as llm_evaluation
 from . import llm_transport
-from . import collector_relation_shadow
+from project_registry_core.maintenance import collector_relation_shadow
 
 
 POLICY_VERSION = "relation-assessment-v6"

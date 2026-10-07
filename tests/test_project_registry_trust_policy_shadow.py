@@ -4,7 +4,8 @@ import sqlite3
 import unittest
 
 from helpers import ROOT, TempRegistryDbTestCase
-from project_registry_core import cli, trust_policy_shadow
+from project_registry_core import cli
+from project_registry_core.maintenance import trust_policy_shadow
 
 
 FIXTURE = ROOT / "tests" / "fixtures" / "project_registry" / "trust-policy-cases-v1.json"

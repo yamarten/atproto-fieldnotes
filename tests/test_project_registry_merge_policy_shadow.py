@@ -3,7 +3,8 @@ from __future__ import annotations
 import unittest
 
 from helpers import ROOT, TempRegistryDbTestCase
-from project_registry_core import cli, merge_policy_shadow, project_record, registry
+from project_registry_core import cli, project_record, registry
+from project_registry_core.maintenance import merge_policy_shadow
 
 
 FIXTURE = ROOT / "tests" / "fixtures" / "project_registry" / "merge-policy-cases-v1.json"

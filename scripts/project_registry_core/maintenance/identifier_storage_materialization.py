@@ -7,7 +7,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from . import database, identifier_storage_shadow
+from project_registry_core import database
+from project_registry_core.maintenance import identifier_storage_shadow
 
 
 SHADOW_SCHEMA_VERSION = 1
@@ -49,7 +50,7 @@ def _row_id(prefix: str, *values: str) -> str:
 def _create_shadow_schema(conn: sqlite3.Connection) -> None:
     version = database.database_schema_version(conn)
     if version == 2:
-        from .storage import ensure_investigation_tables
+        from project_registry_core.storage import ensure_investigation_tables
 
         decision_columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(project_decisions)")}
         if "target_role" not in decision_columns:

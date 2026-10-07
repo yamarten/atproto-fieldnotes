@@ -2,10 +2,7 @@ import sqlite3
 from unittest import mock
 
 from helpers import ROOT, TempRegistryDbTestCase
-from project_registry_core import (
-    collector_relation_shadow, identifier_storage_shadow, merge_policy_shadow,
-    project_repository_shadow, project_site_shadow, trust_policy_shadow,
-)
+from project_registry_core.maintenance import collector_relation_shadow, identifier_storage_shadow, merge_policy_shadow, project_repository_shadow, project_site_shadow, trust_policy_shadow
 
 
 class ComparisonStopped(RuntimeError):

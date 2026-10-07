@@ -5,7 +5,8 @@ import sqlite3
 import unittest
 
 from helpers import ROOT, TempRegistryDbTestCase
-from project_registry_core import cli, collector_relation_shadow
+from project_registry_core import cli
+from project_registry_core.maintenance import collector_relation_shadow
 
 
 FIXTURE = (
