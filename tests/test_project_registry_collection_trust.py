@@ -6,7 +6,9 @@ from contextlib import closing
 from unittest.mock import patch
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
-from project_registry_core import collection_trust, collector_adapters, identifiers, project_record, replay, runtime_view, storage
+
+from project_registry_core import enrichment_pipeline
+from project_registry_core import collection_trust, identifiers, project_record, replay, runtime_view, storage
 from project_registry_core.evidence import EvidenceBundle
 
 
@@ -208,7 +210,7 @@ class CollectionPublicationTrustTest(TempRegistryDbTestCase):
             before = copy.deepcopy(p)
             bundle = EvidenceBundle(project_key=p["project_key"], collected_at=WHEN)
             for nsid in (B, A):
-                bundle.extend(collector_adapters.collect_lexicon_result(p["project_key"], nsid, publication(nsid), WHEN))
+                bundle.extend(enrichment_pipeline.collect_lexicon_result(p["project_key"], nsid, publication(nsid), WHEN))
             registry.apply_collector_snapshot_evidence(p, bundle)
             project_record.save_project(conn, p)
             loaded = project_record.fetch_project(conn, p["project_key"])

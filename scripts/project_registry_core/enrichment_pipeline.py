@@ -13,9 +13,9 @@ from collections.abc import Callable
 from typing import Any
 
 from project_registry_core import CollectorResult, EvidenceBundle
+from .evidence import EvidenceRecord
 from project_registry_core import storage as investigation_storage
 from project_registry_core import relations as relation_core
-from project_registry_core import collector_adapters as collector_adapter_core
 from project_registry_core import runtime_view
 from project_registry_core import llm_transport
 from project_registry_core import triage_reuse, enrich_observations
@@ -147,7 +147,7 @@ def collect_initial(project: dict[str, Any]) -> InitialCollection:
             }
             for nsid in initial_nsids:
                 try:
-                    lexicon_evidence = collector_adapter_core.collect_lexicon_result(
+                    lexicon_evidence = collect_lexicon_result(
                         str(project.get("project_key") or ""), nsid, lexicon_futures[nsid].result(), iso_now()
                     )
                     apply_collector_snapshot_evidence(project, lexicon_evidence)
@@ -161,7 +161,7 @@ def collect_initial(project: dict[str, Any]) -> InitialCollection:
     if should_refresh_recent_record_samples(project):
         try:
             collections = lexicon_types.record_sample_nsids(project)[:6]
-            sample_evidence = collector_adapter_core.collect_record_samples(
+            sample_evidence = collect_record_samples(
                 str(project.get("project_key") or ""), collections,
                 operation_timer.call("fetch_recent_record_samples", fetch_recent_record_samples, collections, timeout=REQUEST_TIMEOUT_LEXICON_HTTP), iso_now(),
             )
@@ -219,7 +219,7 @@ def collect_initial(project: dict[str, Any]) -> InitialCollection:
     if should_refresh_lexicon_surface(project, discovered_nsids):
         for nsid in discovered_nsids:
             try:
-                lexicon_evidence = collector_adapter_core.collect_lexicon_result(
+                lexicon_evidence = collect_lexicon_result(
                     str(project.get("project_key") or ""), nsid,
                     fetch_lexicon_record(nsid, dns_timeout=REQUEST_TIMEOUT_LEXICON_DNS, http_timeout=REQUEST_TIMEOUT_LEXICON_HTTP),
                     iso_now(),
@@ -535,7 +535,7 @@ def enrich_project(
 
     if deep_investigation:
         try:
-            resource_evidence = collector_adapter_core.collect_resource_page_patch(
+            resource_evidence = collect_resource_page_patch(
                 project, lambda value: operation_timer.call("enrich_from_resource_pages", enrich_from_resource_pages, value), iso_now()
             )
             apply_collector_snapshot_evidence(project, resource_evidence)
@@ -724,3 +724,58 @@ def enrich_project(
     )
     project[runtime_view.RUNTIME_INVESTIGATION_RUN_ID] = run_id
     return project
+
+
+RESOURCE_PATCH_FIELDS = (
+    "resource_url_records", "service_url_candidates",
+    "candidate_project_repository_urls", "source_repo_records", "developer_accounts",
+    "candidate_developer_accounts", "bluesky_handles", "evidence_urls",
+    "investigation_log", "service_status", "service_status_confidence", "service_status_evidence",
+)
+
+
+def collect_lexicon_result(project_key: str, nsid: str, result: dict[str, Any], observed_at: str) -> EvidenceBundle:
+    bundle = EvidenceBundle(project_key=project_key, collected_at=observed_at)
+    bundle.add_record(EvidenceRecord(
+        kind="lexicon_resolution_snapshot", source=f"lexicon_resolution:{nsid}",
+        classification="confirmed", observed_at=observed_at,
+        value={"nsid": nsid, "result": {**result, "resolved_at": observed_at}},
+    ))
+    bundle.add_collector_result(CollectorResult(
+        source="lexicon_resolution", operation="resolve", status="success", observed_at=observed_at,
+        request_count=3, result_count=1,
+    ))
+    return bundle
+
+
+def collect_record_samples(project_key: str, collections: list[str], samples: list[dict[str, Any]], observed_at: str) -> EvidenceBundle:
+    bundle = EvidenceBundle(project_key=project_key, collected_at=observed_at)
+    bundle.add_record(EvidenceRecord(
+        kind="record_samples_snapshot", source="ufos_record_samples", classification="derived",
+        observed_at=observed_at, value={"collections": collections, "samples": samples},
+    ))
+    bundle.add_collector_result(CollectorResult(
+        source="ufos_record_samples", operation="sample", status="success", observed_at=observed_at,
+        request_count=1, result_count=len(samples),
+    ))
+    return bundle
+
+
+def collect_resource_page_patch(
+    project: dict[str, Any],
+    mutate_copy: Callable[[dict[str, Any]], None],
+    observed_at: str,
+) -> EvidenceBundle:
+    working = copy.deepcopy(project)
+    mutate_copy(working)
+    patch = {field: copy.deepcopy(working.get(field)) for field in RESOURCE_PATCH_FIELDS if working.get(field) != project.get(field)}
+    bundle = EvidenceBundle(project_key=str(project.get("project_key") or ""), collected_at=observed_at)
+    bundle.add_record(EvidenceRecord(
+        kind="project_patch", source="resource_page", classification="derived",
+        observed_at=observed_at, value={"fields": patch}, context={"allowed_fields": list(RESOURCE_PATCH_FIELDS)},
+    ))
+    bundle.add_collector_result(CollectorResult(
+        source="resource_page", operation="deep_probe", status="success", observed_at=observed_at,
+        request_count=1, result_count=len(patch),
+    ))
+    return bundle

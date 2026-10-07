@@ -6,6 +6,8 @@ import time
 from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase
+
+from project_registry_core import enrichment_pipeline
 from project_registry_core import database, registry, project_record, publication_registry, lexicon_types
 from project_registry_core.application import publications
 from project_registry_core import lexicon_publication_catalog as catalog
@@ -97,12 +99,12 @@ class PublicationRegistryTest(_PublicationRegistryFixtures, TempRegistryDbTestCa
         self.assertEqual((result['verified'], result['remaining']), (2, 0))
 
     def test_investigation_save_shares_verification_atomically_and_preserves_time(self):
-        from project_registry_core import storage, collector_adapters
+        from project_registry_core import storage
         item = event(1, 'did:plc:a', 'com.example.post')
         self.run_sync([item])
         project = project_record.list_projects(self.conn)[0]
         observed_at = catalog.iso_now()
-        evidence = collector_adapters.collect_lexicon_result(project['project_key'], item['rkey'], self.payload(item), observed_at)
+        evidence = enrichment_pipeline.collect_lexicon_result(project['project_key'], item['rkey'], self.payload(item), observed_at)
         storage.stage_investigation_run(project, project_key=project['project_key'], started_at=observed_at,
             completed_at=observed_at, input_project=copy.deepcopy(project), output_project=project, bundle=evidence)
         with mock.patch.object(project_record, '_save_project', side_effect=RuntimeError('fail project save')):

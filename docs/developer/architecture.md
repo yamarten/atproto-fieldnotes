@@ -74,7 +74,7 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 | `publication_verification.py` | syncとenrichの検証結果保存。公開本文・観測時刻の照合と調査保存への接続 |
 | `introduced_review.py` | 紹介投稿のURL別要確認・手動解消。判断はqueryの`sync_state`、紹介URLはproject本体へ保存 |
 | `application/enrichment.py` | enrichの対象選択・transaction・保存・checkpoint |
-| `enrichment_pipeline.py` | 1 projectのcollector・LLM・保存前更新の実行順序 |
+| `enrichment_pipeline.py` | 1 projectのcollector・LLM・保存前更新の実行順序。Lexicon・record sample・resource pageの収集結果をEvidenceBundleへ梱包する処理も保持 |
 | `application/enrich_prefetch.py` | LLM区間中の次の一件の先行取得。DBとLLMはcaller threadに保ち、使用前にsnapshotを照合 |
 | `registry.py` | collector適用・finalizeの補助処理、merge/queue policy |
 | `dev_database.py` | 架空定義から開発DBを生成・リセット。通常CLIのDB選択は`cli.py` |
