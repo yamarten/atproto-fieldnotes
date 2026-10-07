@@ -958,6 +958,21 @@ class ProjectRegistrySameSiteTest(unittest.TestCase):
 
 
 class ProjectRegistryServiceRedirectTest(unittest.TestCase):
+    def probe_result(self, **overrides):
+        return {
+            'redirected': True,
+            'redirect_https_to_http': False,
+            'status_code': 200,
+            'title': 'Example',
+            'description': '',
+            'urls': [],
+            'links': [],
+            'service_status': 'live',
+            'service_status_confidence': 'medium',
+            'fetch_error': '',
+            **overrides,
+        }
+
     def test_redirect_metadata_marks_same_host_http_to_https(self) -> None:
         metadata = registry.service_probe_redirect_metadata("http://example.com", "https://example.com")
 
@@ -990,26 +1005,16 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
         project = project_record.default_project_record("proj:redirecttest", "service_url", "http://example.com")
         registry.add_confirmed_identifier_decision(project, "service_url", "http://example.com", source="test")
         registry.add_manual_seed(project, "service_url", "http://example.com", source="test")
-        result = {
-            "requested_url": "http://example.com",
-            "final_url": "https://example.com",
-            "redirected": True,
-            "redirect_same_host": True,
-            "redirect_same_site_family": True,
-            "redirect_http_to_https": True,
-            "redirect_https_to_http": False,
-            "redirect_cross_host": False,
-            "status_code": 200,
-            "title": "Example",
-            "description": "",
-            "urls": [],
-            "links": [],
-            "html": "Example app",
-            "service_status": "live",
-            "service_status_confidence": "medium",
-            "service_status_evidence": ["http_200", "redirect_detected", "redirect_http_to_https"],
-            "fetch_error": "",
-        }
+        result = self.probe_result(
+            requested_url='http://example.com',
+            final_url='https://example.com',
+            redirect_same_host=True,
+            redirect_same_site_family=True,
+            redirect_http_to_https=True,
+            redirect_cross_host=False,
+            html='Example app',
+            service_status_evidence=['http_200', 'redirect_detected', 'redirect_http_to_https'],
+        )
 
         registry.apply_service_probe_result(project, "http://example.com", result)
 
@@ -1023,26 +1028,16 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
         project = project_record.default_project_record("proj:redirectcross", "service_url", "https://example.com")
         registry.add_confirmed_identifier_decision(project, "service_url", "https://example.com", source="test")
         registry.add_manual_seed(project, "service_url", "https://example.com", source="test")
-        result = {
-            "requested_url": "https://example.com",
-            "final_url": "https://other.example.net",
-            "redirected": True,
-            "redirect_same_host": False,
-            "redirect_same_site_family": False,
-            "redirect_http_to_https": False,
-            "redirect_https_to_http": False,
-            "redirect_cross_host": True,
-            "status_code": 200,
-            "title": "Example",
-            "description": "",
-            "urls": [],
-            "links": [],
-            "html": "Example app",
-            "service_status": "live",
-            "service_status_confidence": "medium",
-            "service_status_evidence": ["http_200", "redirect_detected", "redirect_cross_host"],
-            "fetch_error": "",
-        }
+        result = self.probe_result(
+            requested_url='https://example.com',
+            final_url='https://other.example.net',
+            redirect_same_host=False,
+            redirect_same_site_family=False,
+            redirect_http_to_https=False,
+            redirect_cross_host=True,
+            html='Example app',
+            service_status_evidence=['http_200', 'redirect_detected', 'redirect_cross_host'],
+        )
 
         registry.apply_service_probe_result(project, "https://example.com", result)
 
@@ -1055,26 +1050,16 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
         registry.add_confirmed_identifier_decision(project, "service_url", "https://example.com", source="test")
         project["input_nsids"] = ["app.example.post"]
         registry.add_manual_seed(project, "service_url", "https://example.com", source="test")
-        result = {
-            "requested_url": "https://example.com",
-            "final_url": "https://other.example.net",
-            "redirected": True,
-            "redirect_same_host": False,
-            "redirect_same_site_family": False,
-            "redirect_http_to_https": False,
-            "redirect_https_to_http": False,
-            "redirect_cross_host": True,
-            "status_code": 200,
-            "title": "Example",
-            "description": "",
-            "urls": [],
-            "links": [],
-            "html": "Example app for app.example.post",
-            "service_status": "live",
-            "service_status_confidence": "medium",
-            "service_status_evidence": ["http_200", "redirect_detected", "redirect_cross_host"],
-            "fetch_error": "",
-        }
+        result = self.probe_result(
+            requested_url='https://example.com',
+            final_url='https://other.example.net',
+            redirect_same_host=False,
+            redirect_same_site_family=False,
+            redirect_http_to_https=False,
+            redirect_cross_host=True,
+            html='Example app for app.example.post',
+            service_status_evidence=['http_200', 'redirect_detected', 'redirect_cross_host'],
+        )
 
         registry.apply_service_probe_result(project, "https://example.com", result)
 
@@ -1087,26 +1072,16 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
         registry.add_confirmed_identifier_decision(project, "service_url", "https://example.com", source="test")
         project["input_nsids"] = ["app.example.post"]
         registry.add_manual_seed(project, "service_url", "https://example.com", source="test")
-        result = {
-            "requested_url": "https://example.com",
-            "final_url": "https://www.example.com",
-            "redirected": True,
-            "redirect_same_host": False,
-            "redirect_same_site_family": True,
-            "redirect_http_to_https": False,
-            "redirect_https_to_http": False,
-            "redirect_cross_host": True,
-            "status_code": 200,
-            "title": "Example",
-            "description": "",
-            "urls": [],
-            "links": [],
-            "html": "Example app for app.example.post",
-            "service_status": "live",
-            "service_status_confidence": "medium",
-            "service_status_evidence": ["http_200", "redirect_detected", "redirect_cross_host"],
-            "fetch_error": "",
-        }
+        result = self.probe_result(
+            requested_url='https://example.com',
+            final_url='https://www.example.com',
+            redirect_same_host=False,
+            redirect_same_site_family=True,
+            redirect_http_to_https=False,
+            redirect_cross_host=True,
+            html='Example app for app.example.post',
+            service_status_evidence=['http_200', 'redirect_detected', 'redirect_cross_host'],
+        )
 
         registry.apply_service_probe_result(project, "https://example.com", result)
 
@@ -1119,26 +1094,16 @@ class ProjectRegistryServiceRedirectTest(unittest.TestCase):
         project["input_nsids"] = ["app.example.post"]
         project["website_url"] = "https://current.example.com"
         registry.add_manual_seed(project, "service_url", "https://example.com", source="test")
-        result = {
-            "requested_url": "https://example.com",
-            "final_url": "https://www.example.com",
-            "redirected": True,
-            "redirect_same_host": False,
-            "redirect_same_site_family": True,
-            "redirect_http_to_https": False,
-            "redirect_https_to_http": False,
-            "redirect_cross_host": True,
-            "status_code": 200,
-            "title": "Example",
-            "description": "",
-            "urls": [],
-            "links": [],
-            "html": "Example app for app.example.post",
-            "service_status": "live",
-            "service_status_confidence": "medium",
-            "service_status_evidence": ["http_200", "redirect_detected", "redirect_cross_host"],
-            "fetch_error": "",
-        }
+        result = self.probe_result(
+            requested_url='https://example.com',
+            final_url='https://www.example.com',
+            redirect_same_host=False,
+            redirect_same_site_family=True,
+            redirect_http_to_https=False,
+            redirect_cross_host=True,
+            html='Example app for app.example.post',
+            service_status_evidence=['http_200', 'redirect_detected', 'redirect_cross_host'],
+        )
 
         registry.apply_service_probe_result(project, "https://example.com", result)
 

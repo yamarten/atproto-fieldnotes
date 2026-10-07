@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
+from enrichment_io import EnrichmentIO
 from project_registry_core import enrichment_pipeline, source_sync
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
 from project_registry_core import evaluation as evaluation_core
@@ -966,28 +967,36 @@ class ProjectRegistryResearchPipelineTest(ProjectRecordTestCase):
         self.assertIn("https://app.example.com", project["service_url_candidates"])
 
     def test_repository_collection_failure_preserves_previous_success(self) -> None:
-        project = self.make_project(
-            "proj:repo-collection-failure", "repo_url", "https://github.com/example/app"
-        )
-        project["repository_analysis_results"] = [{
-            "version": repository_analysis.ANALYSIS_VERSION,
-            "policy_version": repository_analysis.POLICY_VERSION,
-            "repo_url": "https://github.com/example/app",
-            "provider": "github",
-            "source_revision": "old-revision",
-            "summary": "previous success",
-        }]
+        for provider, host in (("github", "github.com"), ("tangled", "tangled.org"), ("codeberg", "codeberg.org")):
+            with self.subTest(provider=provider):
+                repo_url = f"https://{host}/example/app"
+                project = self.make_project("proj:repo-collection-failure", "repo_url", repo_url)
+                registry.add_manual_seed(project, "repo_url", repo_url, source="test")
+                project["repository_analysis_results"] = [{
+                    "version": repository_analysis.ANALYSIS_VERSION,
+                    "policy_version": repository_analysis.POLICY_VERSION,
+                    "repo_url": repo_url,
+                    "provider": provider,
+                    "source_revision": "old-revision",
+                    "summary": "previous success",
+                }]
+                with (
+                    EnrichmentIO(),
+                    mock.patch.object(enrichment_pipeline, f"collect_{provider}_repo_evidence", side_effect=RuntimeError("provider unavailable")) as collect,
+                ):
+                    initial = enrichment_pipeline.collect_initial(project)
 
-        enrichment_pipeline.record_repository_collection_failure(
-            project, "https://github.com/example/app"
-        )
-
-        result = project["repository_analysis_results"][0]
-        self.assertEqual(result["summary"], "previous success")
-        self.assertEqual(result["source_revision"], "old-revision")
-        self.assertEqual(result["last_attempt"]["status"], "failed")
-        self.assertEqual(result["last_attempt"]["error_category"], "provider_fetch_failed")
-        self.assertTrue(repository_analysis.result_is_stale(result))
+                collect.assert_called_once()
+                self.assertEqual(len(initial.evidence.failures), 1)
+                self.assertEqual(initial.evidence.failures[0].source, f"{provider}_repo")
+                self.assertEqual(initial.evidence.failures[0].operation, "inspect")
+                self.assertEqual(initial.collected_repo_evidence, {})
+                result = initial.project["repository_analysis_results"][0]
+                self.assertEqual(result["summary"], "previous success")
+                self.assertEqual(result["source_revision"], "old-revision")
+                self.assertEqual(result["last_attempt"]["status"], "failed")
+                self.assertEqual(result["last_attempt"]["error_category"], "provider_fetch_failed")
+                self.assertTrue(repository_analysis.result_is_stale(result))
 
     def test_evidence_v2_rejects_v1_and_keeps_source_status(self) -> None:
         with self.assertRaises(ValueError):
@@ -1851,20 +1860,10 @@ class ProjectRegistryResearchStorageTest(TempRegistryDbTestCase):
         conn = registry.open_db()
         try:
             project = self.make_project("proj:researchenrich")
-            with (
-                mock.patch.object(enrichment_pipeline, "should_refresh_lexicon_surface", return_value=False),
-                mock.patch.object(enrichment_pipeline, "should_refresh_recent_record_samples", return_value=False),
-                mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
-                mock.patch.object(
-                    enrichment_pipeline,
-                    "collect_investigation_evidence",
-                    return_value=EvidenceBundle(
-                        project_key=project["project_key"],
-                        collected_at="2026-06-13T00:00:00+00:00",
-                    ),
-                ),
-                mock.patch.object(llm_transport_core, "run_local_llm", side_effect=RuntimeError("LLM unavailable")),
-            ):
+            io = EnrichmentIO(dns=lambda *args, **kwargs: [])
+            io.json("https://ufos-api.microcosm.blue/records?collection=app.example.post", {"records": []})
+            io.page("https://example.app", html="")
+            with io:
                 enriched = enrichment_pipeline.enrich_project(conn, project)
             project_record.save_project(conn, enriched, enriched=True)
             conn.commit()
@@ -1898,97 +1897,56 @@ class ProjectRegistryResearchStorageTest(TempRegistryDbTestCase):
                 "project_save_ms",
             },
         )
-        self.assertEqual(run["metrics"]["llm_requests"][0]["purpose"], "triage")
-        self.assertEqual(run["metrics"]["llm_requests"][0]["status"], "failed")
-        self.assertGreater(run["metrics"]["llm_requests"][0]["prompt_bytes"], 0)
+        triage_requests = [item for item in run["metrics"]["llm_requests"] if item["purpose"] == "triage"]
+        self.assertEqual(len(triage_requests), 1)
+        self.assertEqual(triage_requests[0]["status"], "failed")
+        self.assertGreater(triage_requests[0]["prompt_bytes"], 0)
 
     def test_enrich_collects_known_github_repo_once_per_run(self) -> None:
         conn = registry.open_db()
         project = self.make_project("proj:single-repo-collection", "repo_url", "https://github.com/example/app")
         project["project_repository_urls"] = ["https://github.com/example/app"]
-        repo_bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-10T00:00:00+00:00")
-        repo_bundle.add_collector_result(CollectorResult(
-            source="github_repo", operation="inspect", status="success",
-            observed_at=repo_bundle.collected_at, request_count=1, result_count=1,
-        ))
-        empty_bundle = EvidenceBundle(project_key=project["project_key"], collected_at=repo_bundle.collected_at)
+        io = EnrichmentIO()
+        io.github_repo("https://github.com/example/app")
         try:
-            with (
-                mock.patch.object(enrichment_pipeline, "should_refresh_lexicon_surface", return_value=False),
-                mock.patch.object(enrichment_pipeline, "should_refresh_recent_record_samples", return_value=False),
-                mock.patch.object(enrichment_pipeline, "collect_github_repo_evidence", return_value=repo_bundle) as collect_repo,
-                mock.patch.object(enrichment_pipeline, "apply_github_repo_evidence"),
-                mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
-                mock.patch.object(enrichment_pipeline, "collect_investigation_evidence", return_value=empty_bundle),
-                mock.patch.object(llm_transport_core, "run_local_llm", side_effect=RuntimeError("LLM unavailable")),
-            ):
-                enrichment_pipeline.enrich_project(conn, project)
+            with io:
+                enriched = enrichment_pipeline.enrich_project(conn, project)
+                project_record.save_project(conn, enriched, enriched=True)
+            run = storage_core.latest_investigation_run(conn, project["project_key"])
         finally:
             conn.close()
 
-        self.assertEqual(collect_repo.call_count, 1)
-        self.assertEqual(collect_repo.call_args.args[1], "https://github.com/example/app")
+        self.assertEqual([call.args[0] for call in io.http.call_args_list].count("https://api.github.com/repos/example/app"), 1)
+        # The provider cache can hide duplicate collection from HTTP counts.
+        self.assertIsNotNone(run)
+        collectors = [row for row in run["bundle"].collector_results if row.source == "github_repo" and row.operation == "inspect"]
+        self.assertEqual(len(collectors), 1)
 
     def test_repository_analysis_adds_declared_docs_site_as_candidate_resource(self) -> None:
         conn = registry.open_db()
         project = self.make_project("proj:repo-docs", "repo_url", "https://github.com/example/app")
         project["project_repository_urls"] = ["https://github.com/example/app"]
-        repo_bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-26T00:00:00+00:00")
-        repo_bundle.add_record(EvidenceRecord(
-            kind="github_repo_snapshot",
-            source="github_repo:https://github.com/example/app",
-            classification="confirmed",
-            observed_at=repo_bundle.collected_at,
-            value={
-                "provider": "github",
-                "repo": {"name": "app", "description": "Example application"},
-                "revision": "abc123",
-                "readme_excerpt": "Documentation for this project is hosted at https://docs.example.com.",
-                "configuration_hints": [],
-                "tree_paths": ["mkdocs.yml", "docs/index.md", "docs/setup.md"],
-            },
-        ))
-        repo_bundle.add_collector_result(CollectorResult(
-            source="github_repo", operation="inspect", status="success",
-            observed_at=repo_bundle.collected_at, request_count=1, result_count=1,
-        ))
-        empty_bundle = EvidenceBundle(project_key=project["project_key"], collected_at=repo_bundle.collected_at)
-        analysis_material = repository_analysis.build_material(
-            "https://github.com/example/app", repo_bundle
-        )
-        docs_candidate_id = next(
-            candidate_id
-            for candidate_id, candidate in repository_analysis.observation_candidate_catalog(
-                analysis_material
-            ).items()
-            if candidate.get("predicate") == "declares_documentation_site_url"
-            and candidate.get("value") == "https://docs.example.com"
-        )
-        docs_evidence_id = repository_analysis.observation_candidate_catalog(
-            analysis_material
-        )[docs_candidate_id]["evidence_ids"][0]
-
         def llm_result(prompt: str, **_kwargs: object) -> tuple[dict, dict]:
             if "Analyze a confirmed project repository" in prompt:
+                context = json.loads(prompt.rsplit("\n\n", 1)[1])
+                candidate = next(item for item in context["observation_candidates"]
+                                 if item["predicate"] == "declares_documentation_site_url"
+                                 and item["value"] == "https://docs.example.com")
                 return ({
                     "summary": "ドキュメントサイトを持つAT Protocolアプリケーション。",
-                    "summary_evidence": [docs_evidence_id],
-                    "observations": [{"candidate_id": docs_candidate_id, "applicability": "current_project"}],
+                    "summary_evidence": candidate["evidence_ids"],
+                    "observations": [{"candidate_id": candidate["candidate_id"], "applicability": "current_project"}],
                     "capabilities": [],
                     "collections": [],
                 }, {"model": "fixture", "transport": "fixture"})
             return ({}, {"model": "fixture", "transport": "fixture"})
 
+        io = EnrichmentIO(llm=llm_result)
+        io.github_repo("https://github.com/example/app", description="Example application",
+                       readme="Documentation for this project is hosted at https://docs.example.com.")
+        io.page("https://docs.example.com", html="Documentation")
         try:
-            with (
-                mock.patch.object(enrichment_pipeline, "should_refresh_lexicon_surface", return_value=False),
-                mock.patch.object(enrichment_pipeline, "should_refresh_recent_record_samples", return_value=False),
-                mock.patch.object(enrichment_pipeline, "collect_github_repo_evidence", return_value=repo_bundle),
-                mock.patch.object(enrichment_pipeline, "apply_github_repo_evidence"),
-                mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
-                mock.patch.object(enrichment_pipeline, "collect_investigation_evidence", return_value=empty_bundle),
-                mock.patch.object(llm_transport_core, "run_local_llm", side_effect=llm_result) as run_llm,
-            ):
+            with io:
                 enriched = enrichment_pipeline.enrich_project(
                     conn, project, llm_max_output_tokens=2048
                 )
@@ -2010,10 +1968,10 @@ class ProjectRegistryResearchStorageTest(TempRegistryDbTestCase):
             enriched["repository_analysis_results"][0]["prompt_version"],
             repository_analysis.POLICY_VERSION,
         )
-        self.assertGreaterEqual(run_llm.call_count, 1)
+        self.assertGreaterEqual(io.llm.call_count, 1)
         self.assertTrue(all(
             call.kwargs["llm_max_output_tokens"] == 2048
-            for call in run_llm.call_args_list
+            for call in io.llm.call_args_list
         ))
 
     def test_enrich_candidate_repo_collects_trust_before_full_content(self) -> None:

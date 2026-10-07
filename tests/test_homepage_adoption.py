@@ -1,7 +1,9 @@
 import copy
+import json
 from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
+from enrichment_io import EnrichmentIO
 from project_registry_core import project_record, relations, enrichment_pipeline
 from project_registry_core.evidence import EvidenceBundle
 
@@ -177,20 +179,12 @@ class HomepageAdoptionTest(_HomepageAdoptionFixtures, TempRegistryDbTestCase):
     def test_normal_enrich_connects_observation_to_adoption(self):
         project = self.project()
         project["website_url"] = ""
-        empty = EvidenceBundle(project_key=project["project_key"], collected_at="2026-09-08T00:00:00Z")
+        io = EnrichmentIO(browser=lambda url: self.browser_page(url))
+        io.github_repo(self.repo, homepage=self.url)
+        io.page(self.url, html=self.result()["html"])
         conn = registry.open_db()
         try:
-            with (
-                mock.patch.object(enrichment_pipeline, "collect_github_repo_evidence", return_value=empty),
-                mock.patch.object(enrichment_pipeline, "should_refresh_lexicon_surface", return_value=False),
-                mock.patch.object(enrichment_pipeline, "should_refresh_recent_record_samples", return_value=False),
-                mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
-                mock.patch.object(enrichment_pipeline, "collect_investigation_evidence", return_value=empty),
-                mock.patch.object(enrichment_pipeline, "enrich_from_resource_pages"),
-                mock.patch.object(enrichment_pipeline.llm_transport, "run_llm_with_metrics", side_effect=RuntimeError("offline test")),
-                mock.patch.object(enrichment_pipeline, "probe_service_url", return_value=self.result()),
-                mock.patch.object(registry.service_core, "playwright_navigate", return_value=self.browser_page()),
-            ):
+            with io:
                 enriched = enrichment_pipeline.enrich_project(conn, project)
                 candidate = self.project(confirmed_relation=False, confirmed_operation=False)
                 candidate["website_url"] = ""
@@ -212,33 +206,31 @@ class HomepageAdoptionTest(_HomepageAdoptionFixtures, TempRegistryDbTestCase):
         project = self.project()
         project["website_url"] = ""
         second = "https://example.com/second"
+        second_repo = "https://github.com/example/second"
+        registry.add_manual_seed(project, "repo_url", second_repo, source="test")
         relation = copy.deepcopy(project["relation_evidence"][0])
+        relation["relation"]["subject"]["value"] = second_repo
         relation["relation"]["object"]["value"] = second
         project["relation_evidence"].append(relation)
         confirmed = copy.deepcopy(project["relation_evidence"][1])
         confirmed["relation"]["subject"]["value"] = second
+        confirmed["relation"]["object"]["value"] = second_repo
         project["relation_evidence"].append(confirmed)
         operation = copy.deepcopy(project["relation_evidence"][2])
         operation["relation"]["object"]["value"] = second
         project["relation_evidence"].append(operation)
-        empty = EvidenceBundle(project_key=project["project_key"], collected_at="2026-09-08T00:00:00Z")
+        io = EnrichmentIO(browser=lambda url: self.browser_page(url, visible=False))
+        io.github_repo(self.repo, homepage=self.url)
+        io.github_repo(second_repo, homepage=second)
+        io.page(self.url, html=self.result()["html"])
+        io.page(second, html=f'<footer><a href="{second_repo}">Source code</a></footer>')
         conn = registry.open_db()
         try:
-            with (
-                mock.patch.object(enrichment_pipeline, "collect_github_repo_evidence", return_value=empty),
-                mock.patch.object(enrichment_pipeline, "should_refresh_lexicon_surface", return_value=False),
-                mock.patch.object(enrichment_pipeline, "should_refresh_recent_record_samples", return_value=False),
-                mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
-                mock.patch.object(enrichment_pipeline, "collect_investigation_evidence", return_value=empty),
-                mock.patch.object(enrichment_pipeline, "enrich_from_resource_pages"),
-                mock.patch.object(enrichment_pipeline.llm_transport, "run_llm_with_metrics", side_effect=RuntimeError("offline test")),
-                mock.patch.object(enrichment_pipeline, "probe_service_url", side_effect=lambda url, **kw: self.result(url)),
-                mock.patch.object(registry.service_core, "playwright_navigate", side_effect=lambda url: self.browser_page(url, visible=False)) as browser,
-            ):
+            with io:
                 project = enrichment_pipeline.enrich_project(conn, project)
-                self.assertEqual(browser.call_count, 1)
+                self.assertEqual(io.browser.call_count, 1)
                 enrichment_pipeline.enrich_project(conn, project)
-                self.assertEqual([call.args[0] for call in browser.call_args_list], [self.url, second])
+                self.assertEqual([call.args[0] for call in io.browser.call_args_list], [self.url, second])
         finally:
             conn.close()
 
@@ -516,36 +508,23 @@ class HomepageAdoptionTest(_HomepageAdoptionFixtures, TempRegistryDbTestCase):
         project = self.project(confirmed_operation=False)
         project['relation_evidence'] = []
         project['website_url'] = ''
-        empty = EvidenceBundle(project_key=project['project_key'], collected_at='2026-09-10T00:00:00Z')
-        repo_bundle = EvidenceBundle(project_key=project['project_key'], collected_at=empty.collected_at)
-        repo_bundle.add_record(registry.EvidenceRecord(
-            kind='github_repo_snapshot', source='github_repo:' + self.repo, classification='confirmed',
-            observed_at=empty.collected_at, value={'repo_url': self.repo, 'repo': {},
-            'readme_sections': [{'path': 'README', 'line': 1, 'excerpt': 'Try this app at ' + self.url}]}))
         def response(prompt, **kwargs):
-            if kwargs.get('purpose') != 'repository_analysis':
+            if 'Analyze a confirmed project repository' not in prompt:
                 raise RuntimeError('offline triage')
-            material = registry.repository_analysis_core.build_material(self.repo, repo_bundle)
-            candidate = next(x for x in registry.repository_analysis_core.observation_candidate_catalog(material).values()
-                             if x['predicate'] == 'declares_service_url')
+            context = json.loads(prompt.rsplit('\n\n', 1)[1])
+            candidate = next(x for x in context['observation_candidates']
+                             if x['predicate'] == 'declares_service_url' and x['value'] == self.url)
             return {'summary': 'アプリ', 'summary_evidence': candidate['evidence_ids'],
                     'observations': [{'candidate_id': candidate['candidate_id'], 'applicability': 'current_project',
                                       'service_kind': 'web'}], 'collections': [], 'capabilities': []}, {}
+        io = EnrichmentIO(llm=response, browser=lambda url, **kwargs: self.browser_page(url))
+        io.github_repo(self.repo, readme='Try this app at ' + self.url)
+        io.page(self.url, html=self.result()['html'])
         conn = registry.open_db()
         try:
-            with (
-                mock.patch.object(enrichment_pipeline, 'collect_github_repo_evidence', return_value=repo_bundle),
-                mock.patch.object(enrichment_pipeline, 'should_refresh_lexicon_surface', return_value=False),
-                mock.patch.object(enrichment_pipeline, 'should_refresh_recent_record_samples', return_value=False),
-                mock.patch.object(enrichment_pipeline, 'plan_investigation_queries', return_value={}),
-                mock.patch.object(enrichment_pipeline, 'collect_investigation_evidence', return_value=empty),
-                mock.patch.object(enrichment_pipeline, 'enrich_from_resource_pages'),
-                mock.patch.object(enrichment_pipeline.llm_transport, 'run_llm_with_metrics', side_effect=response),
-                mock.patch.object(enrichment_pipeline, 'probe_service_url', return_value=self.result()) as probe,
-                mock.patch.object(registry.service_core, 'playwright_navigate', return_value=self.browser_page()),
-            ):
+            with io:
                 result = enrichment_pipeline.enrich_project(conn, project)
-            self.assertIn(self.url, [x.args[0] for x in probe.call_args_list])
+            self.assertIn(self.url, [x.args[0] for x in io.http.call_args_list])
             self.assertIn(self.url, result['service_urls'])
         finally:
             conn.close()

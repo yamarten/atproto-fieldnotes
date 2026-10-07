@@ -179,47 +179,38 @@ def collect_initial(project: dict[str, Any]) -> InitialCollection:
     collected_tangled_repo_urls: set[str] = set()
     collected_repo_evidence: dict[str, EvidenceBundle] = {}
     trust_inspected_repo_urls: set[str] = set()
+
+    def collect_adopted_repo(repo_url: str, provider: str, failure_context: str) -> None:
+        normalized_repo_url = repo_url_core.canonical_repo_url(repo_url)
+        try:
+            if provider == "github":
+                repo_evidence = operation_timer.call("collect_github_repo_evidence", collect_github_repo_evidence, project, repo_url)
+                apply_github_repo_evidence(project, repo_evidence)
+            elif provider == "tangled":
+                repo_evidence = operation_timer.call("collect_tangled_repo_evidence", collect_tangled_repo_evidence, project, repo_url)
+                apply_tangled_evidence(project, repo_evidence)
+            else:
+                repo_evidence = operation_timer.call("collect_codeberg_repo_evidence", collect_codeberg_repo_evidence, project, normalized_repo_url)
+            run_evidence.extend(repo_evidence)
+            collected_repo_evidence[normalized_repo_url] = repo_evidence
+        except Exception as exc:
+            record_repository_collection_failure(project, repo_url)
+            note_failure(project, f"{failure_context} failed for {repo_url}: {exc}")
+            run_evidence.extend(failed_collector_bundle(
+                project, source=f"{provider}_repo", operation="inspect", target=repo_url, exc=exc,
+            ))
+
     for repo_url in initial_repo_urls:
         if repo_url_core.extract_github_slug(repo_url) is not None:
             normalized_repo_url = repo_url_core.canonical_repo_url(repo_url)
             if normalized_repo_url:
                 collected_github_repo_urls.add(normalized_repo_url)
-            try:
-                repo_evidence = operation_timer.call("collect_github_repo_evidence", collect_github_repo_evidence, project, repo_url)
-                apply_github_repo_evidence(project, repo_evidence)
-                run_evidence.extend(repo_evidence)
-                collected_repo_evidence[repo_url_core.canonical_repo_url(repo_url)] = repo_evidence
-            except Exception as exc:
-                record_repository_collection_failure(project, repo_url)
-                note_failure(project, f"github enrichment failed for {repo_url}: {exc}")
-                run_evidence.extend(failed_collector_bundle(
-                    project, source="github_repo", operation="inspect", target=repo_url, exc=exc,
-                ))
+            collect_adopted_repo(repo_url, "github", "github enrichment")
         elif normalized_tangled_repo_url := repo_url_core.normalize_tangled_repo_url(repo_url):
             collected_tangled_repo_urls.add(normalized_tangled_repo_url)
-            try:
-                repo_evidence = operation_timer.call("collect_tangled_repo_evidence", collect_tangled_repo_evidence, project, repo_url)
-                apply_tangled_evidence(project, repo_evidence)
-                run_evidence.extend(repo_evidence)
-                collected_repo_evidence[normalized_tangled_repo_url] = repo_evidence
-            except Exception as exc:
-                record_repository_collection_failure(project, repo_url)
-                note_failure(project, f"tangled repo enrichment failed for {repo_url}: {exc}")
-                run_evidence.extend(failed_collector_bundle(
-                    project, source="tangled_repo", operation="inspect", target=repo_url, exc=exc,
-                ))
+            collect_adopted_repo(repo_url, "tangled", "tangled repo enrichment")
         elif repo_url_core.infer_repo_provider(repo_url) == "codeberg.org":
-            normalized_repo_url = repo_url_core.canonical_repo_url(repo_url)
-            try:
-                repo_evidence = operation_timer.call("collect_codeberg_repo_evidence", collect_codeberg_repo_evidence, project, normalized_repo_url)
-                run_evidence.extend(repo_evidence)
-                collected_repo_evidence[normalized_repo_url] = repo_evidence
-            except Exception as exc:
-                record_repository_collection_failure(project, repo_url)
-                note_failure(project, f"codeberg repo enrichment failed for {repo_url}: {exc}")
-                run_evidence.extend(failed_collector_bundle(
-                    project, source="codeberg_repo", operation="inspect", target=repo_url, exc=exc,
-                ))
+            collect_adopted_repo(repo_url, "codeberg", "codeberg repo enrichment")
 
     discovered_nsids = [
         nsid
@@ -322,6 +313,8 @@ def collect_initial(project: dict[str, Any]) -> InitialCollection:
                         project, source=f"service_{lane}", operation="probe", target=service_url, exc=exc,
                     ))
 
+    # Candidate inspection owns a different failure record and must establish
+    # trust before full collection; it is not an adopted-repository refresh.
     for repo_url in candidate_repo_trust_probe_urls(project):
         trust_inspected_repo_urls.add(repo_url)
         provider = repo_url_core.infer_repo_provider(repo_url)
@@ -369,34 +362,14 @@ def collect_initial(project: dict[str, Any]) -> InitialCollection:
         if repo_url_core.canonical_repo_url(repo_url) not in collected_github_repo_urls
     ]
     for repo_url in secondary_repo_urls:
-        try:
-            repo_evidence = operation_timer.call("collect_github_repo_evidence", collect_github_repo_evidence, project, repo_url)
-            apply_github_repo_evidence(project, repo_evidence)
-            run_evidence.extend(repo_evidence)
-            collected_repo_evidence[repo_url_core.canonical_repo_url(repo_url)] = repo_evidence
-        except Exception as exc:
-            record_repository_collection_failure(project, repo_url)
-            note_failure(project, f"github secondary enrichment failed for {repo_url}: {exc}")
-            run_evidence.extend(failed_collector_bundle(
-                project, source="github_repo", operation="inspect", target=repo_url, exc=exc,
-            ))
+        collect_adopted_repo(repo_url, "github", "github secondary enrichment")
     secondary_tangled_repo_urls = [
         repo_url
         for repo_url in unique_list(provider_repo_url_values(project, "tangled"))
         if repo_url_core.normalize_tangled_repo_url(repo_url) not in collected_tangled_repo_urls
     ]
     for repo_url in secondary_tangled_repo_urls:
-        try:
-            repo_evidence = operation_timer.call("collect_tangled_repo_evidence", collect_tangled_repo_evidence, project, repo_url)
-            apply_tangled_evidence(project, repo_evidence)
-            run_evidence.extend(repo_evidence)
-            collected_repo_evidence[repo_url_core.normalize_tangled_repo_url(repo_url) or repo_url] = repo_evidence
-        except Exception as exc:
-            record_repository_collection_failure(project, repo_url)
-            note_failure(project, f"tangled secondary enrichment failed for {repo_url}: {exc}")
-            run_evidence.extend(failed_collector_bundle(
-                project, source="tangled_repo", operation="inspect", target=repo_url, exc=exc,
-            ))
+        collect_adopted_repo(repo_url, "tangled", "tangled secondary enrichment")
 
     return InitialCollection(
         project, run_input_project, run_started_at, time.perf_counter() - started,

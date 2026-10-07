@@ -3,6 +3,7 @@ from __future__ import annotations
 from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
+from enrichment_io import EnrichmentIO
 from project_registry_core import enrichment_pipeline, project_record, relations, runtime_view
 from project_registry_core.evidence import EvidenceBundle
 
@@ -97,20 +98,16 @@ class RepositoryHomepageObservationTest(_RepositoryHomepageObservationFixtures, 
                 project["website_url"] = url + "/"
                 conn = registry.open_db()
                 try:
-                    empty = EvidenceBundle(project_key=project["project_key"], collected_at="2026-09-08T00:00:00Z")
-                    with (
-                        mock.patch.object(enrichment_pipeline, "collect_github_repo_evidence", return_value=empty),
-                        mock.patch.object(enrichment_pipeline, "should_refresh_lexicon_surface", return_value=False),
-                        mock.patch.object(enrichment_pipeline, "should_refresh_recent_record_samples", return_value=False),
-                        mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
-                        mock.patch.object(enrichment_pipeline, "collect_investigation_evidence", return_value=empty),
-                        mock.patch.object(enrichment_pipeline, "enrich_from_resource_pages"),
-                        mock.patch.object(enrichment_pipeline.llm_transport, "run_llm_with_metrics", side_effect=RuntimeError("offline test")),
-                        mock.patch.object(enrichment_pipeline, "probe_service_url", return_value={"status_code": 200, "html": ""}) as probe,
-                        mock.patch.object(enrichment_pipeline, "collect_service_evidence_with_followups", return_value=empty) as collect,
-                    ):
-                        enrichment_pipeline.enrich_project(conn, project)
-                    self.assertEqual([call.args[0] for call in probe.call_args_list], [url])
-                    self.assertEqual(collect.call_args.kwargs["lane"], "static" if accepted else "repository_homepage")
+                    io = EnrichmentIO()
+                    for repo in project["project_repository_urls"]:
+                        io.github_repo(repo, homepage=url)
+                    io.page(url)
+                    with io:
+                        enriched = enrichment_pipeline.enrich_project(conn, project)
+                    self.assertEqual([call.args[0] for call in io.http.call_args_list].count(url), 1)
+                    observations = [item for item in enriched["service_verification_results"]
+                                    if item["requested_url"] == url]
+                    self.assertEqual([item["lane"] for item in observations],
+                                     ["static" if accepted else "repository_homepage"])
                 finally:
                     conn.close()

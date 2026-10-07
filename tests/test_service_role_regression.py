@@ -1,11 +1,10 @@
 import copy
 import json
 from pathlib import Path
-from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
+from enrichment_io import EnrichmentIO
 from project_registry_core import enrichment_pipeline, project_record, repository_trust, trust_graph
-from project_registry_core.evidence import EvidenceBundle
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures/project_registry/service-role-regression-v1.json").read_text())
 
@@ -54,20 +53,13 @@ class ServiceRoleRegressionUnitTest(_ServiceRoleRegressionFixtures, ProjectRecor
 class ServiceRoleRegressionTest(_ServiceRoleRegressionFixtures, TempRegistryDbTestCase):
     def test_historical_same_project_adoption_does_not_return_after_enrich_save_and_recheck(self):
         p, url = self.historical_arroba()
-        empty = EvidenceBundle(project_key=p["project_key"], collected_at="2026-09-09T00:00:00Z")
+        io = EnrichmentIO()
+        for repo in p["project_repository_urls"]:
+            io.github_repo(repo)
+        io.page(url, final_url=url + "/en/stable", html="<h1>arroba documentation</h1>")
         conn = registry.open_db()
         try:
-            with (
-                mock.patch.object(enrichment_pipeline, "collect_github_repo_evidence", return_value=empty),
-                mock.patch.object(enrichment_pipeline, "should_refresh_lexicon_surface", return_value=False),
-                mock.patch.object(enrichment_pipeline, "should_refresh_recent_record_samples", return_value=False),
-                mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
-                mock.patch.object(enrichment_pipeline, "collect_investigation_evidence", return_value=empty),
-                mock.patch.object(enrichment_pipeline, "enrich_from_resource_pages"),
-                mock.patch.object(enrichment_pipeline.llm_transport, "run_llm_with_metrics", side_effect=RuntimeError("offline fixture")),
-                mock.patch.object(enrichment_pipeline, "probe_service_url", return_value={
-                    "status_code": 200, "final_url": url + "/en/stable", "html": "<h1>arroba documentation</h1>"}),
-            ):
+            with io:
                 enriched = enrichment_pipeline.enrich_project(conn, p)
             self.assertEqual(enriched["service_urls"], [])
             project_record.save_project(conn, enriched)

@@ -9,7 +9,8 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase
-from project_registry_core import concurrency, database, project_record, registry, runtime_view, storage, source_sync
+from enrichment_io import EnrichmentIO
+from project_registry_core import concurrency, database, project_record, registry, storage, source_sync
 from project_registry_core.application import decisions, enrichment, merge, presentation, projects, review, maintenance
 from project_registry_core.evidence import EvidenceBundle
 from project_registry_core.jobs import OperationRequest
@@ -239,22 +240,21 @@ class ProjectConcurrencyTest(TempRegistryDbTestCase):
         self.assertNotIn(nsid, source["input_nsids"] + source["resolved_nsids"])
 
     def test_real_pipeline_keeps_edit_and_unapplied_output(self):
-        pipeline = enrichment.enrichment_pipeline
-        def collect(*args, **kwargs):
+        edited = False
+        def edit_during_llm(*args, **kwargs):
+            nonlocal edited
             self.assertFalse(self.conn.in_transaction)
-            projects.apply_profile_edit(self.other, project_key=self.key, name="Human name", notes="Human notes", introduced_url="")
-            return EvidenceBundle(self.key, project_record.iso_now())
+            if not edited:
+                projects.apply_profile_edit(self.other, project_key=self.key, name="Human name", notes="Human notes", introduced_url="")
+                edited = True
+            raise RuntimeError("fixture: LLM unavailable")
         request = OperationRequest.create("enrich", parameters={"project_key": self.key})
-        with (
-            mock.patch.object(pipeline, "should_refresh_lexicon_surface", return_value=False),
-            mock.patch.object(pipeline, "should_refresh_recent_record_samples", return_value=False),
-            mock.patch.object(pipeline, "plan_investigation_queries", return_value={}),
-            mock.patch.object(pipeline, "collect_investigation_evidence", side_effect=collect),
-            mock.patch.object(pipeline, "enrich_from_resource_pages"),
-            mock.patch.object(pipeline, "probe_service_url", return_value={}),
-            mock.patch.object(pipeline.llm_transport, "run_llm_with_metrics", side_effect=RuntimeError("offline test")),
-        ):
+        io = EnrichmentIO(llm=edit_during_llm, dns=lambda *args, **kwargs: [])
+        io.json("https://ufos-api.microcosm.blue/records?collection=app.example111111111111.post", {"records": []})
+        io.page("https://example111111111111.app")
+        with io:
             result = enrichment.run(self.conn, request)
+        self.assertTrue(edited)
         self.assertEqual(result.status, "retry_wait")
         self.assertEqual(project_record.fetch_project(self.conn, self.key)["notes"], "Human notes")
         runs = storage.list_investigation_runs(self.conn, project_key=self.key)

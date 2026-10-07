@@ -20,6 +20,8 @@
 
 testの準備は対象の依存に合わせます。project dictだけを使うtestは`tests/helpers.py`の`ProjectRecordTestCase`、DBの保存・queryを使うtestは`TempRegistryDbTestCase`を使い、project不要のtestは`unittest.TestCase`を使います。内部関数名の存在だけでなく、担当moduleの入出力や通常経路での適用・保存結果を確認します。
 
+enrichの収集から採用・保存までを確認するtestでは、`tests/enrichment_io.py`の`EnrichmentIO`でHTTP応答・browser・DNS・LLM backendを固定できます。取得cacheをtest間で隔離し、未登録のHTTP・browser・DNS呼出しはpipelineが例外を記録して継続してもtestを失敗させます。既定の検索結果は空、LLMは利用不能です。必要な成功応答をtestで明示し、planning・collector・適用処理を一括して差し替えないようにします。段階間の順序や特定の故障位置そのものを確認するtestでは、その境界の差し替えを使います。
+
 変更が作用する経路ごとの確認方法は次のとおりです。
 
 - Web UI: Python側の関連API test、`node --check scripts/project_registry_web/static/app.js`、変更した主要導線の実ブラウザ確認
