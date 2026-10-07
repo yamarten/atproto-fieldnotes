@@ -2052,6 +2052,32 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             domain_policy._CONFIGURED_MULTI_TENANT_SUFFIXES = original_suffixes
             domain_policy.reset_domain_extractors()
 
+    def test_source_config_cli_only_configures_suffix_after_confirmation(self) -> None:
+        config_path = Path(self.tempdir.name) / "domain-overrides.json"
+        args = cli.build_parser().parse_args(["audit-source-config", "example.test"])
+        for answer, accepted in (("", False), ("n", False), (EOFError, False), ("y", True), (" YES ", True)):
+            with self.subTest(answer=answer):
+                config_path.write_text('{"custom_multi_tenant_suffixes": []}')
+                try:
+                    with (
+                        mock.patch.object(domain_policy, "DOMAIN_OVERRIDES_PATH", config_path),
+                        mock.patch.object(domain_policy, "_CONFIGURED_MULTI_TENANT_SUFFIXES", None),
+                        captured_stdout() as output,
+                        mock.patch("sys.stdin.isatty", return_value=True),
+                        mock.patch("sys.stdout.isatty", return_value=True),
+                        mock.patch("sys.stderr", new=io.StringIO()) as error,
+                        mock.patch("builtins.input", return_value=answer,
+                                   side_effect=EOFError if answer is EOFError else None) as prompt,
+                    ):
+                        self.assertEqual(args.func(args), 0)
+                        prompt.assert_called_once()
+                        self.assertIn("[y/N]", error.getvalue())
+                        self.assertEqual(json.loads(output.getvalue())["suffix_added"], accepted)
+                        self.assertEqual(json.loads(config_path.read_text())["custom_multi_tenant_suffixes"],
+                                         ["example.test"] if accepted else [])
+                finally:
+                    domain_policy.reset_domain_extractors()
+
     def test_source_config_audit_suggests_multi_tenant_project_split(self) -> None:
         conn = registry.open_db()
         try:

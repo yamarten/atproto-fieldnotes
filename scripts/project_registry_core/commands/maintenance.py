@@ -682,7 +682,11 @@ def cmd_audit_source_config(args: argparse.Namespace) -> int:
     should_configure = bool(requested_suffix and args.execute)
     if requested_suffix and requested_suffix not in domain_policy.configured_multi_tenant_suffixes():
         if interactive and not should_configure:
-            should_configure = core.prompt_for_confirmation(f"Add {requested_suffix} to config/domain-overrides.json? [y/N]")
+            print(f"Add {requested_suffix} to config/domain-overrides.json? [y/N]", file=sys.stderr)
+            try:
+                should_configure = input().strip().lower() in {"y", "yes"}
+            except EOFError:
+                should_configure = False
     suffixes = [requested_suffix] if requested_suffix else sorted(domain_policy.configured_multi_tenant_suffixes())
     conn = core.open_db()
     try:
