@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import urllib.parse
 
-from . import identifiers, project_record, domain_policy
+from . import identifiers, project_record, domain_policy, repo_urls
 from typing import Any
 
 
@@ -510,3 +510,19 @@ def choose_best_project_name(project: dict[str, Any]) -> str:
         return ""
     best = max(candidates, key=lambda item: name_candidate_score(project, item))
     return normalize_name_candidate(str(best.get("value") or ""))
+
+
+def apply_project_name(project: dict[str, Any]) -> None:
+    sync_current_llm_name_candidate(project)
+    chosen_name = choose_best_project_name(project)
+    if chosen_name:
+        project["name"] = chosen_name
+    if not project.get("name"):
+        if project.get("website_url"):
+            project["name"] = urllib.parse.urlparse(project["website_url"]).netloc
+        elif project_record.service_url_candidate_values(project):
+            project["name"] = urllib.parse.urlparse(project_record.service_url_candidate_values(project)[0]).netloc
+        elif project_record.provider_repo_url_values(project, "github"):
+            slug = repo_urls.extract_github_slug(project_record.provider_repo_url_values(project, "github")[0])
+            if slug:
+                project["name"] = slug.split("/")[-1]

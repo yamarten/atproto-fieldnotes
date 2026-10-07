@@ -22,7 +22,7 @@ class GitHubRepoIntegrationDependencies:
     add_candidate_url: Callable[[dict[str, Any], str, str], None]
     project_owned_lexicon_nsid: Callable[[dict[str, Any], str], bool]
     add_authority_service_candidates: Callable[..., None]
-    upsert_lexicon_schema_sample: Callable[[dict[str, Any], str, dict[str, Any]], None]
+
     repo_url_allowed_for_project: Callable[[dict[str, Any], str], bool]
     add_candidate_project_repository_url: Callable[..., None]
     repo_context_service_candidate_allowed: Callable[..., bool]
@@ -533,7 +533,7 @@ def apply_github_repo_evidence(
                 dependencies.add_authority_service_candidates(project, authority_domain)
             schema = item.get("schema")
             if isinstance(schema, dict):
-                dependencies.upsert_lexicon_schema_sample(project, nsid, schema)
+                upsert_lexicon_schema_sample(project, nsid, schema)
             add_investigation_log(
                 project,
                 "github_repo_lexicon_hint",
@@ -669,3 +669,214 @@ def note_failure(project: dict[str, Any], message: str) -> None:
 def reset_investigation_state(project: dict[str, Any]) -> None:
     project["investigation_queries"] = []
     project["investigation_log"] = []
+
+
+def project_explicitly_targets_pdsls(project: dict[str, Any]) -> bool:
+    tokens = project_record.project_trusted_identity_tokens(project)
+    return "pdsls" in tokens
+
+
+def generic_platform_handles_to_ignore(project: dict[str, Any]) -> set[str]:
+    ignored: set[str] = set()
+    candidate_urls = [
+        str(project.get("seed_value") or ""),
+        *[str(item.get("value") or "") for item in project.get("manual_seeds", []) if isinstance(item, dict)],
+        *[str(item or "") for item in project.get("project_repository_urls", [])],
+        *[str(item or "") for item in project.get("candidate_project_repository_urls", [])],
+        *[str(item or "") for item in project.get("service_urls", [])],
+        *[str(item or "") for item in project_record.service_url_candidate_values(project)],
+    ]
+    for raw_url in candidate_urls:
+        normalized = identifiers.normalize_url(raw_url)
+        if not normalized:
+            continue
+        parsed = urllib.parse.urlparse(normalized)
+        host = parsed.netloc.lower()
+        segments = [segment for segment in parsed.path.split("/") if segment]
+        if host in naming.GENERIC_PLATFORM_HOSTS and segments:
+            ignored.add(host)
+    return ignored
+
+
+def project_identity_strings(project: dict[str, Any]) -> set[str]:
+    values: set[str] = set()
+    for value in project.get("authority_domains", []):
+        lowered = str(value or "").strip().lower()
+        if lowered and not project_record.is_shared_official_identity_host(lowered):
+            values.add(lowered)
+    for value in project_record.unique_list(list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", []))):
+        if value:
+            values.add(str(value).lower())
+    for value in project.get("service_urls", []):
+        host = urllib.parse.urlparse(identifiers.normalize_url(value)).netloc
+        if host:
+            values.add(host.lower())
+    if project.get("website_url"):
+        host = urllib.parse.urlparse(identifiers.normalize_url(project["website_url"])).netloc
+        if host:
+            values.add(host.lower())
+    for seed in project.get("manual_seeds", []):
+        raw = str(seed.get("value") or "").strip().lower()
+        if raw:
+            values.add(raw)
+            if raw.startswith("http"):
+                host = urllib.parse.urlparse(identifiers.normalize_url(raw)).netloc
+                if host:
+                    values.add(host.lower())
+    if project.get("name"):
+        name = str(project["name"]).strip().lower()
+        if name and ("." in name or "-" in name or "_" in name or len(name) >= 8):
+            values.add(name)
+    return {value for value in values if value}
+
+
+def handle_matches_project(project: dict[str, Any], handle: str) -> bool:
+    lowered = str(handle or "").strip().lower()
+    if not lowered:
+        return False
+    identities = project_identity_strings(project)
+    if lowered in identities:
+        return True
+    host = lowered
+    if "." in host:
+        if host in identities:
+            return True
+    return False
+
+
+def keep_bluesky_account(project: dict[str, Any], handle: str, source: str = "") -> bool:
+    normalized_handle = str(handle or "").strip().lower()
+    if not normalized_handle:
+        return False
+    if handle_matches_project(project, normalized_handle):
+        return True
+    if str(source or "").startswith(("service_raw_url:", "service_page:", "service_follow_up:")):
+        return False
+    return True
+
+
+def normalize_project_accounts(project: dict[str, Any]) -> None:
+    project["developer_accounts"] = _retained_developer_accounts(project, project.get("developer_accounts", []))
+    project["candidate_developer_accounts"] = [
+        dict(item)
+        for item in project_record.normalize_developer_accounts(project.get("candidate_developer_accounts", []))
+        if str(item.get("handle") or "").strip().lower() not in generic_platform_handles_to_ignore(project)
+        and str(item.get("handle") or "").strip() not in {
+            str(existing.get("handle") or "").strip()
+            for existing in project.get("developer_accounts", [])
+            if isinstance(existing, dict)
+        }
+    ]
+    surviving_handles = {
+        str(item.get("handle") or "").strip()
+        for item in project.get("developer_accounts", [])
+        if isinstance(item, dict) and str(item.get("handle") or "").strip()
+    }
+    project["bluesky_handles"] = project_record.unique_list(
+        [
+            handle
+            for handle in project_record.unique_list(project.get("bluesky_handles", []))
+            if str(handle or "").strip() in surviving_handles or handle_matches_project(project, str(handle or ""))
+        ]
+        + sorted(surviving_handles)
+    )
+
+
+def normalize_evidence_accounts(project: dict[str, Any], evidence: dict[str, Any]) -> None:
+    evidence["developer_accounts"] = _retained_developer_accounts(project, evidence.get("developer_accounts", []))
+    evidence["candidate_developer_accounts"] = [
+        dict(item)
+        for item in project_record.normalize_developer_accounts(evidence.get("candidate_developer_accounts", []))
+        if str(item.get("handle") or "").strip().lower() not in generic_platform_handles_to_ignore(project)
+    ]
+    surviving_evidence_handles = {
+        str(item.get("handle") or "").strip()
+        for item in evidence.get("developer_accounts", [])
+        if isinstance(item, dict) and str(item.get("handle") or "").strip()
+    }
+    evidence["bluesky_handles"] = [
+        handle
+        for handle in evidence.get("bluesky_handles", [])
+        if str(handle or "").strip() in surviving_evidence_handles or handle_matches_project(project, str(handle or ""))
+    ]
+    ignored_handles = generic_platform_handles_to_ignore(project)
+    if ignored_handles:
+        evidence["bluesky_handles"] = [
+            handle
+            for handle in evidence.get("bluesky_handles", [])
+            if str(handle or "").strip().lower() not in ignored_handles
+        ]
+        evidence["developer_accounts"] = [
+            dict(item)
+            for item in evidence.get("developer_accounts", [])
+            if str(item.get("handle") or "").strip().lower() not in ignored_handles
+        ]
+        evidence["candidate_developer_accounts"] = [
+            dict(item)
+            for item in evidence.get("candidate_developer_accounts", [])
+            if str(item.get("handle") or "").strip().lower() not in ignored_handles
+        ]
+
+
+def _retained_developer_accounts(project: dict[str, Any], accounts: list[Any]) -> list[dict[str, str]]:
+    return [
+        dict(item)
+        for item in project_record.normalize_developer_accounts(accounts)
+        if keep_bluesky_account(project, str(item.get("handle") or ""), str(item.get("source") or ""))
+        or not str(item.get("handle") or "").strip()
+    ]
+
+
+def compact_json_value(value: Any, *, depth: int = 0, max_depth: int = 3, max_items: int = 8, max_string: int = 240) -> Any:
+    if depth >= max_depth:
+        if isinstance(value, dict):
+            return f"... {len(value)} keys"
+        if isinstance(value, list):
+            return f"... {len(value)} items"
+        if isinstance(value, str):
+            return value[:max_string]
+        return value
+    if isinstance(value, dict):
+        output: dict[str, Any] = {}
+        for index, (key, item) in enumerate(value.items()):
+            if index >= max_items:
+                output["..."] = f"{len(value) - max_items} more keys"
+                break
+            output[str(key)] = compact_json_value(item, depth=depth + 1, max_depth=max_depth, max_items=max_items, max_string=max_string)
+        return output
+    if isinstance(value, list):
+        items = [
+            compact_json_value(item, depth=depth + 1, max_depth=max_depth, max_items=max_items, max_string=max_string)
+            for item in value[:max_items]
+        ]
+        if len(value) > max_items:
+            items.append(f"... {len(value) - max_items} more items")
+        return items
+    if isinstance(value, str):
+        return value[:max_string]
+    return value
+
+
+def summarize_lexicon_schema(nsid: str, schema: dict[str, Any]) -> dict[str, Any]:
+    defs = schema.get("defs", {}) if isinstance(schema.get("defs"), dict) else {}
+    return {
+        "nsid": identifiers.normalize_nsid(nsid),
+        "id": str(schema.get("id") or identifiers.normalize_nsid(nsid)),
+        "lexicon": schema.get("lexicon"),
+        "description": str(schema.get("description") or ""),
+        "defs": compact_json_value(defs, max_depth=3, max_items=6, max_string=200),
+    }
+
+
+def upsert_lexicon_schema_sample(project: dict[str, Any], nsid: str, schema: dict[str, Any]) -> None:
+    sample = summarize_lexicon_schema(nsid, schema)
+    existing = [dict(item) for item in project.get("lexicon_schema_samples", []) if isinstance(item, dict)]
+    replaced = False
+    for index, entry in enumerate(existing):
+        if identifiers.normalize_nsid(str(entry.get("nsid") or "")) == sample["nsid"]:
+            existing[index] = sample
+            replaced = True
+            break
+    if not replaced:
+        existing.append(sample)
+    project["lexicon_schema_samples"] = existing[:12]

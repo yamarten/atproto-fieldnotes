@@ -2178,33 +2178,6 @@ def extract_urls(html: str) -> list[str]:
     return project_record.unique_list(output)
 
 
-def project_explicitly_targets_pdsls(project: dict[str, Any]) -> bool:
-    tokens = project_record.project_trusted_identity_tokens(project)
-    return "pdsls" in tokens
-
-
-def generic_platform_handles_to_ignore(project: dict[str, Any]) -> set[str]:
-    ignored: set[str] = set()
-    candidate_urls = [
-        str(project.get("seed_value") or ""),
-        *[str(item.get("value") or "") for item in project.get("manual_seeds", []) if isinstance(item, dict)],
-        *[str(item or "") for item in project.get("project_repository_urls", [])],
-        *[str(item or "") for item in project.get("candidate_project_repository_urls", [])],
-        *[str(item or "") for item in project.get("service_urls", [])],
-        *[str(item or "") for item in project_record.service_url_candidate_values(project)],
-    ]
-    for raw_url in candidate_urls:
-        normalized = identifier_core.normalize_url(raw_url)
-        if not normalized:
-            continue
-        parsed = urllib.parse.urlparse(normalized)
-        host = parsed.netloc.lower()
-        segments = [segment for segment in parsed.path.split("/") if segment]
-        if host in naming_core.GENERIC_PLATFORM_HOSTS and segments:
-            ignored.add(host)
-    return ignored
-
-
 def normalize_tagline(value: str) -> str:
     text = str(value or "").strip()
     if not text:
@@ -2259,9 +2232,9 @@ def service_url_allowed_for_project(project: dict[str, Any], url: str, *, confir
         return False
     if project_record.is_explicitly_non_project_service_url(normalized):
         return False
-    if host in project_record.PDSLS_VIEWER_HOSTS and not project_explicitly_targets_pdsls(project):
+    if host in project_record.PDSLS_VIEWER_HOSTS and not integration_core.project_explicitly_targets_pdsls(project):
         return False
-    if host in project_record.PDSLS_HOSTS and not project_explicitly_targets_pdsls(project):
+    if host in project_record.PDSLS_HOSTS and not integration_core.project_explicitly_targets_pdsls(project):
         return False
 
     manual_hosts = set(project_record.manual_service_hosts(project))
@@ -2303,7 +2276,7 @@ def repo_url_allowed_for_project(project: dict[str, Any], url: str) -> bool:
         return False
     if url_has_current_trust(project, "repo_url", normalized):
         return True
-    if normalized == "https://github.com/notjuliet/pdsls" and not project_explicitly_targets_pdsls(project):
+    if normalized == "https://github.com/notjuliet/pdsls" and not integration_core.project_explicitly_targets_pdsls(project):
         return False
     if normalized in project_record.manual_repo_urls(project):
         return True
@@ -2426,52 +2399,6 @@ def owner_matches_project(project: dict[str, Any], url: str) -> bool:
     return owner in known_tokens
 
 
-def project_identity_strings(project: dict[str, Any]) -> set[str]:
-    values: set[str] = set()
-    for value in project.get("authority_domains", []):
-        lowered = str(value or "").strip().lower()
-        if lowered and not project_record.is_shared_official_identity_host(lowered):
-            values.add(lowered)
-    for value in project_record.unique_list(list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", []))):
-        if value:
-            values.add(str(value).lower())
-    for value in project.get("service_urls", []):
-        host = urllib.parse.urlparse(identifier_core.normalize_url(value)).netloc
-        if host:
-            values.add(host.lower())
-    if project.get("website_url"):
-        host = urllib.parse.urlparse(identifier_core.normalize_url(project["website_url"])).netloc
-        if host:
-            values.add(host.lower())
-    for seed in project.get("manual_seeds", []):
-        raw = str(seed.get("value") or "").strip().lower()
-        if raw:
-            values.add(raw)
-            if raw.startswith("http"):
-                host = urllib.parse.urlparse(identifier_core.normalize_url(raw)).netloc
-                if host:
-                    values.add(host.lower())
-    if project.get("name"):
-        name = str(project["name"]).strip().lower()
-        if name and ("." in name or "-" in name or "_" in name or len(name) >= 8):
-            values.add(name)
-    return {value for value in values if value}
-
-
-def handle_matches_project(project: dict[str, Any], handle: str) -> bool:
-    lowered = str(handle or "").strip().lower()
-    if not lowered:
-        return False
-    identities = project_identity_strings(project)
-    if lowered in identities:
-        return True
-    host = lowered
-    if "." in host:
-        if host in identities:
-            return True
-    return False
-
-
 def github_repo_relevance(project: dict[str, Any], repo: dict[str, Any]) -> int:
     haystacks = [
         str(repo.get("url") or "").lower(),
@@ -2479,7 +2406,7 @@ def github_repo_relevance(project: dict[str, Any], repo: dict[str, Any]) -> int:
         str(repo.get("description") or "").lower(),
         str(repo.get("homepage") or "").lower(),
     ]
-    identities = project_identity_strings(project)
+    identities = integration_core.project_identity_strings(project)
     score = 0
     for needle in identities:
         if not needle:
@@ -2504,9 +2431,9 @@ def bsky_actor_relevance(project: dict[str, Any], actor: dict[str, Any]) -> int:
     handle = str(actor.get("handle") or "").strip().lower()
     display_name = str(actor.get("display_name") or "").strip().lower()
     description = str(actor.get("description") or "").strip().lower()
-    identities = project_identity_strings(project)
+    identities = integration_core.project_identity_strings(project)
     score = 0
-    if handle_matches_project(project, handle):
+    if integration_core.handle_matches_project(project, handle):
         score += 5
     for needle in identities:
         if needle and (needle in display_name or needle in description):
@@ -3047,7 +2974,7 @@ def prune_project_urls(project: dict[str, Any], *, restore_manual_repositories: 
 
     project_record.sync_source_repo_provider_views(project)
 
-    ignored_handles = generic_platform_handles_to_ignore(project)
+    ignored_handles = integration_core.generic_platform_handles_to_ignore(project)
     if ignored_handles:
         project["bluesky_handles"] = [
             handle
@@ -3059,17 +2986,6 @@ def prune_project_urls(project: dict[str, Any], *, restore_manual_repositories: 
             for item in project_record.normalize_developer_accounts(project.get("developer_accounts", []))
             if str(item.get("handle") or "").strip().lower() not in ignored_handles
         ]
-
-
-def keep_bluesky_account(project: dict[str, Any], handle: str, source: str = "") -> bool:
-    normalized_handle = str(handle or "").strip().lower()
-    if not normalized_handle:
-        return False
-    if handle_matches_project(project, normalized_handle):
-        return True
-    if str(source or "").startswith(("service_raw_url:", "service_page:", "service_follow_up:")):
-        return False
-    return True
 
 
 def bsky_post_web_url(post: dict[str, Any]) -> str:
@@ -5069,61 +4985,6 @@ def did_document_handles(did_doc: dict[str, Any]) -> list[str]:
     return project_record.unique_list([value for value in values if value])
 
 
-def compact_json_value(value: Any, *, depth: int = 0, max_depth: int = 3, max_items: int = 8, max_string: int = 240) -> Any:
-    if depth >= max_depth:
-        if isinstance(value, dict):
-            return f"... {len(value)} keys"
-        if isinstance(value, list):
-            return f"... {len(value)} items"
-        if isinstance(value, str):
-            return value[:max_string]
-        return value
-    if isinstance(value, dict):
-        output: dict[str, Any] = {}
-        for index, (key, item) in enumerate(value.items()):
-            if index >= max_items:
-                output["..."] = f"{len(value) - max_items} more keys"
-                break
-            output[str(key)] = compact_json_value(item, depth=depth + 1, max_depth=max_depth, max_items=max_items, max_string=max_string)
-        return output
-    if isinstance(value, list):
-        items = [
-            compact_json_value(item, depth=depth + 1, max_depth=max_depth, max_items=max_items, max_string=max_string)
-            for item in value[:max_items]
-        ]
-        if len(value) > max_items:
-            items.append(f"... {len(value) - max_items} more items")
-        return items
-    if isinstance(value, str):
-        return value[:max_string]
-    return value
-
-
-def summarize_lexicon_schema(nsid: str, schema: dict[str, Any]) -> dict[str, Any]:
-    defs = schema.get("defs", {}) if isinstance(schema.get("defs"), dict) else {}
-    return {
-        "nsid": identifier_core.normalize_nsid(nsid),
-        "id": str(schema.get("id") or identifier_core.normalize_nsid(nsid)),
-        "lexicon": schema.get("lexicon"),
-        "description": str(schema.get("description") or ""),
-        "defs": compact_json_value(defs, max_depth=3, max_items=6, max_string=200),
-    }
-
-
-def upsert_lexicon_schema_sample(project: dict[str, Any], nsid: str, schema: dict[str, Any]) -> None:
-    sample = summarize_lexicon_schema(nsid, schema)
-    existing = [dict(item) for item in project.get("lexicon_schema_samples", []) if isinstance(item, dict)]
-    replaced = False
-    for index, entry in enumerate(existing):
-        if identifier_core.normalize_nsid(str(entry.get("nsid") or "")) == sample["nsid"]:
-            existing[index] = sample
-            replaced = True
-            break
-    if not replaced:
-        existing.append(sample)
-    project["lexicon_schema_samples"] = existing[:12]
-
-
 def fetch_recent_record_samples(collections: list[str], *, timeout: float = REQUEST_TIMEOUT_LEXICON_HTTP) -> list[dict[str, Any]]:
     normalized = project_record.unique_list([identifier_core.normalize_nsid(value) for value in collections if identifier_core.normalize_nsid(value)])
     if not normalized:
@@ -5150,7 +5011,7 @@ def fetch_recent_record_samples(collections: list[str], *, timeout: float = REQU
                 "did": str(item.get("did") or ""),
                 "rkey": str(item.get("rkey") or ""),
                 "time_us": int(item.get("time_us") or 0),
-                "record": compact_json_value(item.get("record", {}), max_depth=3, max_items=8, max_string=240),
+                "record": integration_core.compact_json_value(item.get("record", {}), max_depth=3, max_items=8, max_string=240),
             }
         )
     return samples[:18]
@@ -5380,7 +5241,7 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
     description = str(schema.get("description") or "")
     project_record.add_candidate_text(project, "summary", description, f"lexicon:{resolved_nsid}")
     project_record.add_candidate_text(project, "tagline", description, f"lexicon:{resolved_nsid}")
-    upsert_lexicon_schema_sample(project, resolved_nsid, schema if isinstance(schema, dict) else {})
+    integration_core.upsert_lexicon_schema_sample(project, resolved_nsid, schema if isinstance(schema, dict) else {})
     # All current candidates can now use the newly observed anchor. This also
     # makes the result independent of A/B collector application order.
     confirm_collection_candidates_from_publications(project, admitted_candidates)
@@ -5505,7 +5366,6 @@ def apply_github_repo_evidence(
             add_candidate_url=add_candidate_url,
             project_owned_lexicon_nsid=project_owned_lexicon_nsid,
             add_authority_service_candidates=add_authority_service_candidates,
-            upsert_lexicon_schema_sample=upsert_lexicon_schema_sample,
             repo_url_allowed_for_project=repo_url_allowed_for_project,
             add_candidate_project_repository_url=add_candidate_project_repository_url,
             repo_context_service_candidate_allowed=repo_context_service_candidate_allowed,
@@ -6246,7 +6106,7 @@ def collect_investigation_evidence(project: dict[str, Any], plan: dict[str, Any]
             search_bsky_actors=search_bsky_actors,
             bsky_actor_relevance=bsky_actor_relevance,
             search_bsky_posts=search_bsky_posts,
-            handle_matches_project=handle_matches_project,
+            handle_matches_project=integration_core.handle_matches_project,
             fetch_bsky_author_feed=fetch_bsky_author_feed,
             timeout=REQUEST_TIMEOUT_DISCOVERY_SEARCH,
             github_request_metrics=github_request_metrics,
@@ -6930,79 +6790,14 @@ def finalize_project_shape(project: dict[str, Any], *, restore_manual_repositori
             url for url in evidence.get("evidence_urls", [])
             if url and identifier_core.normalize_url(str(url)) != introduced_url and not is_bsky_post_url(str(url))
         ]
-        evidence["developer_accounts"] = [
-            dict(item)
-            for item in project_record.normalize_developer_accounts(evidence.get("developer_accounts", []))
-            if keep_bluesky_account(project, str(item.get("handle") or ""), str(item.get("source") or ""))
-            or not str(item.get("handle") or "").strip()
-        ]
-        evidence["candidate_developer_accounts"] = [
-            dict(item)
-            for item in project_record.normalize_developer_accounts(evidence.get("candidate_developer_accounts", []))
-            if str(item.get("handle") or "").strip().lower() not in generic_platform_handles_to_ignore(project)
-        ]
-        surviving_evidence_handles = {
-            str(item.get("handle") or "").strip()
-            for item in evidence.get("developer_accounts", [])
-            if isinstance(item, dict) and str(item.get("handle") or "").strip()
-        }
-        evidence["bluesky_handles"] = [
-            handle
-            for handle in evidence.get("bluesky_handles", [])
-            if str(handle or "").strip() in surviving_evidence_handles or handle_matches_project(project, str(handle or ""))
-        ]
-        ignored_handles = generic_platform_handles_to_ignore(project)
-        if ignored_handles:
-            evidence["bluesky_handles"] = [
-                handle
-                for handle in evidence.get("bluesky_handles", [])
-                if str(handle or "").strip().lower() not in ignored_handles
-            ]
-            evidence["developer_accounts"] = [
-                dict(item)
-                for item in evidence.get("developer_accounts", [])
-                if str(item.get("handle") or "").strip().lower() not in ignored_handles
-            ]
-            evidence["candidate_developer_accounts"] = [
-                dict(item)
-                for item in evidence.get("candidate_developer_accounts", [])
-                if str(item.get("handle") or "").strip().lower() not in ignored_handles
-            ]
+        integration_core.normalize_evidence_accounts(project, evidence)
         project["llm_source"] = dict(project["llm_source"], evidence=evidence)
 
     project_record.normalize_website_and_service_urls(project)
     prune_project_urls(project, restore_manual_repositories=restore_manual_repositories)
     prune_stale_service_trust_evaluations(project)
     purge_supporting_page_service_observations(project)
-    project["developer_accounts"] = [
-        dict(item)
-        for item in project_record.normalize_developer_accounts(project.get("developer_accounts", []))
-        if keep_bluesky_account(project, str(item.get("handle") or ""), str(item.get("source") or ""))
-        or not str(item.get("handle") or "").strip()
-    ]
-    project["candidate_developer_accounts"] = [
-        dict(item)
-        for item in project_record.normalize_developer_accounts(project.get("candidate_developer_accounts", []))
-        if str(item.get("handle") or "").strip().lower() not in generic_platform_handles_to_ignore(project)
-        and str(item.get("handle") or "").strip() not in {
-            str(existing.get("handle") or "").strip()
-            for existing in project.get("developer_accounts", [])
-            if isinstance(existing, dict)
-        }
-    ]
-    surviving_handles = {
-        str(item.get("handle") or "").strip()
-        for item in project.get("developer_accounts", [])
-        if isinstance(item, dict) and str(item.get("handle") or "").strip()
-    }
-    project["bluesky_handles"] = project_record.unique_list(
-        [
-            handle
-            for handle in project_record.unique_list(project.get("bluesky_handles", []))
-            if str(handle or "").strip() in surviving_handles or handle_matches_project(project, str(handle or ""))
-        ]
-        + sorted(surviving_handles)
-    )
+    integration_core.normalize_project_accounts(project)
     project_record.normalize_website_and_service_urls(project)
     purge_blocked_identifiers(project)
     apply_deferred_identifier_guards(project)
@@ -7023,49 +6818,11 @@ def finalize_project_shape(project: dict[str, Any], *, restore_manual_repositori
         + project_record.compute_external_lexicons(project)
     )
     project_record.reclassify_service_specific_lexicon(project)
-    project["source_repo_records"] = project_record.normalize_source_repo_records(project.get("source_repo_records", []))
-    project["project_repository_urls"] = repo_url_core.normalize_repo_collection(
-        project_record.unique_list(
-            project.get("project_repository_urls", [])
-            + (sorted(project_record.active_manual_repo_urls(project)) if restore_manual_repositories else [])
-        )
-    )
-    project["project_repository_urls"] = [
-        url
-        for url in project["project_repository_urls"]
-        if not project_record.identifier_is_blocked(project, "repo_url", url)
-        and not project_record.identifier_is_deferred(project, "repo_url", url)
-    ]
-    confirmed_repo_set = set(project["project_repository_urls"])
-    project["repository_analysis_results"] = [
-        item
-        for item in repository_analysis_core.normalize_results(project.get("repository_analysis_results", []))
-        if item.get("repo_url") in confirmed_repo_set
-    ]
-    project["candidate_project_repository_urls"] = [
-        url
-        for url in repo_url_core.normalize_repo_collection(
-            project_record.unique_list(project.get("candidate_project_repository_urls", []))
-        )
-        if url not in project.get("project_repository_urls", [])
-    ]
-    project_record.sync_source_repo_provider_views(project)
+    project_record.normalize_repository_views(project, restore_manual_repositories=restore_manual_repositories)
     normalize_schema_definition_relations(project)
     apply_deferred_identifier_guards(project)
     url_alias_core.apply_url_aliases(project)
-    naming_core.sync_current_llm_name_candidate(project)
-    chosen_name = naming_core.choose_best_project_name(project)
-    if chosen_name:
-        project["name"] = chosen_name
-    if not project.get("name"):
-        if project.get("website_url"):
-            project["name"] = urllib.parse.urlparse(project["website_url"]).netloc
-        elif project_record.service_url_candidate_values(project):
-            project["name"] = urllib.parse.urlparse(project_record.service_url_candidate_values(project)[0]).netloc
-        elif project_record.provider_repo_url_values(project, "github"):
-            slug = repo_url_core.extract_github_slug(project_record.provider_repo_url_values(project, "github")[0])
-            if slug:
-                project["name"] = slug.split("/")[-1]
+    naming_core.apply_project_name(project)
     normalize_service_identifier_views(project)
     apply_current_service_observation_state(project)
     return project

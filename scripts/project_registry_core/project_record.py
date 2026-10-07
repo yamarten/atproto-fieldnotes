@@ -3044,3 +3044,33 @@ def parse_iso_datetime(value: str) -> dt.datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=dt.timezone.utc)
     return parsed.astimezone(dt.timezone.utc)
+
+
+def normalize_repository_views(project: dict[str, Any], *, restore_manual_repositories: bool = True) -> None:
+    project["source_repo_records"] = normalize_source_repo_records(project.get("source_repo_records", []))
+    project["project_repository_urls"] = repo_url_core.normalize_repo_collection(
+        unique_list(
+            project.get("project_repository_urls", [])
+            + (sorted(active_manual_repo_urls(project)) if restore_manual_repositories else [])
+        )
+    )
+    project["project_repository_urls"] = [
+        url
+        for url in project["project_repository_urls"]
+        if not identifier_is_blocked(project, "repo_url", url)
+        and not identifier_is_deferred(project, "repo_url", url)
+    ]
+    confirmed_repo_set = set(project["project_repository_urls"])
+    project["repository_analysis_results"] = [
+        item
+        for item in repository_analysis_core.normalize_results(project.get("repository_analysis_results", []))
+        if item.get("repo_url") in confirmed_repo_set
+    ]
+    project["candidate_project_repository_urls"] = [
+        url
+        for url in repo_url_core.normalize_repo_collection(
+            unique_list(project.get("candidate_project_repository_urls", []))
+        )
+        if url not in project.get("project_repository_urls", [])
+    ]
+    sync_source_repo_provider_views(project)

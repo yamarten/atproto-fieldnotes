@@ -1566,6 +1566,31 @@ class ProjectRegistryAuthorityServiceCandidateTest(unittest.TestCase):
 
 
 class ProjectRegistryProfileUrlTest(unittest.TestCase):
+    def test_finalize_keeps_account_snapshot_separate_from_current_completion(self) -> None:
+        project = project_record.default_project_record("proj:accountshape", "service_url", "https://demo.example")
+        confirmed = {"handle": "author.example", "source": "manual"}
+        unrelated = {"handle": "visitor.example", "source": "service_page:https://demo.example"}
+        candidate = {"handle": "author.example", "source": "actor_search"}
+        project["developer_accounts"] = [dict(confirmed), dict(unrelated)]
+        project["candidate_developer_accounts"] = [dict(candidate)]
+        project["bluesky_handles"] = []
+        project["llm_source"] = {"evidence": {
+            "developer_accounts": [dict(confirmed), dict(unrelated)],
+            "candidate_developer_accounts": [dict(candidate)],
+            "bluesky_handles": [],
+        }}
+
+        for _ in range(2):
+            registry.finalize_project_shape(project)
+            self.assertEqual([a["handle"] for a in project["developer_accounts"]], ["author.example"])
+            self.assertEqual(project["candidate_developer_accounts"], [])
+            self.assertEqual(project["bluesky_handles"], ["author.example"])
+            evidence = project["llm_source"]["evidence"]
+            self.assertEqual([a["handle"] for a in evidence["developer_accounts"]], ["author.example"])
+            # The saved snapshot is filtered, but current account completion is not copied into it.
+            self.assertEqual([a["handle"] for a in evidence["candidate_developer_accounts"]], ["author.example"])
+            self.assertEqual(evidence["bluesky_handles"], [])
+
     def test_bluesky_profile_subject_distinguishes_handle_and_did(self) -> None:
         self.assertEqual(
             project_record.extract_bluesky_profile_subject("https://bsky.app/profile/alice.example.com"),

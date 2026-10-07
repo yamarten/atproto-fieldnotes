@@ -95,7 +95,7 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 | `tangled_identity.py` | 同期用DID・handle双方向検証と取得失敗の分類。帰属・保留保存は`source_sync.py` |
 | `oauth_metadata.py` / `oauth_scope_parser.mjs` | 取得済みOAuth metadataを公式SDKで解析。Nodeで外部取得はしない |
 | `usage_material.py` | collection名に対応する宣言・record観測・原文の関連記述を抽出。用途判定はしない |
-| `integration.py` | 観測をprojectへ適用し、query・ログ・失敗を記録。共通の正規化・開発者情報・信頼edgeは担当moduleを直接呼び、callbackは採用判断・probe／Lexicon適用に限定 |
+| `integration.py` | 観測をprojectへ適用し、query・ログ・失敗を記録。取得済みLexicon schema・record sampleの縮約も担当。共通の正規化・開発者情報・信頼edgeは担当moduleを直接呼び、callbackは採用判断・probe／Lexicon適用に限定 |
 | `project_review.py` | review signal・紹介候補の採点／保留／優先度・追跡状態の提案。DB・registry・applicationには依存しない |
 | `project_merge.py` | 重複候補の比較・推薦・batch計画と未保存recordの合成。比較集合のDB読出しは可能だが、外部取得・finalize・保存は担当しない |
 | `evaluation.py` | ownership・atproto寄与度・service statusの純粋評価 |
@@ -129,6 +129,8 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 - 比較・migration用コピーの生成は`database.materialized_database_copy`がread-onlyの取得元接続、新規コピー先の排他作成、backup、commit・失敗時の削除を担当する。`maintenance/`内の各materializationは必要なschema世代と変換・検証規則を持ち、既存コピーや正本を上書きしない。
 - 分離したmoduleを旧symbol互換のため`registry.py`からre-exportしない。collectorのtestはHTTP transport、LLMのtestはcommand/endpointをfakeへ差し替える。
 - 名前と取り込みの照合に使うproject・seedの識別token、および候補textの追加は`project_record.py`が担当する。`integration.py`は名前候補を`naming.py`へ直接渡し、名前処理をregistryのcallbackで受け取らない。
+
+`registry.finalize_project_shape`は採用抑止条件の適用、identityの整理、派生viewの更新を順に組み立てる。除外・保留の適用は候補の正規化前後に必要なため順序を維持する。アカウントの照合・補完は`integration.py`、repository viewの正規化は`project_record.py`、代表名の確定は`naming.py`が担当する。保存済みLLM根拠のアカウントは不適切な観測を除くが、project本体へのhandle補完や候補重複の除去を遡及適用しない。
 
 `application/merge.py`が統合recordをfinalizeして、競合検査・識別子移送・alias更新・保存を同じtransactionで行う。`project_merge.py`はregistryやapplicationをimportしない。first creatorによる補助照合は、明示的な詳細検査でのみapplicationが取得関数を渡す。識別子の採用・除外・保留照合と手動repoの参照は`project_record.py`に集約する。
 
