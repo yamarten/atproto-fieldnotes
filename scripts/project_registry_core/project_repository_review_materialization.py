@@ -151,7 +151,7 @@ def _apply_manifest(conn: sqlite3.Connection, manifest: dict[str, Any]) -> dict[
         project = project_record.fetch_project(conn, project_key)
         if project is None:
             raise ValueError(f"reviewed project is missing: {project_key}")
-        if registry.identifier_is_blocked(project, "repo_url", repository_url) or registry.identifier_is_deferred(
+        if project_record.identifier_is_blocked(project, "repo_url", repository_url) or project_record.identifier_is_deferred(
             project, "repo_url", repository_url
         ):
             raise ValueError(f"reviewed repository is guarded: {project_key} {repository_url}")

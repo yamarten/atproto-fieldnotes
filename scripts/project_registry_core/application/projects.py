@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from project_registry_core import project_merge
+
 from project_registry_core import naming
 
 from .. import editorial
@@ -50,7 +52,7 @@ def add_seed(
     normalized_value = project_record.canonical_seed_value(resolved_type, seed)
     if resolved_type in {"service_url", "repo_url"}:
         _clear_exact_identifier_guards(project, resolved_type, normalized_value)
-    elif core.identifier_is_blocked(project, resolved_type, normalized_value) or core.identifier_is_deferred(
+    elif project_record.identifier_is_blocked(project, resolved_type, normalized_value) or project_record.identifier_is_deferred(
         project, resolved_type, normalized_value
     ):
         conn.rollback()
@@ -149,9 +151,9 @@ def select_projects(
 def prepare_project_view(
     conn: sqlite3.Connection, project: dict[str, Any], *, check_cancelled: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
-    duplicate_candidates = core.compute_duplicate_candidates(conn, project, check_cancelled=check_cancelled)
+    duplicate_candidates = project_merge.compute_duplicate_candidates(conn, project, check_cancelled=check_cancelled)
     prepared = dict(project, duplicate_candidates=duplicate_candidates)
-    prepared["merge_recommendation"] = core.compute_merge_recommendation(prepared)
+    prepared["merge_recommendation"] = project_merge.compute_merge_recommendation(prepared)
     return core.apply_promotion_state(prepared)
 
 

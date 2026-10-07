@@ -7,6 +7,8 @@ from unittest.mock import patch
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 
+from project_registry_core import project_merge
+
 from project_registry_core import enrichment_pipeline
 from project_registry_core import collection_trust, identifiers, project_record, replay, runtime_view, storage
 from project_registry_core.evidence import EvidenceBundle
@@ -51,8 +53,8 @@ class CollectionPublicationTrustUnitTest(ProjectRecordTestCase):
         self.assertEqual(evaluation["anchor_adoptions"][0]["source"], "collection_inventory_import")
         self.assertTrue(evaluation["forward_path"] and evaluation["backward_path"])
         self.assertFalse(any(i.kind == "did" and i.classification == "confirmed" for i in runtime_view.project_identifiers(p)))
-        self.assertNotIn(B, registry.trusted_collection_nsids_for_merge(p))
-        self.assertIn(A, registry.trusted_collection_nsids_for_merge(p))
+        self.assertNotIn(B, project_merge.trusted_collection_nsids_for_merge(p))
+        self.assertIn(A, project_merge.trusted_collection_nsids_for_merge(p))
         decision = next(d for d in p["confirmed_identifiers"] if d["value"] == B)
         self.assertEqual(decision["source"], collection_trust.ADOPTION_SOURCE)
         self.assertEqual(json.loads(decision["source_ref"])["anchor"]["value"], A)

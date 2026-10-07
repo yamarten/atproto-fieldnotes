@@ -10,7 +10,7 @@ import time
 from unittest import mock
 
 from helpers import ProjectRecordTestCase, SCRIPTS, TempRegistryDbTestCase, registry
-from project_registry_core import project_record
+from project_registry_core import project_record, project_merge
 from project_registry_core.application import presentation
 from project_registry_web.request_cancellation import RequestCancellation, RequestCancelled
 from project_registry_web.server import RegistryWebServer
@@ -107,8 +107,8 @@ class MergeAnalysisCancellationTest(TempRegistryDbTestCase):
     def test_cancellation_stops_hydration_index_and_pair_comparison(self):
         for stage, module, name in (
             ('hydrate', project_record, '_duplicate_project_from_rows'),
-            ('index', registry, 'duplicate_profile'),
-            ('pairs', registry, 'duplicate_candidate_for_pair'),
+            ('index', project_merge, 'duplicate_profile'),
+            ('pairs', project_merge, 'duplicate_candidate_for_pair'),
         ):
             with self.subTest(stage=stage), contextlib.closing(registry.open_db()) as conn:
                 count = 0

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from project_registry_core import project_merge
+
 from .. import editorial, service, usage_material
 
 from .. import concurrency
@@ -919,7 +921,7 @@ def merge_batch_plan(
     mode: str = "moderate",
     limit: int = 50,
 ) -> dict[str, Any]:
-    plans, skipped = core.build_batch_merge_plan(conn, mode=mode)
+    plans, skipped = project_merge.build_batch_merge_plan(conn, mode=mode)
     return {"mode": mode, "items": plans[:limit], "count": len(plans), "skipped_count": len(skipped)}
 
 

@@ -53,8 +53,6 @@ from project_registry_core.registry import (
     collect_service_evidence_with_followups,
     collect_tangled_account_evidence,
     collect_tangled_repo_evidence,
-    compute_duplicate_candidates,
-    compute_merge_recommendation,
     confirm_project_repository_url_with_trust,
     derived_authority_probe_urls,
     enrich_from_resource_pages,
@@ -76,6 +74,7 @@ from project_registry_core.registry import (
     should_refresh_lexicon_surface,
     should_refresh_recent_record_samples,
 )
+from project_registry_core.project_merge import compute_duplicate_candidates, compute_merge_recommendation
 from project_registry_core.project_record import (
     add_unique,
     ensure_project_shape,

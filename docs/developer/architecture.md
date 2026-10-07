@@ -76,7 +76,7 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 | `application/enrichment.py` | enrichの対象選択・transaction・保存・checkpoint |
 | `enrichment_pipeline.py` | 1 projectのcollector・LLM・保存前更新の実行順序。Lexicon・record sample・resource pageの収集結果をEvidenceBundleへ梱包する処理も保持 |
 | `application/enrich_prefetch.py` | LLM区間中の次の一件の先行取得。DBとLLMはcaller threadに保ち、使用前にsnapshotを照合 |
-| `registry.py` | collector適用・finalizeの補助処理、merge/queue policy |
+| `registry.py` | collector適用・finalizeの補助処理、queue policy |
 | `dev_database.py` | 架空定義から開発DBを生成・リセット。通常CLIのDB選択は`cli.py` |
 
 ### 観測・統合・評価
@@ -93,6 +93,7 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 | `oauth_metadata.py` / `oauth_scope_parser.mjs` | 取得済みOAuth metadataを公式SDKで解析。Nodeで外部取得はしない |
 | `usage_material.py` | collection名に対応する宣言・record観測・原文の関連記述を抽出。用途判定はしない |
 | `integration.py` | 観測をprojectへ適用 |
+| `project_merge.py` | 重複候補の比較・推薦・batch計画と未保存recordの合成。比較集合のDB読出しは可能だが、外部取得・finalize・保存は担当しない |
 | `evaluation.py` | ownership・atproto寄与度・service statusの純粋評価 |
 | `collection_trust.py` / `trust_graph.py` | Lexicon公開応答の検証・限定したcollection信頼policyと共通経路評価。取得・採用・DB保存は分離 |
 | `editorial.py` | 説明と更新案・根拠参照・編集保護。通常triageとWeb編集で共有 |
@@ -124,5 +125,7 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 - 比較・migration用コピーの生成は`database.materialized_database_copy`がread-onlyの取得元接続、新規コピー先の排他作成、backup、commit・失敗時の削除を担当する。各materializationは必要なschema世代と変換・検証規則を持ち、既存コピーや正本を上書きしない。
 - 分離したmoduleを旧symbol互換のため`registry.py`からre-exportしない。collectorのtestはHTTP transport、LLMのtestはcommand/endpointをfakeへ差し替える。
 - 名前と取り込みの照合に使うproject・seedの識別token、および候補textの追加は`project_record.py`が担当する。`integration.py`は名前候補を`naming.py`へ直接渡し、名前処理をregistryのcallbackで受け取らない。
+
+`application/merge.py`が統合recordをfinalizeして、競合検査・識別子移送・alias更新・保存を同じtransactionで行う。`project_merge.py`はregistryやapplicationをimportしない。first creatorによる補助照合は、明示的な詳細検査でのみapplicationが取得関数を渡す。識別子の採用・除外・保留照合と手動repoの参照は`project_record.py`に集約する。
 
 resource pageの統合は既存更新関数をprojectのcopyへ適用し、許可fieldの差分を返す暫定実装です。cacheと連続失敗を抑止するcircuit breakerはprocess・情報源単位で、process終了時に状態を失います。

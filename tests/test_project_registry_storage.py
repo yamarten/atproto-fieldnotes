@@ -9,6 +9,8 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, captured_stdout, registry
+
+from project_registry_core import project_merge
 from project_registry_core import cli, database, domain_policy, relations, source_sync
 from project_registry_core.commands import review as review_commands
 from project_registry_core.commands import queue_interaction
@@ -243,7 +245,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
         target = self.make_project("proj:bar", "service_url", "https://bar.example.com")
         registry.add_manual_seed(target, "service_url", "https://bar.example.com", source="test")
 
-        suggestions = registry.merge_pair_multi_tenant_suffix_suggestions(source, target)
+        suggestions = project_merge.merge_pair_multi_tenant_suffix_suggestions(source, target)
 
         self.assertEqual([item["suffix"] for item in suggestions], ["example.com"])
         self.assertEqual(suggestions[0]["source_tenants"], ["foo.example.com"])
@@ -629,7 +631,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
             reason="best grouped with similar projects",
         )
 
-        merged = registry.merge_project_records(target, source)
+        merged = merge_services.merge_project_records(target, source)
 
         self.assertEqual(
             registry.active_promotion_priority_adjustment(merged)["reason"],
@@ -2429,7 +2431,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
     def test_review_queue_does_not_refresh_duplicate_candidates(self) -> None:
         conn = registry.open_db()
-        original_compute = registry.compute_duplicate_candidates
+        original_compute = project_merge.compute_duplicate_candidates
         try:
             project = self.make_project("proj:cafecafecafe", "nsid", "app.example.post")
             project["name"] = "Candidate Service"
@@ -2440,7 +2442,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             def fail_compute(*args, **kwargs):
                 raise AssertionError("review queue should use stored derived merge fields")
 
-            registry.compute_duplicate_candidates = fail_compute
+            project_merge.compute_duplicate_candidates = fail_compute
             queue = registry.build_review_queue(conn, tracking_states={"active"}, limit=5)
             batch, next_index = registry.build_review_queue_batch(conn, tracking_states={"active"}, batch_size=5)
             item = registry.build_review_queue_item(conn, "proj:cafecafecafe")
@@ -2450,7 +2452,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertGreaterEqual(next_index, 1)
             self.assertEqual(item["project_key"], "proj:cafecafecafe")
         finally:
-            registry.compute_duplicate_candidates = original_compute
+            project_merge.compute_duplicate_candidates = original_compute
             conn.close()
 
     def test_lightweight_review_shape_matches_full_review_signals(self) -> None:

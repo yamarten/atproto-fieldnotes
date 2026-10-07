@@ -59,8 +59,6 @@ from project_registry_core.registry import (
     build_collection_project_matchers,
     clean_string_list,
     collect_applog_entries,
-    compute_duplicate_candidates,
-    compute_merge_recommendation,
     confirm_project_repository_url_with_trust,
     enrich_from_github_repo,
     ensure_project_for_seed,
@@ -77,6 +75,7 @@ from project_registry_core.registry import (
     upsert_collection_observation,
     write_sync_state,
 )
+from project_registry_core.project_merge import compute_duplicate_candidates, compute_merge_recommendation
 
 
 

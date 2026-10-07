@@ -106,13 +106,13 @@ class ProjectConcurrencyTest(TempRegistryDbTestCase):
         self.assertEqual(project_record.fetch_project(self.conn, self.key)["tracking_state"], "ignore")
 
     def test_merge_rechecks_input_and_rolls_back_all_outputs(self):
-        real_merge = registry.merge_project_records
+        real_merge = merge.merge_project_records
         def competing_update(target, source):
             result = real_merge(target, source)
             projects.set_tracking_state(self.other, project_key=source["project_key"], tracking_state="ignore")
             return result
         target_before = project_record.fetch_project(self.conn, "proj:222222222222")
-        with mock.patch.object(registry, "merge_project_records", side_effect=competing_update):
+        with mock.patch.object(merge, "merge_project_records", side_effect=competing_update):
             with self.assertRaises(concurrency.StaleProjectWriteError):
                 merge.merge_projects(self.conn, project_key=self.key, target_project_key="proj:222222222222", execute=True, force=True)
         self.assertEqual(project_record.fetch_project(self.conn, "proj:222222222222"), target_before)

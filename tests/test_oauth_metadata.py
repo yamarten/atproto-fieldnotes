@@ -7,6 +7,8 @@ import subprocess
 from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
+
+from project_registry_core.application import merge as application_merge
 from project_registry_core import oauth_metadata, project_record, relations
 from project_registry_core.application import presentation
 from project_registry_core.evidence import EvidenceBundle
@@ -151,7 +153,7 @@ class OAuthMetadataTest(_OAuthMetadataFixtures, TempRegistryDbTestCase):
         with mock.patch.object(oauth_metadata, "_parse_json", side_effect=AssertionError("replay starts parser")):
             registry.apply_replay_evidence(project, EvidenceBundle.from_dict(old.to_dict()))
         self.assertEqual(project["relation_evidence"], [])
-        merged = registry.merge_project_records(project, {**older_project, "project_key": "proj:other"})
+        merged = application_merge.merge_project_records(project, {**older_project, "project_key": "proj:other"})
         self.assertEqual(merged["relation_evidence"], [])
         with contextlib.closing(registry.open_db()) as conn:
             project_record.save_project(conn, older_project)

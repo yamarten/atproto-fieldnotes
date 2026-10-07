@@ -5,6 +5,8 @@ import json
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
+
+from project_registry_core import project_merge
 from project_registry_core import cli
 from project_registry_core import service, storage
 from project_registry_core.commands import projects as project_commands
@@ -103,7 +105,7 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
             target["website_url"] = "https://shared.example.com"
             project_record.save_project(conn, source)
             project_record.save_project(conn, target)
-            original = registry.compute_duplicate_candidates
+            original = project_merge.compute_duplicate_candidates
             calls = 0
 
             def counted(*args, **kwargs):
@@ -111,13 +113,13 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
                 calls += 1
                 return original(*args, **kwargs)
 
-            registry.compute_duplicate_candidates = counted
+            project_merge.compute_duplicate_candidates = counted
             try:
                 detail = presentation.project_detail(conn, project_key=source["project_key"])
                 self.assertEqual(calls, 0)
                 analysis = presentation.project_merge_analysis(conn, project_key=source["project_key"])
             finally:
-                registry.compute_duplicate_candidates = original
+                project_merge.compute_duplicate_candidates = original
             with self.assertRaisesRegex(ValueError, "recommendation changed"):
                 merge.merge_projects(
                     conn,
@@ -780,11 +782,11 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
         self.assertIn("https://tools.example.com/import/writing", saved["service_urls"])
         self.assertIn(
             "https://tools.example.com",
-            registry.blocked_identifier_values(saved, "service_url"),
+            project_record.blocked_identifier_values(saved, "service_url"),
         )
         self.assertNotIn(
             "https://tools.example.com/import/writing",
-            registry.deferred_identifier_values(saved, "service_url"),
+            project_record.deferred_identifier_values(saved, "service_url"),
         )
 
     def test_defer_after_add_seed_clears_operator_confirmation(self) -> None:
@@ -1023,12 +1025,12 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
         try:
             source = projects.add_seed(conn, seed="https://source.example", seed_type="service_url")
             target = projects.add_seed(conn, seed="https://target.example", seed_type="service_url")
-            original = registry.compute_duplicate_candidates
+            original = project_merge.compute_duplicate_candidates
 
             def fail_compute(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
                 raise AssertionError("explicit dry-run merge preview should not compute global duplicate candidates")
 
-            registry.compute_duplicate_candidates = fail_compute
+            project_merge.compute_duplicate_candidates = fail_compute
             try:
                 preview = merge.merge_projects(
                     conn,
@@ -1038,7 +1040,7 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
                     force=True,
                 )
             finally:
-                registry.compute_duplicate_candidates = original
+                project_merge.compute_duplicate_candidates = original
         finally:
             conn.close()
 
@@ -1155,7 +1157,7 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
             target = projects.add_seed(conn, seed="https://target.example", seed_type="service_url")
             target_before = project_record.fetch_project(conn, target["project_key"])
             with (
-                mock.patch.object(merge.core, "delete_project", side_effect=RuntimeError("delete failed")),
+                mock.patch.object(merge, "delete_project", side_effect=RuntimeError("delete failed")),
                 self.assertRaisesRegex(RuntimeError, "delete failed"),
             ):
                 merge.merge_projects(
@@ -1180,7 +1182,7 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
         try:
             source = projects.add_seed(conn, seed="https://source.example", seed_type="service_url")
             target = projects.add_seed(conn, seed="https://target.example", seed_type="service_url")
-            registry.register_project_merge_alias(
+            merge.register_project_merge_alias(
                 conn,
                 source_project_key=source["project_key"],
                 target_project_key=target["project_key"],

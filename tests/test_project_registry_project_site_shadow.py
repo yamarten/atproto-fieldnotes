@@ -7,7 +7,9 @@ from argparse import Namespace
 from pathlib import Path
 
 from helpers import TempRegistryDbTestCase
-from project_registry_core import cli, database, project_record, project_site_materialization, project_site_shadow, registry
+
+from project_registry_core.application import merge as application_merge
+from project_registry_core import cli, database, project_record, project_site_materialization, project_site_shadow
 from project_registry_core.application import presentation
 from project_registry_core.commands import maintenance
 
@@ -56,7 +58,7 @@ class ProjectSiteShadowUnitTest(unittest.TestCase):
         target["project_site_urls"] = ["https://target.example"]
         source["project_site_urls"] = ["https://source.example"]
         source["project_site_url_candidates"] = ["https://candidate.example"]
-        merged = registry.merge_project_records(target, source)
+        merged = application_merge.merge_project_records(target, source)
         self.assertEqual(
             merged["project_site_urls"],
             ["https://target.example", "https://source.example"],

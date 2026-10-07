@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from project_registry_core import project_merge
+
 import sqlite3
 import datetime as dt
 from typing import Any
@@ -30,8 +32,8 @@ UNAMBIGUOUS_COMPONENT_ROLES = {
 
 
 def _refresh_merge_state(conn: sqlite3.Connection, project: dict[str, Any]) -> dict[str, Any]:
-    project["duplicate_candidates"] = core.compute_duplicate_candidates(conn, project)
-    project["merge_recommendation"] = core.compute_merge_recommendation(project)
+    project["duplicate_candidates"] = project_merge.compute_duplicate_candidates(conn, project)
+    project["merge_recommendation"] = project_merge.compute_merge_recommendation(project)
     return project
 
 

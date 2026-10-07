@@ -244,3 +244,12 @@ def candidate_service_origins_for_authority_domain(authority_domain: str) -> lis
     if registrable and "." in registrable and registrable != lowered:
         candidates.append(f"https://{registrable}")
     return candidates
+
+
+def tenant_identity_for_suffix(host: str, suffix: str) -> str:
+    lowered = str(host or "").strip().lower().rstrip(".")
+    normalized_suffix = normalize_multi_tenant_suffix(suffix)
+    if not lowered.endswith(f".{normalized_suffix}"):
+        return ""
+    prefix_labels = lowered[: -(len(normalized_suffix) + 1)].split(".")
+    return f"{prefix_labels[-1]}.{normalized_suffix}" if prefix_labels and prefix_labels[-1] else ""

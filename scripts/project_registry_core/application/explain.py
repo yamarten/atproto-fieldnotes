@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from project_registry_core import project_merge
+
 import sqlite3
 from typing import Any
 
@@ -99,6 +101,6 @@ def explain_project(conn: sqlite3.Connection, *, project_key: str, topic: str = 
     project = project_record.fetch_project(conn, resolved)
     if project is None:
         raise ValueError(f"project not found: {project_key}")
-    duplicate_candidates = core.compute_duplicate_candidates(conn, project)
-    recommendation = core.compute_merge_recommendation(dict(project, duplicate_candidates=duplicate_candidates))
+    duplicate_candidates = project_merge.compute_duplicate_candidates(conn, project)
+    recommendation = project_merge.compute_merge_recommendation(dict(project, duplicate_candidates=duplicate_candidates))
     return explain_project_state(project, recommendation=recommendation, topic=topic)

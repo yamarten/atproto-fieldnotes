@@ -13,6 +13,8 @@ from http import HTTPStatus
 from io import BytesIO
 
 from helpers import ROOT, ProjectRecordTestCase, TempRegistryDbTestCase, registry
+
+from project_registry_core import project_merge
 from project_registry_core import domain_policy, introduced_review, storage
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle
 from project_registry_web.server import (
@@ -1045,14 +1047,14 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         self.assertIn("diff", replay)
 
     def test_merge_analysis_is_loaded_separately_from_project_detail(self) -> None:
-        original = registry.compute_duplicate_candidates
-        registry.compute_duplicate_candidates = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        original = project_merge.compute_duplicate_candidates
+        project_merge.compute_duplicate_candidates = lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("detail computed duplicate candidates")
         )
         try:
             status, detail, _ = self.request("/api/projects/proj:111111111111")
         finally:
-            registry.compute_duplicate_candidates = original
+            project_merge.compute_duplicate_candidates = original
         self.assertEqual(status, 200)
         self.assertTrue(detail["merge_analysis_pending"])
         self.assertEqual(detail["explanations"]["topics"]["merge_candidate"]["conclusion"], "pending")

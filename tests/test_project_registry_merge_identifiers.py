@@ -125,7 +125,7 @@ class MergeIdentifierPreservationTest(TempRegistryDbTestCase):
         presentation.confirm_candidate(self.conn, project_key="proj:s", identifier_type="nsid", value="com.example.post")
         source = project_record.fetch_project(self.conn, "proj:s")
         target = project_record.fetch_project(self.conn, "proj:t")
-        preview = registry.merge_project_records(target, source)
+        preview = merge.merge_project_records(target, source)
         self.assertEqual(collection_trust.independent_adoptions(preview, "com.example.post"), [
             dict(row, project_key="proj:t") for row in self.adoptions("proj:s")
         ])

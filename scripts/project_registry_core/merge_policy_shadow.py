@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from project_registry_core import project_merge
+
 import collections
 import contextlib
 import hashlib
@@ -704,7 +706,7 @@ def _retrospective_features(left: dict[str, Any], right: dict[str, Any]) -> dict
     )
     if (
         set(left_legacy.get("record_creators", [])) & set(right_legacy.get("record_creators", []))
-        and registry.namespace_lineage_overlap(left_legacy, right_legacy)
+        and project_merge.namespace_lineage_overlap(left_legacy, right_legacy)
     ):
         legacy_reason_keys.append("record_creators_and_namespace_lineage")
     domain_context = {
@@ -958,8 +960,8 @@ def _current_v2_profile(project: dict[str, Any]) -> dict[str, set[str]]:
         "service_urls": set(shaped.get("service_urls", [])),
         "recorded_lexicon_namespaces": set(shaped.get("recorded_lexicon_namespaces", [])),
         "record_creators": set(shaped.get("record_creators", [])),
-        "authority_service_families": registry.project_merge_authority_families(shaped),
-        "domain_identity_tokens": registry.project_merge_domain_identity_tokens(shaped),
+        "authority_service_families": project_merge.project_merge_authority_families(shaped),
+        "domain_identity_tokens": project_merge.project_merge_domain_identity_tokens(shaped),
         "merge_aliases": project_record.project_merge_aliases(shaped),
     }
 
@@ -971,7 +973,7 @@ def _current_v2_candidate(
     left_profile: dict[str, set[str]] | None = None,
     right_profile: dict[str, set[str]] | None = None,
 ) -> dict[str, Any] | None:
-    if registry.merge_is_blocked(left, right):
+    if project_merge.merge_is_blocked(left, right):
         return None
     left_values = left_profile or _current_v2_profile(left)
     right_values = right_profile or _current_v2_profile(right)
@@ -993,13 +995,13 @@ def _current_v2_candidate(
     record_creator_overlap = sorted(
         set(left.get("record_creators", [])) & set(right.get("record_creators", []))
     )
-    namespace_lineage = registry.namespace_lineage_overlap(left, right)
+    namespace_lineage = project_merge.namespace_lineage_overlap(left, right)
     if record_creator_overlap and namespace_lineage:
         reasons["record_creators_and_namespace_lineage"] = namespace_lineage
     if not reasons:
         return None
-    score = registry.merge_score_from_reasons(reasons)
-    confidence, auto_merge_ready = registry.merge_confidence_from_reasons(reasons, score)
+    score = project_merge.merge_score_from_reasons(reasons)
+    confidence, auto_merge_ready = project_merge.merge_confidence_from_reasons(reasons, score)
     return {
         "project_key": str(right.get("project_key") or ""),
         "name": str(right.get("name") or ""),
@@ -1035,7 +1037,7 @@ def _current_pair_candidates(projects: list[dict[str, Any]]) -> dict[tuple[str, 
     for left_key, right_key in sorted(pair_keys):
         left = lookup[left_key]
         right = lookup[right_key]
-        blocked = registry.merge_is_blocked(left, right)
+        blocked = project_merge.merge_is_blocked(left, right)
         candidate = None if blocked else _current_v2_candidate(
             left,
             right,
@@ -1046,8 +1048,8 @@ def _current_pair_candidates(projects: list[dict[str, Any]]) -> dict[tuple[str, 
             continue
         left_v2 = _current_v2_shape(left)
         right_v2 = _current_v2_shape(right)
-        strict = registry.batch_strict_overlap(left_v2, right_v2) if not blocked else {}
-        moderate = registry.batch_moderate_overlap(left_v2, right_v2) if not blocked else {}
+        strict = project_merge.batch_strict_overlap(left_v2, right_v2) if not blocked else {}
+        moderate = project_merge.batch_moderate_overlap(left_v2, right_v2) if not blocked else {}
         output[(left_key, right_key)] = {
             "blocked": blocked,
             "candidate": candidate,
@@ -1327,8 +1329,8 @@ def _historical_merges(
         source_v2 = _current_v2_shape(source["legacy"])
         target_v2 = _current_v2_shape(target["legacy"])
         candidate = _current_v2_candidate(source_v2, target_v2)
-        strict = registry.batch_strict_overlap(source_v2, target_v2)
-        moderate = registry.batch_moderate_overlap(source_v2, target_v2)
+        strict = project_merge.batch_strict_overlap(source_v2, target_v2)
+        moderate = project_merge.batch_moderate_overlap(source_v2, target_v2)
         current_bucket = (
             "strict" if strict else "moderate" if moderate else "broad_only" if candidate else "no_signal"
         )

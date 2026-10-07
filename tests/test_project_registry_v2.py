@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
+
+from project_registry_core.application import merge as application_merge
 import promotion_evaluation
 from project_registry_core import database
 from project_registry_core import runtime_view
@@ -197,14 +199,14 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
             "type": "service_url", "value": "https://candidate.example", "note": "wait", "added_at": "2026-06-14T00:00:00+00:00",
             "expires_at": "2099-06-14T00:00:00+00:00",
         }]
-        merged = registry.merge_project_records(target, source)
+        merged = application_merge.merge_project_records(target, source)
         project_record.save_project(conn, merged)
         fetched = project_record.fetch_project(conn, target["project_key"])
         assert fetched is not None
         self.assertEqual(len(fetched["blocked_identifiers"]), 1)
         self.assertEqual(len(fetched["deferred_identifiers"]), 1)
-        self.assertTrue(registry.identifier_is_blocked(fetched, "repo_url", "https://github.com/example/noise"))
-        self.assertTrue(registry.identifier_is_deferred(fetched, "service_url", "https://candidate.example"))
+        self.assertTrue(project_record.identifier_is_blocked(fetched, "repo_url", "https://github.com/example/noise"))
+        self.assertTrue(project_record.identifier_is_deferred(fetched, "service_url", "https://candidate.example"))
         conn.close()
 
 

@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import sqlite3
+import urllib.parse
 from typing import Any
 
+from project_registry_core import database as registry_database
+from project_registry_core import http_transport
+from project_registry_core import identifiers as identifier_core
+from project_registry_core import project_merge
 from .. import identifier_storage, registry as core
 from .. import concurrency
 from .. import runtime_view
@@ -24,8 +29,7 @@ def inspect_pair(
     target = project_record.ensure_project_shape(core.resolve_single_project(conn, project_key=target_project_key, seed=target_seed, seed_type=target_seed_type))
     if source["project_key"] == target["project_key"]:
         raise ValueError("source and target resolve to the same project")
-    return core.inspect_merge_pair_payload(
-        conn,
+    return inspect_merge_pair_payload(
         source,
         target,
         include_first_creator_details=include_first_creator_details,
@@ -49,8 +53,8 @@ def merge_projects(
     source = project_record.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
     resolve_recommendation = use_recommendation or not any([target_project_key, target_seed])
     if resolve_recommendation:
-        source["duplicate_candidates"] = core.compute_duplicate_candidates(conn, source)
-        source["merge_recommendation"] = core.compute_merge_recommendation(source)
+        source["duplicate_candidates"] = project_merge.compute_duplicate_candidates(conn, source)
+        source["merge_recommendation"] = project_merge.compute_merge_recommendation(source)
         recommendation = source.get("merge_recommendation") or {}
         resolved_target_key = str(recommendation.get("target_project_key") or "")
         if not resolved_target_key:
@@ -65,7 +69,7 @@ def merge_projects(
     target = project_record.ensure_project_shape(target)
     if source["project_key"] == target["project_key"]:
         raise ValueError("source and target resolve to the same project")
-    if core.merge_is_blocked(source, target) and not force:
+    if project_merge.merge_is_blocked(source, target) and not force:
         raise ValueError("merge is manually blocked for this project pair; pass force only to override that guard")
     current_claims = {
         (item.kind, item.value, item.role)
@@ -78,7 +82,7 @@ def merge_projects(
     ):
         if (row["kind"], row["value"], row["role"]) in current_claims:
             raise ValueError(f"merge conflicts with a noncurrent identifier: {row['kind']} {row['value']} ({row['role']}); resolve the identifier standing first")
-    merged = core.merge_project_records(target, source)
+    merged = merge_project_records(target, source)
     merged["separate_project_keys"] = [
         key for key in merged.get("separate_project_keys", [])
         if key not in {source["project_key"], target["project_key"]}
@@ -92,15 +96,15 @@ def merge_projects(
             not in {source["project_key"], target["project_key"]}
         ]
         comparison_projects.append(merged)
-        duplicate_profiles, duplicate_index = core.build_duplicate_candidate_index(comparison_projects)
-        merged["duplicate_candidates"] = core.compute_duplicate_candidates(
+        duplicate_profiles, duplicate_index = project_merge.build_duplicate_candidate_index(comparison_projects)
+        merged["duplicate_candidates"] = project_merge.compute_duplicate_candidates(
             conn,
             merged,
             projects=comparison_projects,
             duplicate_profiles=duplicate_profiles,
             duplicate_index=duplicate_index,
         )
-        merged["merge_recommendation"] = core.compute_merge_recommendation(merged)
+        merged["merge_recommendation"] = project_merge.compute_merge_recommendation(merged)
         next_target_key = str(merged["merge_recommendation"].get("target_project_key") or "")
         next_target = next(
             (
@@ -111,7 +115,7 @@ def merge_projects(
             None,
         )
         if next_target is not None:
-            next_source, next_target = core.choose_batch_merge_direction(merged, next_target)
+            next_source, next_target = project_merge.choose_batch_merge_direction(merged, next_target)
             next_merge_review = {
                 "source_project_key": str(next_source.get("project_key") or ""),
                 "target_project_key": str(next_target.get("project_key") or ""),
@@ -155,12 +159,12 @@ def merge_projects(
                 preserve_timestamps=True,
                 commit=False,
             )
-            core.register_project_merge_alias(
+            register_project_merge_alias(
                 conn,
                 source_project_key=source["project_key"],
                 target_project_key=target["project_key"],
             )
-            core.delete_project(conn, source["project_key"])
+            delete_project(conn, source["project_key"])
     return summary
 
 
@@ -230,8 +234,8 @@ def split_identifier(
     project_record.append_system_note(source, note_line)
     source = core.finalize_project_shape(source)
     for item in (source, target):
-        item["duplicate_candidates"] = core.compute_duplicate_candidates(conn, item)
-        item["merge_recommendation"] = core.compute_merge_recommendation(item)
+        item["duplicate_candidates"] = project_merge.compute_duplicate_candidates(conn, item)
+        item["merge_recommendation"] = project_merge.compute_merge_recommendation(item)
     summary = {
         "mode": "execute" if execute else "dry_run",
         "source_project_key": source["project_key"],
@@ -264,3 +268,185 @@ def split_identifier(
             )
             project_record.save_project(conn, target, enriched=False, preserve_timestamps=True, commit=False)
     return summary
+
+
+BSKY_SYNC_API = "https://bsky.network"
+
+
+_COLLECTION_FIRST_CREATOR_DID_CACHE: dict[str, str | None] = {}
+
+
+def fetch_collection_first_creator_did(collection: str) -> str:
+    normalized = identifier_core.normalize_nsid(collection)
+    if not normalized:
+        return ""
+    if normalized in _COLLECTION_FIRST_CREATOR_DID_CACHE:
+        return str(_COLLECTION_FIRST_CREATOR_DID_CACHE[normalized] or "")
+    params = urllib.parse.urlencode({"collection": normalized, "limit": 1})
+    payload = http_transport.request_json(f"{BSKY_SYNC_API}/xrpc/com.atproto.sync.listReposByCollection?{params}")
+    repos = payload.get("repos", []) if isinstance(payload, dict) else []
+    did = ""
+    if isinstance(repos, list):
+        for item in repos:
+            if not isinstance(item, dict):
+                continue
+            candidate = str(item.get("did") or "").strip()
+            if candidate:
+                did = candidate
+                break
+    _COLLECTION_FIRST_CREATOR_DID_CACHE[normalized] = did or None
+    return did
+
+
+def project_collection_nsids(project: dict[str, Any]) -> set[str]:
+    collections: set[str] = set()
+    for value in list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", [])) + list(project.get("lexicons", [])):
+        normalized = identifier_core.normalize_nsid(str(value or ""))
+        if normalized and project_record.namespace_from_collection_nsid(normalized):
+            collections.add(normalized)
+    for sample in project.get("recent_record_samples", []):
+        if not isinstance(sample, dict):
+            continue
+        normalized = identifier_core.normalize_nsid(str(sample.get("collection") or ""))
+        if normalized and project_record.namespace_from_collection_nsid(normalized):
+            collections.add(normalized)
+    return collections
+
+
+def project_collection_first_creator_dids(project: dict[str, Any]) -> set[str]:
+    dids: set[str] = set()
+    for collection in sorted(project_collection_nsids(project)):
+        try:
+            did = fetch_collection_first_creator_did(collection)
+        except Exception:
+            did = ""
+        if did:
+            dids.add(did)
+    return dids
+
+
+def project_collection_first_creator_did_map(project: dict[str, Any]) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for collection in sorted(project_collection_nsids(project)):
+        try:
+            did = fetch_collection_first_creator_did(collection)
+        except Exception:
+            did = ""
+        if did:
+            mapping[collection] = did
+    return mapping
+
+
+def project_collection_first_creator_details(project: dict[str, Any]) -> dict[str, dict[str, str]]:
+    details: dict[str, dict[str, str]] = {}
+    for collection in sorted(project_collection_nsids(project)):
+        try:
+            did = fetch_collection_first_creator_did(collection)
+        except Exception as exc:
+            details[collection] = {"status": "error", "did": "", "error": str(exc)}
+            continue
+        if did:
+            details[collection] = {"status": "found", "did": did}
+        else:
+            details[collection] = {"status": "not_found", "did": ""}
+    return details
+
+
+def inspect_merge_pair_payload(
+    source: dict[str, Any],
+    target: dict[str, Any],
+    *,
+    include_first_creator_details: bool = False,
+) -> dict[str, Any]:
+    source = project_record.ensure_project_shape(source)
+    target = project_record.ensure_project_shape(target)
+    source_profile = project_merge.duplicate_profile(source)
+    target_profile = project_merge.duplicate_profile(target)
+    source_pair_candidate = project_merge.duplicate_candidate_for_pair(
+        source,
+        target,
+        project_profile=source_profile,
+        other_profile=target_profile,
+    )
+    target_pair_candidate = project_merge.duplicate_candidate_for_pair(
+        target,
+        source,
+        project_profile=target_profile,
+        other_profile=source_profile,
+    )
+    strict_overlap = project_merge.batch_strict_overlap(source, target)
+    moderate_overlap = project_merge.batch_moderate_overlap(source, target)
+    heuristic_overlap = (
+        project_merge.batch_moderate_overlap(source, target, first_creator_lookup=project_collection_first_creator_dids)
+        if include_first_creator_details else {}
+    )
+    summary: dict[str, Any] = {
+        "source_project_key": source["project_key"],
+        "target_project_key": target["project_key"],
+        "source_name": source.get("name", ""),
+        "target_name": target.get("name", ""),
+        "source_seed_type": source.get("seed_type", ""),
+        "source_seed_value": source.get("seed_value", ""),
+        "target_seed_type": target.get("seed_type", ""),
+        "target_seed_value": target.get("seed_value", ""),
+        "merge_blocked": project_merge.merge_is_blocked(source, target),
+        "source_pair_candidate": source_pair_candidate,
+        "target_pair_candidate": target_pair_candidate,
+        "strict_overlap": strict_overlap,
+        "moderate_overlap": moderate_overlap,
+        "suggested_multi_tenant_suffixes": project_merge.merge_pair_multi_tenant_suffix_suggestions(source, target),
+        "first_creator_details_included": bool(include_first_creator_details),
+        "first_creator_overlap": heuristic_overlap,
+    }
+    if include_first_creator_details:
+        summary["source_collection_first_creator_dids"] = project_collection_first_creator_did_map(source)
+        summary["target_collection_first_creator_dids"] = project_collection_first_creator_did_map(target)
+        summary["source_collection_first_creator_details"] = project_collection_first_creator_details(source)
+        summary["target_collection_first_creator_details"] = project_collection_first_creator_details(target)
+    return summary
+
+
+def merge_project_records(target: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
+    return core.finalize_project_shape(
+        project_merge.combine_records(target, source), restore_manual_repositories=False,
+    )
+
+
+def delete_project(conn: sqlite3.Connection, project_key: str) -> None:
+    conn.execute("DELETE FROM projects WHERE project_key = ?", (project_key,))
+
+
+def register_project_merge_alias(
+    conn: sqlite3.Connection,
+    *,
+    source_project_key: str,
+    target_project_key: str,
+) -> None:
+    registry_database.register_project_key_alias(
+        conn,
+        alias_project_key=source_project_key,
+        canonical_project_key=target_project_key,
+        reason="merge",
+        created_at=project_record.iso_now(),
+    )
+    conn.execute(
+        """
+        UPDATE project_decisions
+        SET target_value = ?
+        WHERE kind = 'separate_project'
+          AND target_type = 'project_key'
+          AND target_value = ?
+          AND project_key <> ?
+        """,
+        (target_project_key, source_project_key, target_project_key),
+    )
+    conn.execute(
+        """
+        DELETE FROM project_decisions
+        WHERE project_key = ?
+          AND kind = 'separate_project'
+          AND target_type = 'project_key'
+          AND target_value IN (?, ?)
+        """,
+        (target_project_key, source_project_key, target_project_key),
+    )

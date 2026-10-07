@@ -12,6 +12,9 @@ from io import BytesIO
 from unittest import mock
 
 from helpers import ROOT, registry
+
+from project_registry_core import project_merge
+from project_registry_core.application import merge as application_merge
 from project_registry_core.cli import build_parser
 from project_registry_core import domain_policy, source_sync
 from project_registry_core import http_transport as http_transport_core
@@ -2004,7 +2007,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
             confidence="confirmed",
         )
 
-        self.assertTrue(registry.identifier_is_deferred(project, "service_url", "https://example.com/docs"))
+        self.assertTrue(project_record.identifier_is_deferred(project, "service_url", "https://example.com/docs"))
         self.assertEqual(project["resource_url_records"], [])
 
     def test_follow_up_service_probe_records_resource_not_service_url(self) -> None:
@@ -2922,8 +2925,8 @@ class ProjectRegistryLlmParserTest(unittest.TestCase):
 
 class ProjectRegistryMergeScoringTest(unittest.TestCase):
     def confidence_for(self, reasons: dict[str, list[str]]) -> tuple[str, bool]:
-        score = registry.merge_score_from_reasons(reasons)
-        return registry.merge_confidence_from_reasons(reasons, score)
+        score = project_merge.merge_score_from_reasons(reasons)
+        return project_merge.merge_confidence_from_reasons(reasons, score)
 
     def test_same_service_url_is_high_confidence_auto_merge(self) -> None:
         self.assertEqual(self.confidence_for({"service_urls": ["https://example.com"]}), ("high", True))
@@ -2954,7 +2957,7 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         target["service_url_candidates"] = ["https://leaflet.pub"]
         target["project_repository_urls"] = ["https://github.com/ETJeanMachine/jeanmachine.dev"]
 
-        candidates = registry.compute_duplicate_candidates(None, source, projects=[source, target])
+        candidates = project_merge.compute_duplicate_candidates(None, source, projects=[source, target])
 
         pair = next(item for item in candidates if item["project_key"] == "proj:targetleaflet")
         self.assertEqual(pair["reasons"], {"merge_aliases": ["leaflet"]})
@@ -2968,7 +2971,7 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         target["name"] = "Example Target"
 
         original_list_projects = project_record.list_projects
-        original_build_index = registry.build_duplicate_candidate_index
+        original_build_index = project_merge.build_duplicate_candidate_index
 
         def fail_list_projects(_conn: object) -> list[dict[str, object]]:
             raise AssertionError("pair inspection should not load all projects")
@@ -2978,14 +2981,14 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
 
         try:
             project_record.list_projects = fail_list_projects
-            registry.build_duplicate_candidate_index = fail_build_index
+            project_merge.build_duplicate_candidate_index = fail_build_index
 
-            payload = registry.inspect_merge_pair_payload(None, source, target)
+            payload = application_merge.inspect_merge_pair_payload(source, target)
             self.assertIn("source_pair_candidate", payload)
             self.assertNotIn("source_recommendation", payload)
         finally:
             project_record.list_projects = original_list_projects
-            registry.build_duplicate_candidate_index = original_build_index
+            project_merge.build_duplicate_candidate_index = original_build_index
 
     def test_inspect_merge_pair_can_include_first_creator_details_without_primary_signal(self) -> None:
         source = project_record.default_project_record("proj:sourcefirstcreator", "repo_url", "https://github.com/example/source")
@@ -2994,17 +2997,24 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         target = project_record.default_project_record("proj:targetfirstcreator", "repo_url", "https://github.com/example/target")
         target["name"] = "Example"
         target["input_nsids"] = ["app.example.comment"]
-        original_fetch = registry.fetch_collection_first_creator_did
+        original_fetch = application_merge.fetch_collection_first_creator_did
+
+        calls: list[str] = []
 
         def fake_fetch(_collection: str) -> str:
+            calls.append(_collection)
             return "did:plc:shared"
 
         try:
-            registry.fetch_collection_first_creator_did = fake_fetch
+            application_merge.fetch_collection_first_creator_did = fake_fetch
 
-            payload = registry.inspect_merge_pair_payload(None, source, target, include_first_creator_details=True)
+            normal = application_merge.inspect_merge_pair_payload(source, target)
+            self.assertFalse(normal["first_creator_details_included"])
+            self.assertEqual(calls, [])
+            payload = application_merge.inspect_merge_pair_payload(source, target, include_first_creator_details=True)
+            self.assertTrue(calls)
         finally:
-            registry.fetch_collection_first_creator_did = original_fetch
+            application_merge.fetch_collection_first_creator_did = original_fetch
 
         self.assertTrue(payload["first_creator_details_included"])
         self.assertEqual(payload["first_creator_overlap"]["collection_first_record_creator_dids"], ["did:plc:shared"])
@@ -3017,7 +3027,7 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
         target = project_record.default_project_record("proj:targetfirstcreatorcase", "nsid", "net.beta.entry")
         target["name"] = "Beta Project"
         target["input_nsids"] = ["net.beta.entry"]
-        original_fetch = registry.fetch_collection_first_creator_did
+        original_fetch = application_merge.fetch_collection_first_creator_did
         calls: list[str] = []
 
         def fake_fetch(collection: str) -> str:
@@ -3029,11 +3039,11 @@ class ProjectRegistryMergeScoringTest(unittest.TestCase):
             return ""
 
         try:
-            registry.fetch_collection_first_creator_did = fake_fetch
+            application_merge.fetch_collection_first_creator_did = fake_fetch
 
-            payload = registry.inspect_merge_pair_payload(None, source, target, include_first_creator_details=True)
+            payload = application_merge.inspect_merge_pair_payload(source, target, include_first_creator_details=True)
         finally:
-            registry.fetch_collection_first_creator_did = original_fetch
+            application_merge.fetch_collection_first_creator_did = original_fetch
 
         self.assertIn("app.alpha.recordMixed", calls)
         self.assertEqual(payload["first_creator_overlap"]["collection_first_record_creator_dids"], ["did:plc:mixedcase"])
@@ -3083,7 +3093,7 @@ class ProjectRegistryMergeRecordTest(unittest.TestCase):
             for index in range(4)
         ]
 
-        merged = registry.merge_project_records(target, source)
+        merged = application_merge.merge_project_records(target, source)
 
         self.assertEqual(len(merged["resource_url_records"]), 4)
 
@@ -3093,7 +3103,7 @@ class ProjectRegistryMergeRecordTest(unittest.TestCase):
         source = project_record.default_project_record("proj:mergesource", "repo_url", "https://github.com/example/app")
         source["candidate_developer_accounts"] = [{"handle": "candidate.bsky.social", "source": "bsky_actor_search:candidate"}]
 
-        merged = registry.merge_project_records(target, source)
+        merged = application_merge.merge_project_records(target, source)
 
         self.assertIn({"handle": "alice.example.com", "source": "manual"}, merged["developer_accounts"])
         self.assertNotIn({"handle": "candidate.bsky.social", "source": "bsky_actor_search:candidate"}, merged["developer_accounts"])
@@ -3110,7 +3120,7 @@ class ProjectRegistryMergeRecordTest(unittest.TestCase):
         source["notes"] = "source operator note"
         source["system_notes"] = ["source system note"]
 
-        merged = registry.merge_project_records(target, source)
+        merged = application_merge.merge_project_records(target, source)
 
         self.assertEqual(merged["notes"], "target operator note\nsource operator note")
         self.assertIn("target system note", merged["system_notes"])

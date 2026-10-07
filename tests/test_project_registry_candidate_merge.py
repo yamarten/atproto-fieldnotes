@@ -4,6 +4,8 @@ import copy
 import contextlib
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
+
+from project_registry_core import project_merge
 from project_registry_core import identifier_storage, project_record, runtime_view
 from project_registry_core.application import merge
 
@@ -28,28 +30,28 @@ class CandidateConfirmedMergeUnitTest(_CandidateConfirmedMergeFixtures, ProjectR
             project["name"] = "Shared"
             row = project[runtime_view.RUNTIME_IDENTIFIER_ROWS][0]
             project[runtime_view.RUNTIME_IDENTIFIER_ROWS] = [dict(row, value=f"https://github.com/example/shared{i}") for i in range(10)]
-        candidate = registry.duplicate_candidate_for_pair(left, right)
+        candidate = project_merge.duplicate_candidate_for_pair(left, right)
         self.assertEqual(candidate["score"], 8)
         self.assertEqual(candidate["merge_confidence"], "medium")
         self.assertFalse(candidate["auto_merge_ready"])
-        self.assertIn("candidate_confirmed_identifiers", registry.batch_moderate_overlap(left, right))
-        self.assertEqual(registry.batch_strict_overlap(left, right), {})
+        self.assertIn("candidate_confirmed_identifiers", project_merge.batch_moderate_overlap(left, right))
+        self.assertEqual(project_merge.batch_strict_overlap(left, right), {})
         # An independent existing auto-ready signal retains its meaning.
         left["service_urls"] = right["service_urls"] = ["https://independent.test"]
-        self.assertTrue(registry.duplicate_candidate_for_pair(left, right)["auto_merge_ready"])
+        self.assertTrue(project_merge.duplicate_candidate_for_pair(left, right)["auto_merge_ready"])
 
     def test_developer_roles_different_roles_and_nonclaims_do_not_match(self):
         for kind, role, value in [("account", "developer_account", "example.test"),
                                   ("handle", "developer_handle", "example.test"),
                                   ("did", "developer_did", "did:plc:example"),
                                   ("nsid", "referenced_nsid", "app.example.post")]:
-            self.assertIsNone(registry.duplicate_candidate_for_pair(*self.pair(kind, role, value)))
+            self.assertIsNone(project_merge.duplicate_candidate_for_pair(*self.pair(kind, role, value)))
         left, right = self.pair("handle", "project_handle", "example.test")
         right[runtime_view.RUNTIME_IDENTIFIER_ROWS][0]["role"] = "developer_handle"
-        self.assertIsNone(registry.duplicate_candidate_for_pair(left, right))
+        self.assertIsNone(project_merge.duplicate_candidate_for_pair(left, right))
         left, right = self.pair()
         right[runtime_view.RUNTIME_IDENTIFIER_ROWS][0]["classification"] = "derived"
-        self.assertIsNone(registry.duplicate_candidate_for_pair(left, right))
+        self.assertIsNone(project_merge.duplicate_candidate_for_pair(left, right))
 
     def test_guards_and_separate_in_either_direction(self):
         for guarded in (0, 1):
@@ -61,18 +63,18 @@ class CandidateConfirmedMergeUnitTest(_CandidateConfirmedMergeFixtures, ProjectR
                     pair[guarded][decision] = [{"type": "service_url", "value": "https://example.test",
                                                "expires_at": "2999-01-01T00:00:00+00:00"}]
                 with self.subTest(guarded=guarded, decision=decision):
-                    self.assertEqual(registry.compute_duplicate_candidates(None, pair[0], projects=pair), [])
-                    self.assertEqual(registry.batch_moderate_overlap(*pair), {})
+                    self.assertEqual(project_merge.compute_duplicate_candidates(None, pair[0], projects=pair), [])
+                    self.assertEqual(project_merge.batch_moderate_overlap(*pair), {})
         left, right = self.pair()
         left["deferred_identifiers"] = [{"type": "repo_url", "value": "https://github.com/example/shared", "expires_at": "2000-01-01T00:00:00+00:00"}]
-        self.assertIsNotNone(registry.duplicate_candidate_for_pair(left, right))
+        self.assertIsNotNone(project_merge.duplicate_candidate_for_pair(left, right))
 
     def test_candidate_candidate_and_case_distinct_nsid_are_not_new_matches(self):
         left, right = self.pair("nsid", "owned_nsid", "app.example.Post")
         right[runtime_view.RUNTIME_IDENTIFIER_ROWS][0]["value"] = "app.example.post"
-        self.assertIsNone(registry.duplicate_candidate_for_pair(left, right))
+        self.assertIsNone(project_merge.duplicate_candidate_for_pair(left, right))
         right[runtime_view.RUNTIME_IDENTIFIER_ROWS][0].update(value="app.example.Post", classification="candidate")
-        self.assertIsNone(registry.duplicate_candidate_for_pair(left, right))
+        self.assertIsNone(project_merge.duplicate_candidate_for_pair(left, right))
 
 
 class CandidateConfirmedMergeTest(_CandidateConfirmedMergeFixtures, TempRegistryDbTestCase):
@@ -90,9 +92,9 @@ class CandidateConfirmedMergeTest(_CandidateConfirmedMergeFixtures, TempRegistry
             before = copy.deepcopy([left, right])
             for project, other, classification in ((left, right, "candidate"), (right, left, "confirmed")):
                 with self.subTest(kind=kind, classification=classification):
-                    candidates = registry.compute_duplicate_candidates(None, project, projects=[left, right])
+                    candidates = project_merge.compute_duplicate_candidates(None, project, projects=[left, right])
                     self.assertEqual(len(candidates), 1)
-                    self.assertEqual(candidates[0], registry.duplicate_candidate_for_pair(project, other))
+                    self.assertEqual(candidates[0], project_merge.duplicate_candidate_for_pair(project, other))
                     self.assertEqual(candidates[0]["identifier_matches"], [dict(
                         kind=kind, role=role, value=value, project_classification=classification,
                         other_classification="confirmed" if classification == "candidate" else "candidate",
@@ -106,9 +108,9 @@ class CandidateConfirmedMergeTest(_CandidateConfirmedMergeFixtures, TempRegistry
                 project_record.save_project(conn, project)
             conn.commit()
             before = list(conn.iterdump())
-            self.assertEqual(registry.build_batch_merge_plan(conn, "strict")[0], [])
+            self.assertEqual(project_merge.build_batch_merge_plan(conn, "strict")[0], [])
             for mode in ("moderate", "broad"):
-                plans, _ = registry.build_batch_merge_plan(conn, mode)
+                plans, _ = project_merge.build_batch_merge_plan(conn, mode)
                 self.assertEqual(len(plans), 1)
                 self.assertFalse(plans[0]["recommendation"]["auto_merge_ready"])
                 source = project_record.fetch_project(conn, plans[0]["source_project_key"])
@@ -124,7 +126,7 @@ class CandidateConfirmedMergeTest(_CandidateConfirmedMergeFixtures, TempRegistry
             project_record.save_project(conn, right)
             project_record.save_project(conn, third)
             conn.commit()
-            plans, skipped = registry.build_batch_merge_plan(conn, "moderate")
+            plans, skipped = project_merge.build_batch_merge_plan(conn, "moderate")
             self.assertFalse(any("proj:left" in (p["source_project_key"], p["target_project_key"]) for p in plans))
             self.assertTrue(any(p["reason"] == "not_mutual_recommendation" and p["project_key"] == "proj:left" for p in skipped))
 
@@ -140,7 +142,7 @@ class CandidateConfirmedMergeTest(_CandidateConfirmedMergeFixtures, TempRegistry
                 )
                 conn.commit()
                 left = project_record.fetch_project(conn, "proj:left")
-                self.assertEqual(registry.compute_duplicate_candidates(conn, left), [])
+                self.assertEqual(project_merge.compute_duplicate_candidates(conn, left), [])
                 conn.execute("DELETE FROM projects")
                 conn.execute("DELETE FROM project_revisions")
                 conn.commit()

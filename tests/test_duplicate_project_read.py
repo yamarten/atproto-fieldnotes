@@ -5,6 +5,8 @@ import copy
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
+
+from project_registry_core import project_merge
 from project_registry_core import project_record, runtime_view, trust_graph
 from project_registry_core.application import presentation
 
@@ -51,12 +53,12 @@ class DuplicateProjectReadTest(TempRegistryDbTestCase):
 
     def assert_equivalent(self, conn, complete, partial):
         self.assertEqual([p['project_key'] for p in complete], [p['project_key'] for p in partial])
-        self.assertEqual([registry.duplicate_profile(p) for p in complete],
-                         [registry.duplicate_profile(p) for p in partial])
+        self.assertEqual([project_merge.duplicate_profile(p) for p in complete],
+                         [project_merge.duplicate_profile(p) for p in partial])
         for target in complete:
-            expected = registry.compute_duplicate_candidates(conn, target, projects=complete)
-            self.assertEqual(expected, registry.compute_duplicate_candidates(conn, target, projects=partial))
-            self.assertEqual(expected, registry.compute_duplicate_candidates(conn, target))
+            expected = project_merge.compute_duplicate_candidates(conn, target, projects=complete)
+            self.assertEqual(expected, project_merge.compute_duplicate_candidates(conn, target, projects=partial))
+            self.assertEqual(expected, project_merge.compute_duplicate_candidates(conn, target))
 
     def test_projection_preserves_profiles_pairs_guards_and_stored_claims(self):
         with contextlib.closing(registry.open_db()) as conn:

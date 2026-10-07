@@ -2795,3 +2795,132 @@ def append_system_note(project: dict[str, Any], note_line: str) -> None:
     if not line:
         return
     project["system_notes"] = unique_list(list(project.get("system_notes", [])) + [line])
+
+
+def current_confirmed_nsids(project: dict[str, Any]) -> list[str]:
+    return unique_list([identifier_core.normalize_nsid(str(item or "")) for item in project.get("resolved_nsids", []) if identifier_core.normalize_nsid(str(item or ""))])
+
+
+def blocked_identifier_values(project: dict[str, Any], identifier_type: str) -> set[str]:
+    return {
+        str(item.get("value") or "").strip()
+        for item in project.get("blocked_identifiers", [])
+        if isinstance(item, dict) and str(item.get("type") or "").strip() == identifier_type and str(item.get("value") or "").strip()
+    }
+
+
+def identifier_is_blocked(project: dict[str, Any], identifier_type: str, value: str) -> bool:
+    normalized = normalize_blocked_identifier_value(identifier_type, value)
+    if not normalized:
+        return False
+    if identifier_type == "service_url":
+        return any(service_url_matches_guard(normalized, item) for item in blocked_identifier_values(project, identifier_type))
+    return normalized in blocked_identifier_values(project, identifier_type)
+
+
+def deferred_identifier_values(project: dict[str, Any], identifier_type: str) -> set[str]:
+    return {
+        str(item.get("value") or "").strip()
+        for item in normalize_deferred_identifiers(list(project.get("deferred_identifiers", [])))
+        if isinstance(item, dict) and str(item.get("type") or "").strip() == identifier_type and str(item.get("value") or "").strip()
+    }
+
+
+def identifier_is_deferred(project: dict[str, Any], identifier_type: str, value: str) -> bool:
+    normalized = normalize_blocked_identifier_value(identifier_type, value)
+    if not normalized:
+        return False
+    if identifier_type == "service_url":
+        return any(service_url_matches_guard(normalized, item) for item in deferred_identifier_values(project, identifier_type))
+    return normalized in deferred_identifier_values(project, identifier_type)
+
+
+def service_url_matches_guard(value: str, guard_value: str) -> bool:
+    normalized = identifier_core.normalize_url(value)
+    guard = identifier_core.normalize_url(guard_value)
+    if not normalized or not guard:
+        return False
+    if normalized == guard:
+        return True
+    parsed = urllib.parse.urlparse(normalized)
+    guard_parsed = urllib.parse.urlparse(guard)
+    if parsed.scheme != guard_parsed.scheme or parsed.netloc.lower() != guard_parsed.netloc.lower():
+        return False
+    guard_path = guard_parsed.path.rstrip("/")
+    if not guard_path:
+        return True
+    path = parsed.path.rstrip("/")
+    return path.startswith(f"{guard_path}/")
+
+
+def manual_repo_urls(project: dict[str, Any]) -> set[str]:
+    urls: set[str] = set()
+    for item in normalize_confirmed_identifiers(list(project.get("confirmed_identifiers", []))):
+        if str(item.get("type") or "") != "repo_url" or str(item.get("cleared_at") or ""):
+            continue
+        if str(item.get("source") or "").startswith("trust_policy"):
+            continue
+        value = repo_url_core.canonical_repo_url(str(item.get("value") or "").strip())
+        if value:
+            urls.add(value)
+    return urls
+
+
+def active_manual_repo_urls(project: dict[str, Any]) -> set[str]:
+    return {
+        url
+        for url in manual_repo_urls(project)
+        if not identifier_is_blocked(project, "repo_url", url)
+        and not identifier_is_deferred(project, "repo_url", url)
+    }
+
+
+def project_alias_tokens(project: dict[str, Any]) -> set[str]:
+    tokens: set[str] = set()
+    if project.get("name"):
+        token = identifier_core.normalize_alias_token(str(project.get("name") or ""))
+        if token:
+            tokens.add(token)
+    for domain in project.get("authority_domains", []):
+        lowered = str(domain or "").strip().lower()
+        if not lowered or is_shared_official_identity_host(lowered):
+            continue
+        first = lowered.split(".", 1)[0]
+        token = identifier_core.normalize_alias_token(first)
+        if token:
+            tokens.add(token)
+    for nsid in unique_list(list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", []))):
+        token = identifier_core.normalize_alias_token(str(nsid).split(".")[-1])
+        if token:
+            tokens.add(token)
+    if project.get("website_url"):
+        host = urllib.parse.urlparse(identifier_core.normalize_url(project["website_url"])).netloc.lower()
+        first = host.split(".", 1)[0] if host else ""
+        token = identifier_core.normalize_alias_token(first)
+        if token:
+            tokens.add(token)
+    for host in manual_service_hosts(project):
+        first = host.split(".", 1)[0]
+        token = identifier_core.normalize_alias_token(first)
+        if token:
+            tokens.add(token)
+    for url in manual_repo_urls(project):
+        parsed = urllib.parse.urlparse(identifier_core.normalize_url(url))
+        segments = [segment for segment in parsed.path.split("/") if segment]
+        if segments:
+            token = identifier_core.normalize_alias_token(segments[-1])
+            if token:
+                tokens.add(token)
+    return tokens
+
+
+def merge_service_status(current: str, new_value: str) -> str:
+    return evaluation_core.merge_service_status(current, new_value, normalize_service_status)
+
+
+def merge_service_status_confidence(current: str, new_value: str) -> str:
+    return evaluation_core.merge_service_status_confidence(
+        current,
+        new_value,
+        normalize_service_status_confidence,
+    )
