@@ -1,13 +1,14 @@
 import copy
 from unittest import mock
 
-from helpers import TempRegistryDbTestCase, registry
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from project_registry_core import project_record, relations, enrichment_pipeline
 from project_registry_core.evidence import EvidenceBundle
 
 
-class HomepageAdoptionTest(TempRegistryDbTestCase):
+class _HomepageAdoptionFixtures:
     repo = "https://github.com/example/app"
+
     url = "https://example.com/project"
 
     def project(self, key="proj:homepage-role", repo=None, url=None, confirmed_relation=True, confirmed_operation=True):
@@ -51,6 +52,35 @@ class HomepageAdoptionTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
+    def publication(self, project, *, applicability="current_project", kind="web"):
+        analysis = registry.repository_analysis_core
+        project['repository_analysis_results'] = [{
+            'repo_url': self.repo, 'version': analysis.ANALYSIS_VERSION, 'policy_version': analysis.POLICY_VERSION,
+            'summary': '公開アプリ', 'last_attempt': {'status': 'success'}, 'source_revision': 'revision-a',
+            'observations': [{'predicate': 'declares_service_url', 'value': self.url,
+                              'applicability': applicability, 'service_kind': kind,
+                              'evidence': [{'path': 'README', 'line': 1}]}],
+        }]
+        return project
+
+
+class HomepageAdoptionUnitTest(_HomepageAdoptionFixtures, ProjectRecordTestCase):
+    def test_protocol_checker_does_not_strip_url_scope_or_accept_redirect(self):
+        for url in ('https://example.com/api', 'https://example.com/?tenant=one',
+                    'https://example.com/#api', 'https://user@example.com'):
+            with self.subTest(url=url), mock.patch.object(registry, 'probe_service_url') as probe:
+                result = registry.service_core.collect_protocol_service_evidence(url, probe=probe)
+                self.assertFalse(result['verified'])
+                probe.assert_not_called()
+        response = {'status_code': 200, 'final_url': 'https://other.example/xrpc/com.atproto.server.describeServer',
+                    'html': '{"did":"did:web:other.example","availableUserDomains":[]}'}
+        probe = mock.Mock(return_value=response)
+        result = registry.service_core.collect_protocol_service_evidence('https://example.com/', probe=probe)
+        self.assertFalse(result['verified'])
+        probe.assert_called_once_with('https://example.com/xrpc/com.atproto.server.describeServer', timeout=15.0)
+
+
+class HomepageAdoptionTest(_HomepageAdoptionFixtures, TempRegistryDbTestCase):
     def test_visible_exact_homepage_adopts_path_with_reason_and_replays(self):
         # Role-specific evidence can support adoption before this page is a component.
         project = self.project(confirmed_relation=False)
@@ -371,17 +401,6 @@ class HomepageAdoptionTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
-    def publication(self, project, *, applicability="current_project", kind="web"):
-        analysis = registry.repository_analysis_core
-        project['repository_analysis_results'] = [{
-            'repo_url': self.repo, 'version': analysis.ANALYSIS_VERSION, 'policy_version': analysis.POLICY_VERSION,
-            'summary': '公開アプリ', 'last_attempt': {'status': 'success'}, 'source_revision': 'revision-a',
-            'observations': [{'predicate': 'declares_service_url', 'value': self.url,
-                              'applicability': applicability, 'service_kind': kind,
-                              'evidence': [{'path': 'README', 'line': 1}]}],
-        }]
-        return project
-
     def test_uncertain_publication_candidate_needs_neither_fetch_nor_reverse_link(self):
         project = self.publication(self.project(confirmed_operation=False), applicability='uncertain')
         registry.apply_publication_candidates(project)
@@ -470,20 +489,6 @@ class HomepageAdoptionTest(TempRegistryDbTestCase):
             self.assertNotIn(self.url, saved['service_urls'])
         finally:
             conn.close()
-
-    def test_protocol_checker_does_not_strip_url_scope_or_accept_redirect(self):
-        for url in ('https://example.com/api', 'https://example.com/?tenant=one',
-                    'https://example.com/#api', 'https://user@example.com'):
-            with self.subTest(url=url), mock.patch.object(registry, 'probe_service_url') as probe:
-                result = registry.service_core.collect_protocol_service_evidence(url, probe=probe)
-                self.assertFalse(result['verified'])
-                probe.assert_not_called()
-        response = {'status_code': 200, 'final_url': 'https://other.example/xrpc/com.atproto.server.describeServer',
-                    'html': '{"did":"did:web:other.example","availableUserDomains":[]}'}
-        probe = mock.Mock(return_value=response)
-        result = registry.service_core.collect_protocol_service_evidence('https://example.com/', probe=probe)
-        self.assertFalse(result['verified'])
-        probe.assert_called_once_with('https://example.com/xrpc/com.atproto.server.describeServer', timeout=15.0)
 
     def test_publication_path_survives_save_and_replay_without_confirm(self):
         project = self.publication(self.project(confirmed_operation=False), applicability='uncertain')

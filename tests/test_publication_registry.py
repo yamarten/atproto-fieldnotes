@@ -6,19 +6,14 @@ import threading
 import time
 from unittest import mock
 
-from helpers import TempRegistryDbTestCase
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase
 from project_registry_core import database, registry, project_record, publication_registry, lexicon_types
 from project_registry_core.application import publications
 from project_registry_core import lexicon_publication_catalog as catalog
 from test_lexicon_publication_catalog import event, summary
 
 
-class PublicationRegistryTest(TempRegistryDbTestCase):
-    def setUp(self):
-        super().setUp()
-        self.conn = registry.open_db()
-        self.addCleanup(self.conn.close)
-
+class _PublicationRegistryFixtures:
     def run_sync(self, events, *, execute=True, verify_limit=0, verifier=None):
         state = catalog.catalog_state(self.conn)
         after = state['watermark_seq']
@@ -33,6 +28,25 @@ class PublicationRegistryTest(TempRegistryDbTestCase):
         return {'did': did, 'did_doc': {'id': did}, 'authority_domain': identifiers.derive_authority_domain(sid),
                 'pds_url': 'https://pds.example',
                 'record': {'uri': f'at://{did}/com.atproto.lexicon.schema/{sid}', 'value': item['record']}}
+
+
+class PublicationRegistryUnitTest(_PublicationRegistryFixtures, ProjectRecordTestCase):
+    def test_recent_nonrecord_resolution_overrides_old_catalog_for_sampling(self):
+        sid = 'com.example.one'
+        p = project_record.default_project_record('proj:aaaaaaaaaaaa', 'nsid', sid)
+        p['publication_schemas'] = [{'schema_id': sid, 'schema_type': 'record'}]
+        p['lexicon_schema_samples'] = [{'nsid': sid, 'defs': {'main': {'type': 'query'}}}]
+        self.assertEqual(lexicon_types.record_sample_nsids(p), [])
+        p['lexicon_schema_samples'] = []
+        p['lexicon_resolution_entries'] = [{'input_nsid': sid, 'publication_validation': {}, 'resolved_at': catalog.iso_now()}]
+        self.assertEqual(lexicon_types.record_sample_nsids(p), [])
+
+
+class PublicationRegistryTest(_PublicationRegistryFixtures, TempRegistryDbTestCase):
+    def setUp(self):
+        super().setUp()
+        self.conn = registry.open_db()
+        self.addCleanup(self.conn.close)
 
     def test_default_verification_drains_more_than_twelve_and_reuses_results(self):
         items = [event(i + 1, 'did:plc:a', f'com.example.item{i}') for i in range(31)]
@@ -333,13 +347,3 @@ class PublicationRegistryTest(TempRegistryDbTestCase):
         self.assertEqual(rows['com.example.one']['status'], 'invalid')
         self.assertNotIn('net.unrelated.other', rows)
         self.assertEqual(len(project_record.list_projects(self.conn)), 1)
-
-    def test_recent_nonrecord_resolution_overrides_old_catalog_for_sampling(self):
-        sid = 'com.example.one'
-        p = project_record.default_project_record('proj:aaaaaaaaaaaa', 'nsid', sid)
-        p['publication_schemas'] = [{'schema_id': sid, 'schema_type': 'record'}]
-        p['lexicon_schema_samples'] = [{'nsid': sid, 'defs': {'main': {'type': 'query'}}}]
-        self.assertEqual(lexicon_types.record_sample_nsids(p), [])
-        p['lexicon_schema_samples'] = []
-        p['lexicon_resolution_entries'] = [{'input_nsid': sid, 'publication_validation': {}, 'resolved_at': catalog.iso_now()}]
-        self.assertEqual(lexicon_types.record_sample_nsids(p), [])

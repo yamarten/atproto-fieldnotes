@@ -4,12 +4,12 @@ import json
 import sqlite3
 from argparse import Namespace
 
-from helpers import TempRegistryDbTestCase
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase
 from project_registry_core import cli, identifier_storage_materialization, identifier_storage_shadow
 from project_registry_core.commands import maintenance
 
 
-class IdentifierStorageShadowTest(TempRegistryDbTestCase):
+class _IdentifierStorageShadowFixtures:
     def _seed_comparison_rows(self) -> None:
         conn = sqlite3.connect(self.db_path)
         try:
@@ -97,11 +97,15 @@ class IdentifierStorageShadowTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
+
+class IdentifierStorageShadowUnitTest(_IdentifierStorageShadowFixtures, ProjectRecordTestCase):
     def test_prototype_cases_cover_search_sync_reactivation_merge_and_exclusion(self) -> None:
         result = identifier_storage_shadow.evaluate_prototype_cases()
         self.assertEqual(result["case_count"], 8)
         self.assertEqual(result["failed_count"], 0, result["cases"])
 
+
+class IdentifierStorageShadowTest(_IdentifierStorageShadowFixtures, TempRegistryDbTestCase):
     def test_migration_projection_maps_explicit_and_inferred_adoptions(self) -> None:
         self._seed_comparison_rows()
         report = identifier_storage_shadow.compare_database_path(self.db_path, example_limit=5)

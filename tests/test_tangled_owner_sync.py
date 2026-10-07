@@ -5,7 +5,7 @@ import json
 import urllib.error
 from unittest import mock
 
-from helpers import TempRegistryDbTestCase, registry
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from project_registry_core import source_sync, tangled_identity, worker
 from project_registry_core.jobs import CancellationToken, OperationRequest
 
@@ -15,7 +15,7 @@ def http_error(status, error="Unknown", message="remote response"):
                                   io.BytesIO(json.dumps({"error": error, "message": message}).encode()))
 
 
-class TangledOwnerSyncTest(TempRegistryDbTestCase):
+class _TangledOwnerSyncFixtures:
     scope = {"source": "jetstream_v2", "service": "https://jetstream.us-west.bsky.network",
              "collection": "sh.tangled.repo"}
 
@@ -44,6 +44,8 @@ class TangledOwnerSyncTest(TempRegistryDbTestCase):
             raise tangled_identity.OwnerUnavailable("no_valid_claimed_handle")
         return "valid.example"
 
+
+class TangledOwnerSyncUnitTest(_TangledOwnerSyncFixtures, ProjectRecordTestCase):
     def test_profiles_are_not_required_for_identity(self):
         for error, message in [("AccountTakedown", "Account has been suspended"),
                                ("InvalidRequest", "Profile not found")]:
@@ -119,6 +121,8 @@ class TangledOwnerSyncTest(TempRegistryDbTestCase):
         self.assertEqual(result, {"did": "did:plc:one"})
         sleep.assert_called_once_with(2.0)
 
+
+class TangledOwnerSyncTest(_TangledOwnerSyncFixtures, TempRegistryDbTestCase):
     def test_worker_failure_preserves_owner_stage_and_http_status(self):
         conn = registry.open_db()
         self.addCleanup(conn.close)

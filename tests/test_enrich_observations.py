@@ -4,7 +4,7 @@ import copy
 import json
 from unittest import mock
 
-from helpers import TempRegistryDbTestCase, registry
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from project_registry_core import enrich_observations as obs
 from project_registry_core import investigation, llm_transport, storage, replay
 from project_registry_core.evidence import EvidenceBundle, EvidenceRecord
@@ -14,7 +14,7 @@ from project_registry_core import storage_cleanup, project_record
 import enrich_observation_report as report
 
 
-class ObservationTest(TempRegistryDbTestCase):
+class ObservationUnitTest(ProjectRecordTestCase):
     def test_plan_keeps_actual_input_parsed_output_and_fallback(self):
         project = self.make_project("proj:plan")
         payload = {"repo_search_queries": ["  Example  ", "Example"],
@@ -60,44 +60,6 @@ class ObservationTest(TempRegistryDbTestCase):
         large = obs.pack({"planning": {"prompt": "a" * 100000}})
         self.assertTrue(large["planning"]["omitted"])
         self.assertNotIn("data", large["planning"])
-
-    def test_token_usage_coverage_survives_save_load_and_phase_update(self):
-        requests = [{"purpose": "repository_analysis", "status": "success", "duration_ms": 2,
-                     "usage_status": "endpoint_reported", "usage": {"input_tokens": 100, "output_tokens": 20, "cached_input_tokens": 10}}
-                    for _ in range(20)]
-        requests += [{"purpose": "planning", "status": "failed", "usage_status": "missing"}]
-        metrics = storage.normalize_run_metrics({"llm_requests": requests})
-        self.assertEqual(storage.normalize_run_metrics(metrics), metrics)
-        conn = registry.open_db()
-        try:
-            project = self.make_project("proj:metrics")
-            bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-09-01")
-            recorded = obs.pack({"planning": {"prompt": "full input"}})
-            run_id = storage.save_investigation_run(conn, project_key=project["project_key"], started_at="2026-09-01", completed_at="2026-09-01",
-                input_project=project, output_project=project, bundle=bundle, run_metrics=metrics, observations=recorded)
-            storage.update_run_metrics_phase(conn, run_id, phase="project_save_ms", duration_ms=10)
-            run = storage.load_investigation_run(conn, run_id)
-            summary = run["metrics"]["llm_request_summary"]["repository_analysis"]
-            self.assertEqual(summary["count"], 20)
-            self.assertEqual(summary["input_tokens"], 2000)
-            self.assertEqual(summary["input_tokens_reported_count"], 20)
-            self.assertEqual(summary["cached_input_tokens"], 200)
-            self.assertEqual(run["metrics"]["llm_request_rows_omitted"], 5)
-            self.assertEqual(run["observations"], recorded)
-            self.assertNotIn(obs.STORAGE_KEY, run["evaluation"])
-            expected = storage.evaluation_snapshot(project)
-            self.assertFalse(replay.semantic_diff(expected, run["evaluation"])["changed"])
-            before = investigation_service.replay(conn, run_id=run_id)
-            exported = investigation_service.export_fixture(conn, run_id=run_id)
-            self.assertNotIn("full input", exported)
-            conn.commit()
-            storage_cleanup.compact_registry_storage(conn, execute=True,
-                normalize_resource_url_records=project_record.normalize_resource_url_records)
-            after = investigation_service.replay(conn, run_id=run_id)
-            self.assertEqual(before["diff"], after["diff"])
-            self.assertEqual(storage.load_investigation_run(conn, run_id)["observations"], recorded)
-        finally:
-            conn.close()
 
     def test_candidate_discovery_and_adoption_are_separate(self):
         start = {"project_repository_urls": ["https://github.com/demo/known"]}
@@ -173,3 +135,43 @@ class ObservationTest(TempRegistryDbTestCase):
         self.assertEqual(result["consecutive_pairs"]["same_conditions_and_input_changed_plan"], 1)
         self.assertEqual(result["coverage"]["planning_missing"], 1)
         self.assertEqual(result["llm_endpoint_reported"]["planning"]["input_tokens_missing_count"], 3)
+
+
+class ObservationTest(TempRegistryDbTestCase):
+    def test_token_usage_coverage_survives_save_load_and_phase_update(self):
+        requests = [{"purpose": "repository_analysis", "status": "success", "duration_ms": 2,
+                     "usage_status": "endpoint_reported", "usage": {"input_tokens": 100, "output_tokens": 20, "cached_input_tokens": 10}}
+                    for _ in range(20)]
+        requests += [{"purpose": "planning", "status": "failed", "usage_status": "missing"}]
+        metrics = storage.normalize_run_metrics({"llm_requests": requests})
+        self.assertEqual(storage.normalize_run_metrics(metrics), metrics)
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:metrics")
+            bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-09-01")
+            recorded = obs.pack({"planning": {"prompt": "full input"}})
+            run_id = storage.save_investigation_run(conn, project_key=project["project_key"], started_at="2026-09-01", completed_at="2026-09-01",
+                input_project=project, output_project=project, bundle=bundle, run_metrics=metrics, observations=recorded)
+            storage.update_run_metrics_phase(conn, run_id, phase="project_save_ms", duration_ms=10)
+            run = storage.load_investigation_run(conn, run_id)
+            summary = run["metrics"]["llm_request_summary"]["repository_analysis"]
+            self.assertEqual(summary["count"], 20)
+            self.assertEqual(summary["input_tokens"], 2000)
+            self.assertEqual(summary["input_tokens_reported_count"], 20)
+            self.assertEqual(summary["cached_input_tokens"], 200)
+            self.assertEqual(run["metrics"]["llm_request_rows_omitted"], 5)
+            self.assertEqual(run["observations"], recorded)
+            self.assertNotIn(obs.STORAGE_KEY, run["evaluation"])
+            expected = storage.evaluation_snapshot(project)
+            self.assertFalse(replay.semantic_diff(expected, run["evaluation"])["changed"])
+            before = investigation_service.replay(conn, run_id=run_id)
+            exported = investigation_service.export_fixture(conn, run_id=run_id)
+            self.assertNotIn("full input", exported)
+            conn.commit()
+            storage_cleanup.compact_registry_storage(conn, execute=True,
+                normalize_resource_url_records=project_record.normalize_resource_url_records)
+            after = investigation_service.replay(conn, run_id=run_id)
+            self.assertEqual(before["diff"], after["diff"])
+            self.assertEqual(storage.load_investigation_run(conn, run_id)["observations"], recorded)
+        finally:
+            conn.close()

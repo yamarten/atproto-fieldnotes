@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from unittest import mock
 
-from helpers import TempRegistryDbTestCase, registry
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from project_registry_core import enrichment_pipeline, project_record, relations, runtime_view
 from project_registry_core.evidence import EvidenceBundle
 
 
-class RepositoryHomepageObservationTest(TempRegistryDbTestCase):
+class _RepositoryHomepageObservationFixtures:
     def homepage_project(self, url="https://jbgruber.github.io/atrrr"):
         repo = "https://github.com/JBGruber/atrrr"
         project = self.make_project("proj:homepage", "repo_url", repo)
@@ -22,6 +22,8 @@ class RepositoryHomepageObservationTest(TempRegistryDbTestCase):
         registry.apply_github_repo_evidence(project, bundle)
         return project
 
+
+class RepositoryHomepageObservationUnitTest(_RepositoryHomepageObservationFixtures, ProjectRecordTestCase):
     def test_exact_paths_and_docs_are_observed_without_service_candidates(self):
         for url in ("https://jbgruber.github.io/atrrr", "https://idiolect.dev/fieldwork",
                     "https://example.com/about", "https://docs.example.com/sdk",
@@ -42,6 +44,17 @@ class RepositoryHomepageObservationTest(TempRegistryDbTestCase):
         project["deferred_identifiers"] = [{"type": "service_url", "value": "https://jbgruber.github.io/atrrr", "expires_at": "2099-01-01T00:00:00Z"}]
         self.assertEqual(registry.repository_homepage_probe_urls(project), [])
 
+    def test_failed_refresh_keeps_page_relations(self):
+        project = self.homepage_project()
+        url = registry.repository_homepage_probe_urls(project)[0]
+        for result in ({"status_code": 200, "html": '<a href="https://github.com/JBGruber/atrrr">Source code</a>'},
+                       {"status_code": 0, "fetch_error": "timeout"}):
+            bundle = registry.collect_service_evidence_with_followups(project, url, result, lane="repository_homepage")
+            registry.apply_service_evidence(project, bundle)
+        self.assertTrue(any(item["relation"]["predicate"] == "project_repository" for item in project["relation_evidence"]))
+
+
+class RepositoryHomepageObservationTest(_RepositoryHomepageObservationFixtures, TempRegistryDbTestCase):
     def test_observation_and_replay_preserve_roles_and_editorial_website(self):
         project = self.homepage_project()
         url = registry.repository_homepage_probe_urls(project)[0]
@@ -73,15 +86,6 @@ class RepositoryHomepageObservationTest(TempRegistryDbTestCase):
             self.assertIn("agent.Login()", observation["html_extract"])
         finally:
             conn.close()
-
-    def test_failed_refresh_keeps_page_relations(self):
-        project = self.homepage_project()
-        url = registry.repository_homepage_probe_urls(project)[0]
-        for result in ({"status_code": 200, "html": '<a href="https://github.com/JBGruber/atrrr">Source code</a>'},
-                       {"status_code": 0, "fetch_error": "timeout"}):
-            bundle = registry.collect_service_evidence_with_followups(project, url, result, lane="repository_homepage")
-            registry.apply_service_evidence(project, bundle)
-        self.assertTrue(any(item["relation"]["predicate"] == "project_repository" for item in project["relation_evidence"]))
 
     def test_enrich_fetches_exact_homepage_once_and_uses_existing_service_lane(self):
         url = "https://jbgruber.github.io/atrrr"

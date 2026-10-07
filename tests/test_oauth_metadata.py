@@ -6,13 +6,13 @@ import json
 import subprocess
 from unittest import mock
 
-from helpers import TempRegistryDbTestCase, registry
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from project_registry_core import oauth_metadata, project_record, relations
 from project_registry_core.application import presentation
 from project_registry_core.evidence import EvidenceBundle
 
 
-class OAuthMetadataTest(TempRegistryDbTestCase):
+class _OAuthMetadataFixtures:
     url = "https://app.example/client-metadata.json"
 
     def collect(self, scope, *, date="2026-09-22T01:00:00+00:00", url=None):
@@ -24,6 +24,8 @@ class OAuthMetadataTest(TempRegistryDbTestCase):
         fetch.assert_called_once()
         return project, bundle
 
+
+class OAuthMetadataUnitTest(_OAuthMetadataFixtures, ProjectRecordTestCase):
     def test_official_parser_actions_targets_and_audiences(self):
         result = oauth_metadata.analyze_scope(
             "atproto repo:app.example.post?action=delete "
@@ -73,6 +75,48 @@ class OAuthMetadataTest(TempRegistryDbTestCase):
         self.assertFalse(registry.project_owned_lexicon_nsid(project, "app.example.permissions"))
         self.assertEqual(project_record.compute_atproto_contribution(project)["atproto_contribution_level"], "optional")
 
+    def test_clients_stay_separate_and_failed_fetch_does_not_replace_observation(self):
+        project, first = self.collect("atproto repo:app.example.post")
+        registry.apply_investigation_evidence(project, first)
+        _, second = self.collect("atproto", url="https://app.example/other-client.json")
+        registry.apply_investigation_evidence(project, second)
+        self.assertEqual(len(project["oauth_client_metadata"]), 2)
+        self.assertEqual(len(project["relation_evidence"]), 1)
+        with mock.patch.object(registry.http_transport, "request_json", side_effect=ValueError("failed")):
+            failure = registry.collect_oauth_metadata_evidence(project, self.url)
+        registry.apply_investigation_evidence(project, failure)
+        self.assertEqual(len(project["relation_evidence"]), 1)
+        self.assertTrue(failure.failures)
+
+    def test_unavailable_parser_preserves_raw_scope_and_failure(self):
+        for failure in (RuntimeError("not installed"), subprocess.TimeoutExpired("node", 5)):
+            with self.subTest(failure=failure), mock.patch.object(oauth_metadata, "_parse_json", side_effect=failure):
+                project, bundle = self.collect("atproto repo:app.example.post")
+            registry.apply_investigation_evidence(project, bundle)
+            observation = project["oauth_client_metadata"][0]
+            self.assertEqual(observation["scope"], "atproto repo:app.example.post")
+            self.assertEqual(observation["analysis"]["status"], "unavailable")
+            self.assertEqual(bundle.failures[0].operation, "parse")
+            self.assertEqual(bundle.collector_results[-1].status, "failed")
+
+    def test_cached_results_are_independent(self):
+        oauth_metadata._parse_json.cache_clear()
+        with mock.patch.object(oauth_metadata.subprocess, "run", wraps=subprocess.run) as run:
+            first = oauth_metadata.analyze_scope("atproto repo:app.example.cached")
+            first["permissions"].clear()
+            second = oauth_metadata.analyze_scope("atproto repo:app.example.cached")
+        run.assert_called_once()
+        self.assertEqual(len(second["permissions"]), 2)
+
+    def test_separate_tokens_for_same_collection_keep_both_operations(self):
+        project, bundle = self.collect("atproto repo:app.example.post?action=create repo:app.example.post?action=delete")
+        registry.apply_investigation_evidence(project, bundle)
+        self.assertEqual(len(project["relation_evidence"]), 1)
+        permissions = project["relation_evidence"][0]["context"]["scope_permissions"]
+        self.assertEqual([p["action"] for p in permissions], [["create"], ["delete"]])
+
+
+class OAuthMetadataTest(_OAuthMetadataFixtures, TempRegistryDbTestCase):
     def test_base_only_is_saved_and_displayed_without_auth_only_classification(self):
         project, bundle = self.collect("atproto")
         registry.apply_investigation_evidence(project, bundle)
@@ -115,43 +159,3 @@ class OAuthMetadataTest(TempRegistryDbTestCase):
             registry.apply_investigation_evidence(saved, latest)
             project_record.save_project(conn, saved)
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM project_relations WHERE predicate='requests_permission'").fetchone()[0], 0)
-
-    def test_clients_stay_separate_and_failed_fetch_does_not_replace_observation(self):
-        project, first = self.collect("atproto repo:app.example.post")
-        registry.apply_investigation_evidence(project, first)
-        _, second = self.collect("atproto", url="https://app.example/other-client.json")
-        registry.apply_investigation_evidence(project, second)
-        self.assertEqual(len(project["oauth_client_metadata"]), 2)
-        self.assertEqual(len(project["relation_evidence"]), 1)
-        with mock.patch.object(registry.http_transport, "request_json", side_effect=ValueError("failed")):
-            failure = registry.collect_oauth_metadata_evidence(project, self.url)
-        registry.apply_investigation_evidence(project, failure)
-        self.assertEqual(len(project["relation_evidence"]), 1)
-        self.assertTrue(failure.failures)
-
-    def test_unavailable_parser_preserves_raw_scope_and_failure(self):
-        for failure in (RuntimeError("not installed"), subprocess.TimeoutExpired("node", 5)):
-            with self.subTest(failure=failure), mock.patch.object(oauth_metadata, "_parse_json", side_effect=failure):
-                project, bundle = self.collect("atproto repo:app.example.post")
-            registry.apply_investigation_evidence(project, bundle)
-            observation = project["oauth_client_metadata"][0]
-            self.assertEqual(observation["scope"], "atproto repo:app.example.post")
-            self.assertEqual(observation["analysis"]["status"], "unavailable")
-            self.assertEqual(bundle.failures[0].operation, "parse")
-            self.assertEqual(bundle.collector_results[-1].status, "failed")
-
-    def test_cached_results_are_independent(self):
-        oauth_metadata._parse_json.cache_clear()
-        with mock.patch.object(oauth_metadata.subprocess, "run", wraps=subprocess.run) as run:
-            first = oauth_metadata.analyze_scope("atproto repo:app.example.cached")
-            first["permissions"].clear()
-            second = oauth_metadata.analyze_scope("atproto repo:app.example.cached")
-        run.assert_called_once()
-        self.assertEqual(len(second["permissions"]), 2)
-
-    def test_separate_tokens_for_same_collection_keep_both_operations(self):
-        project, bundle = self.collect("atproto repo:app.example.post?action=create repo:app.example.post?action=delete")
-        registry.apply_investigation_evidence(project, bundle)
-        self.assertEqual(len(project["relation_evidence"]), 1)
-        permissions = project["relation_evidence"][0]["context"]["scope_permissions"]
-        self.assertEqual([p["action"] for p in permissions], [["create"], ["delete"]])

@@ -4,14 +4,14 @@ import io
 import json
 from unittest import mock
 
-from helpers import TempRegistryDbTestCase, registry
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from promotion_selection import cases, apply_fixed_assessment
 from project_registry_core import atproto_usage, project_record, promotion_attention
 from project_registry_core.application import decisions, presentation, merge
 from project_registry_core.cli import build_parser
 
 
-class PromotionSelectionTest(TempRegistryDbTestCase):
+class PromotionSelectionUnitTest(ProjectRecordTestCase):
     def test_operator_references_and_counterexamples_through_normal_queue(self):
         projects = [apply_fixed_assessment(c) for c in cases()]
         queue = registry.build_showcase_queue_from_projects(projects, limit=None)
@@ -50,6 +50,24 @@ class PromotionSelectionTest(TempRegistryDbTestCase):
                 self.assertEqual(promotion_attention.projection(p), fingerprint)
                 self.assertEqual(registry.build_showcase_queue_from_projects([p], limit=None), queue)
 
+    def test_bluesky_tools_can_have_independent_technical_interest(self):
+        case = next(c for c in cases() if c["ref"] == "skysweeper")
+        p = apply_fixed_assessment(case)
+        p.update(technical_interest_level="high", technical_interest_summary="A concrete reusable protocol mechanism",
+                 summary="Bluesky profile viewer analytics dashboard", inspired_by=["Bluesky"])
+        self.assertEqual(len(registry.build_showcase_queue_from_projects([p], view="technical")), 1)
+        self.assertEqual(atproto_usage.projection(p)["role"], "bluesky_client")
+
+    def test_merge_conflicting_operator_roles_requires_resolution(self):
+        left, right = {}, {}
+        atproto_usage.set_override(left, role="main_data", reason="a", assessed_at="")
+        atproto_usage.set_override(right, role="supporting", reason="b", assessed_at="")
+        with self.assertRaisesRegex(ValueError, "conflicting"):
+            atproto_usage.merge_decisions(left["atproto_usage_decisions"], right["atproto_usage_decisions"], cleared_at="now")
+        self.assertEqual(atproto_usage.active_override(atproto_usage.merge_decisions([], left["atproto_usage_decisions"], cleared_at="now"))["role"], "main_data")
+
+
+class PromotionSelectionTest(TempRegistryDbTestCase):
     def test_normal_save_override_reassessment_clear_and_rediscovery(self):
         case = next(c for c in cases() if c["ref"] == "rolld")
         p = apply_fixed_assessment(case)
@@ -92,14 +110,6 @@ class PromotionSelectionTest(TempRegistryDbTestCase):
             decisions.set_promotion_priority(conn, project_key="fixture:idiolect", lowered=False)
             self.assertEqual(presentation.queue_payload(conn, **query)["total"], 1)
 
-    def test_bluesky_tools_can_have_independent_technical_interest(self):
-        case = next(c for c in cases() if c["ref"] == "skysweeper")
-        p = apply_fixed_assessment(case)
-        p.update(technical_interest_level="high", technical_interest_summary="A concrete reusable protocol mechanism",
-                 summary="Bluesky profile viewer analytics dashboard", inspired_by=["Bluesky"])
-        self.assertEqual(len(registry.build_showcase_queue_from_projects([p], view="technical")), 1)
-        self.assertEqual(atproto_usage.projection(p)["role"], "bluesky_client")
-
     def test_llm_usage_output_is_not_saved_as_assessment(self):
         case = next(c for c in cases() if c["ref"] == "squire")
         for index, value in enumerate((None, [], {"role": []}, {"role": {}, "reason": "bad"},
@@ -113,14 +123,6 @@ class PromotionSelectionTest(TempRegistryDbTestCase):
                 state = json.loads(conn.execute("SELECT state_json FROM projects WHERE project_key=?", (p["project_key"],)).fetchone()[0])
                 self.assertNotIn("atproto_usage", state.get("ops", {}))
                 self.assertEqual(atproto_usage.projection(project_record.fetch_project(conn, p["project_key"]))["role"], "unknown")
-
-    def test_merge_conflicting_operator_roles_requires_resolution(self):
-        left, right = {}, {}
-        atproto_usage.set_override(left, role="main_data", reason="a", assessed_at="")
-        atproto_usage.set_override(right, role="supporting", reason="b", assessed_at="")
-        with self.assertRaisesRegex(ValueError, "conflicting"):
-            atproto_usage.merge_decisions(left["atproto_usage_decisions"], right["atproto_usage_decisions"], cleared_at="now")
-        self.assertEqual(atproto_usage.active_override(atproto_usage.merge_decisions([], left["atproto_usage_decisions"], cleared_at="now"))["role"], "main_data")
 
     def test_merge_preserves_override_in_normal_save_path(self):
         with contextlib.closing(registry.open_db()) as conn:

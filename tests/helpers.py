@@ -15,7 +15,12 @@ if str(SCRIPTS) not in sys.path:
 from project_registry_core import project_record, registry  # noqa: E402
 
 
-class TempRegistryDbTestCase(unittest.TestCase):
+class ProjectRecordTestCase(unittest.TestCase):
+    def make_project(self, project_key: str, seed_type: str = "nsid", seed_value: str = "app.example.post") -> dict:
+        return project_record.default_project_record(project_key, seed_type, seed_value)
+
+
+class TempRegistryDbTestCase(ProjectRecordTestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.original_db_path = registry.DB_PATH
@@ -27,9 +32,6 @@ class TempRegistryDbTestCase(unittest.TestCase):
     def tearDown(self) -> None:
         registry.DB_PATH = self.original_db_path
         self.tempdir.cleanup()
-
-    def make_project(self, project_key: str, seed_type: str = "nsid", seed_value: str = "app.example.post") -> dict:
-        return project_record.default_project_record(project_key, seed_type, seed_value)
 
 
 def seed_web_fixture() -> None:

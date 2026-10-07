@@ -1,8 +1,8 @@
-from helpers import TempRegistryDbTestCase, registry
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from project_registry_core import project_record, service
 
 
-class BrowserPageObservationTest(TempRegistryDbTestCase):
+class _BrowserPageObservationFixtures:
     def page(self, url, *, visible=True):
         return {
             "url": url, "title": "Sign in", "visibility_observed": True,
@@ -11,31 +11,8 @@ class BrowserPageObservationTest(TempRegistryDbTestCase):
             "links": [],
         }
 
-    def test_followed_login_does_not_become_positive_evidence_for_landing(self):
-        root, login = "https://example.com", "https://example.com/login"
-        pages = {root: {"url": root, "visibility_observed": True,
-                        "links": [{"href": login, "text": "Sign in", "visible": True}]},
-                 login: self.page(login)}
-        project = self.make_project("proj:browser-pages", "repo_url", "https://github.com/example/app")
-        bundle = service.collect_browser_service_evidence(project, root, service.BrowserDependencies(
-            navigate=lambda url: pages[url], now=lambda: "2026-09-08T00:00:00Z"))
-        value = bundle.records[0].value
-        self.assertTrue(service.browser_service_observation(value)["positive_surface"])
-        self.assertEqual([p["visible_surface_features"]["positive_surface"] for p in value["pages"]], [False, True])
-        self.assertEqual([p["requested_url"] for p in value["pages"]], [root, login])
-        registry.apply_replay_evidence(project, bundle)
-        self.assertEqual(project["service_urls"], [])
-        conn = registry.open_db()
-        try:
-            project_record.save_project(conn, project)
-            conn.commit()
-            saved = project_record.fetch_project(conn, project["project_key"])
-            self.assertEqual(saved["service_verification_results"][0]["pages"], value["pages"])
-            for page in value["pages"]:
-                self.assertEqual(service.browser_page_visible_surface_features(page), page["visible_surface_features"])
-        finally:
-            conn.close()
 
+class BrowserPageObservationUnitTest(_BrowserPageObservationFixtures, ProjectRecordTestCase):
     def test_hidden_and_unobserved_controls_do_not_establish_visible_surface(self):
         hidden = self.page("https://example.com", visible=False)
         self.assertTrue(service.browser_page_auth_features(hidden)["password_form_detected"])
@@ -73,3 +50,30 @@ class BrowserPageObservationTest(TempRegistryDbTestCase):
                  for visible in (False, True)]
         saved = service.bounded_service_links("https://example.com", links)
         self.assertEqual([item["visible"] for item in saved], [False, True])
+
+
+class BrowserPageObservationTest(_BrowserPageObservationFixtures, TempRegistryDbTestCase):
+    def test_followed_login_does_not_become_positive_evidence_for_landing(self):
+        root, login = "https://example.com", "https://example.com/login"
+        pages = {root: {"url": root, "visibility_observed": True,
+                        "links": [{"href": login, "text": "Sign in", "visible": True}]},
+                 login: self.page(login)}
+        project = self.make_project("proj:browser-pages", "repo_url", "https://github.com/example/app")
+        bundle = service.collect_browser_service_evidence(project, root, service.BrowserDependencies(
+            navigate=lambda url: pages[url], now=lambda: "2026-09-08T00:00:00Z"))
+        value = bundle.records[0].value
+        self.assertTrue(service.browser_service_observation(value)["positive_surface"])
+        self.assertEqual([p["visible_surface_features"]["positive_surface"] for p in value["pages"]], [False, True])
+        self.assertEqual([p["requested_url"] for p in value["pages"]], [root, login])
+        registry.apply_replay_evidence(project, bundle)
+        self.assertEqual(project["service_urls"], [])
+        conn = registry.open_db()
+        try:
+            project_record.save_project(conn, project)
+            conn.commit()
+            saved = project_record.fetch_project(conn, project["project_key"])
+            self.assertEqual(saved["service_verification_results"][0]["pages"], value["pages"])
+            for page in value["pages"]:
+                self.assertEqual(service.browser_page_visible_surface_features(page), page["visible_surface_features"])
+        finally:
+            conn.close()

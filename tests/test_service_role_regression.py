@@ -3,14 +3,14 @@ import json
 from pathlib import Path
 from unittest import mock
 
-from helpers import TempRegistryDbTestCase, registry
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from project_registry_core import enrichment_pipeline, project_record, repository_trust, trust_graph
 from project_registry_core.evidence import EvidenceBundle
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures/project_registry/service-role-regression-v1.json").read_text())
 
 
-class ServiceRoleRegressionTest(TempRegistryDbTestCase):
+class _ServiceRoleRegressionFixtures:
     def historical_arroba(self):
         observation = FIXTURE["historical_arroba_adoption"]
         self.assertEqual(observation["candidate"]["kind"], "service_url")
@@ -26,6 +26,32 @@ class ServiceRoleRegressionTest(TempRegistryDbTestCase):
             p, candidate=observation["candidate"], anchors=[observation["anchor"]])["auto_confirm"])
         return p, url
 
+
+class ServiceRoleRegressionUnitTest(_ServiceRoleRegressionFixtures, ProjectRecordTestCase):
+    def test_current_three_cases_do_not_establish_service_from_repository_anchors(self):
+        for case in FIXTURE["cases"]:
+            with self.subTest(project=case["name"]):
+                evaluation = trust_graph.evaluate_auto_confirm(
+                    {"relation_evidence": copy.deepcopy(case["relation_evidence"])},
+                    candidate={"kind": "service_url", "value": case["url"]}, anchors=case["anchors"])
+                self.assertFalse(evaluation["auto_confirm"])
+
+    def test_repository_cannot_bridge_two_services_but_canonical_service_path_still_works(self):
+        p, url = self.historical_arroba()
+        anchor = {"kind": "service_url", "value": "https://service.example.com"}
+        repo = FIXTURE["historical_arroba_adoption"]["anchor"]
+        for subject, obj, predicate in ((anchor, repo, "service_links_repo"), (repo, anchor, "repo_links_service")):
+            trust_graph.upsert_edge(p, subject=subject, predicate=predicate, object=obj,
+                                    classification="confirmed", eligible_for_auto_confirm=True)
+        candidate = {"kind": "service_url", "value": url}
+        self.assertFalse(trust_graph.evaluate_auto_confirm(p, candidate=candidate, anchors=[anchor])["auto_confirm"])
+        for subject, obj in ((anchor, candidate), (candidate, anchor)):
+            trust_graph.upsert_edge(p, subject=subject, predicate="service_canonical", object=obj,
+                                    classification="confirmed", eligible_for_auto_confirm=True)
+        self.assertTrue(trust_graph.evaluate_auto_confirm(p, candidate=candidate, anchors=[anchor])["auto_confirm"])
+
+
+class ServiceRoleRegressionTest(_ServiceRoleRegressionFixtures, TempRegistryDbTestCase):
     def test_historical_same_project_adoption_does_not_return_after_enrich_save_and_recheck(self):
         p, url = self.historical_arroba()
         empty = EvidenceBundle(project_key=p["project_key"], collected_at="2026-09-09T00:00:00Z")
@@ -54,25 +80,3 @@ class ServiceRoleRegressionTest(TempRegistryDbTestCase):
             self.assertFalse(registry.identifier_has_active_confirm_decision(saved, "service_url", url))
         finally:
             conn.close()
-
-    def test_current_three_cases_do_not_establish_service_from_repository_anchors(self):
-        for case in FIXTURE["cases"]:
-            with self.subTest(project=case["name"]):
-                evaluation = trust_graph.evaluate_auto_confirm(
-                    {"relation_evidence": copy.deepcopy(case["relation_evidence"])},
-                    candidate={"kind": "service_url", "value": case["url"]}, anchors=case["anchors"])
-                self.assertFalse(evaluation["auto_confirm"])
-
-    def test_repository_cannot_bridge_two_services_but_canonical_service_path_still_works(self):
-        p, url = self.historical_arroba()
-        anchor = {"kind": "service_url", "value": "https://service.example.com"}
-        repo = FIXTURE["historical_arroba_adoption"]["anchor"]
-        for subject, obj, predicate in ((anchor, repo, "service_links_repo"), (repo, anchor, "repo_links_service")):
-            trust_graph.upsert_edge(p, subject=subject, predicate=predicate, object=obj,
-                                    classification="confirmed", eligible_for_auto_confirm=True)
-        candidate = {"kind": "service_url", "value": url}
-        self.assertFalse(trust_graph.evaluate_auto_confirm(p, candidate=candidate, anchors=[anchor])["auto_confirm"])
-        for subject, obj in ((anchor, candidate), (candidate, anchor)):
-            trust_graph.upsert_edge(p, subject=subject, predicate="service_canonical", object=obj,
-                                    classification="confirmed", eligible_for_auto_confirm=True)
-        self.assertTrue(trust_graph.evaluate_auto_confirm(p, candidate=candidate, anchors=[anchor])["auto_confirm"])

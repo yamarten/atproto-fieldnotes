@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import sqlite3
 
-from helpers import TempRegistryDbTestCase
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase
 import promotion_outcome_analysis
 from project_registry_core import project_record
 
 
-class PromotionOutcomeAnalysisTest(TempRegistryDbTestCase):
+class _PromotionOutcomeAnalysisFixtures:
     def introduced_project(
         self,
         project_key: str,
@@ -29,6 +29,8 @@ class PromotionOutcomeAnalysisTest(TempRegistryDbTestCase):
         project["technical_interest_summary"] = "Reference implementation"
         return project_record.ensure_project_shape(project)
 
+
+class PromotionOutcomeAnalysisUnitTest(_PromotionOutcomeAnalysisFixtures, ProjectRecordTestCase):
     def test_analysis_uses_unintroduced_counterfactual_without_mutating_input(self) -> None:
         service = self.introduced_project("proj:111111111111")
         missing_url = self.introduced_project("proj:222222222222", website_url="")
@@ -128,6 +130,8 @@ class PromotionOutcomeAnalysisTest(TempRegistryDbTestCase):
             {"service_surface_confirmed": 1},
         )
 
+
+class PromotionOutcomeAnalysisTest(_PromotionOutcomeAnalysisFixtures, TempRegistryDbTestCase):
     def test_database_analysis_opens_existing_schema_read_only(self) -> None:
         project = self.introduced_project("proj:555555555555")
         conn = sqlite3.connect(self.db_path)

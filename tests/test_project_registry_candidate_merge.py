@@ -3,12 +3,12 @@ from __future__ import annotations
 import copy
 import contextlib
 
-from helpers import TempRegistryDbTestCase, registry
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from project_registry_core import identifier_storage, project_record, runtime_view
 from project_registry_core.application import merge
 
 
-class CandidateConfirmedMergeTest(TempRegistryDbTestCase):
+class _CandidateConfirmedMergeFixtures:
     def pair(self, kind="repo_url", role="project_repository", value="https://github.com/example/shared"):
         projects = [self.make_project("proj:left", "repo_url", "https://github.com/a/left"),
                     self.make_project("proj:right", "repo_url", "https://github.com/b/right")]
@@ -20,30 +20,8 @@ class CandidateConfirmedMergeTest(TempRegistryDbTestCase):
             project[runtime_view.RUNTIME_IDENTIFIER_BASELINE] = []
         return projects
 
-    def test_all_component_roles_both_directions_and_index(self):
-        claims = [("repo_url", "project_repository", "https://github.com/example/shared"),
-                  ("service_url", "service", "https://example.test/app"),
-                  ("site_url", "project_site", "https://example.test"),
-                  ("nsid", "owned_nsid", "app.example.Test"),
-                  ("account", "project_account", "example.test"),
-                  ("handle", "project_handle", "example.test"),
-                  ("did", "brand_did", "did:plc:example")]
-        self.assertEqual({role for _, role, _ in claims}, identifier_storage.COMPONENT_ROLES)
-        for kind, role, value in claims:
-            left, right = self.pair(kind, role, value)
-            before = copy.deepcopy([left, right])
-            for project, other, classification in ((left, right, "candidate"), (right, left, "confirmed")):
-                with self.subTest(kind=kind, classification=classification):
-                    candidates = registry.compute_duplicate_candidates(None, project, projects=[left, right])
-                    self.assertEqual(len(candidates), 1)
-                    self.assertEqual(candidates[0], registry.duplicate_candidate_for_pair(project, other))
-                    self.assertEqual(candidates[0]["identifier_matches"], [dict(
-                        kind=kind, role=role, value=value, project_classification=classification,
-                        other_classification="confirmed" if classification == "candidate" else "candidate",
-                    )])
-                    self.assertFalse(candidates[0]["auto_merge_ready"])
-            self.assertEqual([left, right], before)
 
+class CandidateConfirmedMergeUnitTest(_CandidateConfirmedMergeFixtures, ProjectRecordTestCase):
     def test_shared_resource_counts_and_alias_do_not_make_auto_ready(self):
         left, right = self.pair()
         for project in (left, right):
@@ -89,6 +67,39 @@ class CandidateConfirmedMergeTest(TempRegistryDbTestCase):
         left["deferred_identifiers"] = [{"type": "repo_url", "value": "https://github.com/example/shared", "expires_at": "2000-01-01T00:00:00+00:00"}]
         self.assertIsNotNone(registry.duplicate_candidate_for_pair(left, right))
 
+    def test_candidate_candidate_and_case_distinct_nsid_are_not_new_matches(self):
+        left, right = self.pair("nsid", "owned_nsid", "app.example.Post")
+        right[runtime_view.RUNTIME_IDENTIFIER_ROWS][0]["value"] = "app.example.post"
+        self.assertIsNone(registry.duplicate_candidate_for_pair(left, right))
+        right[runtime_view.RUNTIME_IDENTIFIER_ROWS][0].update(value="app.example.Post", classification="candidate")
+        self.assertIsNone(registry.duplicate_candidate_for_pair(left, right))
+
+
+class CandidateConfirmedMergeTest(_CandidateConfirmedMergeFixtures, TempRegistryDbTestCase):
+    def test_all_component_roles_both_directions_and_index(self):
+        claims = [("repo_url", "project_repository", "https://github.com/example/shared"),
+                  ("service_url", "service", "https://example.test/app"),
+                  ("site_url", "project_site", "https://example.test"),
+                  ("nsid", "owned_nsid", "app.example.Test"),
+                  ("account", "project_account", "example.test"),
+                  ("handle", "project_handle", "example.test"),
+                  ("did", "brand_did", "did:plc:example")]
+        self.assertEqual({role for _, role, _ in claims}, identifier_storage.COMPONENT_ROLES)
+        for kind, role, value in claims:
+            left, right = self.pair(kind, role, value)
+            before = copy.deepcopy([left, right])
+            for project, other, classification in ((left, right, "candidate"), (right, left, "confirmed")):
+                with self.subTest(kind=kind, classification=classification):
+                    candidates = registry.compute_duplicate_candidates(None, project, projects=[left, right])
+                    self.assertEqual(len(candidates), 1)
+                    self.assertEqual(candidates[0], registry.duplicate_candidate_for_pair(project, other))
+                    self.assertEqual(candidates[0]["identifier_matches"], [dict(
+                        kind=kind, role=role, value=value, project_classification=classification,
+                        other_classification="confirmed" if classification == "candidate" else "candidate",
+                    )])
+                    self.assertFalse(candidates[0]["auto_merge_ready"])
+            self.assertEqual([left, right], before)
+
     def test_persisted_pair_modes_mutual_condition_and_no_writes(self):
         with contextlib.closing(registry.open_db()) as conn:
             for project in self.pair():
@@ -133,10 +144,3 @@ class CandidateConfirmedMergeTest(TempRegistryDbTestCase):
                 conn.execute("DELETE FROM projects")
                 conn.execute("DELETE FROM project_revisions")
                 conn.commit()
-
-    def test_candidate_candidate_and_case_distinct_nsid_are_not_new_matches(self):
-        left, right = self.pair("nsid", "owned_nsid", "app.example.Post")
-        right[runtime_view.RUNTIME_IDENTIFIER_ROWS][0]["value"] = "app.example.post"
-        self.assertIsNone(registry.duplicate_candidate_for_pair(left, right))
-        right[runtime_view.RUNTIME_IDENTIFIER_ROWS][0].update(value="app.example.Post", classification="candidate")
-        self.assertIsNone(registry.duplicate_candidate_for_pair(left, right))

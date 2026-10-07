@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from unittest import mock
 
-from helpers import TempRegistryDbTestCase, captured_stdout, registry
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, captured_stdout, registry
 from project_registry_core import cli
 from project_registry_core.application import enrichment, merge, projects
 from project_registry_core.commands import enrichment as enrichment_commands
@@ -13,7 +13,7 @@ from project_registry_core.jobs import CancellationToken, OperationRequest
 from project_registry_core import project_record, storage
 
 
-class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
+class _ProjectRegistryEnrichRunFixtures:
     def seed_projects(self) -> None:
         conn = registry.open_db()
         try:
@@ -43,6 +43,43 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
             },
         )
 
+
+class ProjectRegistryEnrichRunUnitTest(_ProjectRegistryEnrichRunFixtures, ProjectRecordTestCase):
+    def test_cli_fail_fast_option_sets_bulk_policy(self) -> None:
+        args = cli.build_parser().parse_args(["enrich", "--all", "--fail-fast"])
+        request = enrichment_commands.request_from_args(args)
+        self.assertFalse(request.parameters["continue_on_error"])
+
+    def test_cli_triage_prompt_suffix_file_is_forwarded(self) -> None:
+        args = cli.build_parser().parse_args([
+            "enrich", "-p", "proj:111111111111",
+            "--llm-triage-prompt-suffix-file", "model-rules.txt",
+        ])
+        request = enrichment_commands.request_from_args(args)
+
+        self.assertEqual(request.parameters["llm_triage_prompt_suffix_file"], "model-rules.txt")
+
+    def test_cli_llm_max_output_tokens_is_forwarded(self) -> None:
+        args = cli.build_parser().parse_args([
+            "enrich", "-p", "proj:111111111111",
+            "--llm-max-output-tokens", "2048",
+        ])
+        request = enrichment_commands.request_from_args(args)
+
+        self.assertEqual(request.parameters["llm_max_output_tokens"], 2048)
+
+    def test_unknown_model_has_no_automatic_triage_rules(self) -> None:
+        options = enrichment.EnrichmentOptions(llm_model="example/other-model")
+
+        with mock.patch.dict(
+            "os.environ", {"ATPROTO_SURVEY_LLM_TRIAGE_PROMPT_SUFFIX_FILE": ""}
+        ):
+            suffix_path = enrichment.configured_triage_prompt_suffix_file(options)
+
+        self.assertEqual(suffix_path, "")
+
+
+class ProjectRegistryEnrichRunTest(_ProjectRegistryEnrichRunFixtures, TempRegistryDbTestCase):
     def test_operation_request_and_checkpoint_omit_api_key_value(self) -> None:
         checkpoint_path = Path(self.tempdir.name) / "run.json"
         request = self.request(checkpoint_path)
@@ -410,29 +447,6 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
         self.assertEqual(saved_checkpoint["failed_projects"], [])
         self.assertEqual(saved_checkpoint["missing_project_keys"], [])
 
-    def test_cli_fail_fast_option_sets_bulk_policy(self) -> None:
-        args = cli.build_parser().parse_args(["enrich", "--all", "--fail-fast"])
-        request = enrichment_commands.request_from_args(args)
-        self.assertFalse(request.parameters["continue_on_error"])
-
-    def test_cli_triage_prompt_suffix_file_is_forwarded(self) -> None:
-        args = cli.build_parser().parse_args([
-            "enrich", "-p", "proj:111111111111",
-            "--llm-triage-prompt-suffix-file", "model-rules.txt",
-        ])
-        request = enrichment_commands.request_from_args(args)
-
-        self.assertEqual(request.parameters["llm_triage_prompt_suffix_file"], "model-rules.txt")
-
-    def test_cli_llm_max_output_tokens_is_forwarded(self) -> None:
-        args = cli.build_parser().parse_args([
-            "enrich", "-p", "proj:111111111111",
-            "--llm-max-output-tokens", "2048",
-        ])
-        request = enrichment_commands.request_from_args(args)
-
-        self.assertEqual(request.parameters["llm_max_output_tokens"], 2048)
-
     def test_run_reads_triage_prompt_suffix_once_and_forwards_content(self) -> None:
         self.seed_projects()
         suffix_path = Path(self.tempdir.name) / "model-rules.txt"
@@ -523,16 +537,6 @@ class ProjectRegistryEnrichRunTest(TempRegistryDbTestCase):
         self.assertEqual(result.status, "completed")
         suffix = enrich_project.call_args.kwargs["llm_triage_prompt_suffix"]
         self.assertIn("model-specific tie-breakers", suffix)
-
-    def test_unknown_model_has_no_automatic_triage_rules(self) -> None:
-        options = enrichment.EnrichmentOptions(llm_model="example/other-model")
-
-        with mock.patch.dict(
-            "os.environ", {"ATPROTO_SURVEY_LLM_TRIAGE_PROMPT_SUFFIX_FILE": ""}
-        ):
-            suffix_path = enrichment.configured_triage_prompt_suffix_file(options)
-
-        self.assertEqual(suffix_path, "")
 
     def test_run_forwards_llm_max_output_tokens(self) -> None:
         self.seed_projects()

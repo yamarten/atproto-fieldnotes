@@ -11,7 +11,7 @@ import urllib.error
 from pathlib import Path
 from unittest import mock
 
-from helpers import TempRegistryDbTestCase, registry
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from project_registry_core import enrichment_pipeline, source_sync
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
 from project_registry_core import evaluation as evaluation_core
@@ -30,60 +30,7 @@ from project_registry_core import tangled as tangled_core
 from project_registry_core import project_record
 
 
-class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
-    def test_triage_prompt_suffix_is_normalized_and_hashed(self) -> None:
-        prompt, suffix_hash = enrichment_pipeline.append_triage_prompt_suffix(
-            "base prompt", "  category gate\n"
-        )
-        expected_hash = hashlib.sha256(b"category gate").hexdigest()
-        self.assertEqual(prompt, "base prompt\n\nEvaluation prompt variant:\ncategory gate\n")
-        self.assertEqual(suffix_hash, expected_hash)
-
-        unchanged, empty_hash = enrichment_pipeline.append_triage_prompt_suffix("base prompt", "")
-        self.assertEqual(unchanged, "base prompt")
-        self.assertEqual(empty_hash, "")
-
-    def test_project_patch_applies_resource_url_budget_immediately(self) -> None:
-        project = project_record.default_project_record("proj:resourcepatch", "service_url", "https://example.com")
-        records = [
-            {
-                "url": f"https://example.com/docs/page-{index}",
-                "role": "docs",
-                "source": "resource_page:https://example.com",
-                "confidence": "confirmed",
-            }
-            for index in range(20)
-        ]
-        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-11T00:00:00+00:00")
-        bundle.add_record(EvidenceRecord(
-            kind="project_patch",
-            source="resource_page",
-            classification="derived",
-            observed_at=bundle.collected_at,
-            value={"fields": {"resource_url_records": records}},
-            context={"allowed_fields": ["resource_url_records"]},
-        ))
-
-        registry.apply_collector_snapshot_evidence(project, bundle)
-
-        self.assertEqual(len(project["resource_url_records"]), 4)
-
-    def search_dependencies(self, **overrides):  # type: ignore[no-untyped-def]
-        values = {
-            "now": lambda: "2026-06-13T00:00:00+00:00",
-            "search_github_repositories": lambda *args, **kwargs: [],
-            "github_repo_relevance": lambda project, repo: 0,
-            "repo_candidate_allowed": lambda project, url: True,
-            "search_bsky_actors": lambda *args, **kwargs: [],
-            "bsky_actor_relevance": lambda project, actor: 0,
-            "search_bsky_posts": lambda *args, **kwargs: [],
-            "handle_matches_project": lambda project, handle: False,
-            "fetch_bsky_author_feed": lambda *args, **kwargs: [],
-            "timeout": 12.0,
-        }
-        values.update(overrides)
-        return investigation_core.SearchCollectorDependencies(**values)
-
+class ProjectRegistryLlmTransportTest(unittest.TestCase):
     def test_llm_metrics_record_sizes_without_prompt_or_endpoint(self) -> None:
         requests: list[dict] = []
         with mock.patch.object(
@@ -278,6 +225,61 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
                 )
         self.assertEqual(request.call_count, 1)
         self.assertEqual(llm_transport_core.classify_llm_request_error(rate_error.exception), "rate_limited")
+
+
+class ProjectRegistryResearchPipelineTest(ProjectRecordTestCase):
+    def test_triage_prompt_suffix_is_normalized_and_hashed(self) -> None:
+        prompt, suffix_hash = enrichment_pipeline.append_triage_prompt_suffix(
+            "base prompt", "  category gate\n"
+        )
+        expected_hash = hashlib.sha256(b"category gate").hexdigest()
+        self.assertEqual(prompt, "base prompt\n\nEvaluation prompt variant:\ncategory gate\n")
+        self.assertEqual(suffix_hash, expected_hash)
+
+        unchanged, empty_hash = enrichment_pipeline.append_triage_prompt_suffix("base prompt", "")
+        self.assertEqual(unchanged, "base prompt")
+        self.assertEqual(empty_hash, "")
+
+    def test_project_patch_applies_resource_url_budget_immediately(self) -> None:
+        project = project_record.default_project_record("proj:resourcepatch", "service_url", "https://example.com")
+        records = [
+            {
+                "url": f"https://example.com/docs/page-{index}",
+                "role": "docs",
+                "source": "resource_page:https://example.com",
+                "confidence": "confirmed",
+            }
+            for index in range(20)
+        ]
+        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-11T00:00:00+00:00")
+        bundle.add_record(EvidenceRecord(
+            kind="project_patch",
+            source="resource_page",
+            classification="derived",
+            observed_at=bundle.collected_at,
+            value={"fields": {"resource_url_records": records}},
+            context={"allowed_fields": ["resource_url_records"]},
+        ))
+
+        registry.apply_collector_snapshot_evidence(project, bundle)
+
+        self.assertEqual(len(project["resource_url_records"]), 4)
+
+    def search_dependencies(self, **overrides):  # type: ignore[no-untyped-def]
+        values = {
+            "now": lambda: "2026-06-13T00:00:00+00:00",
+            "search_github_repositories": lambda *args, **kwargs: [],
+            "github_repo_relevance": lambda project, repo: 0,
+            "repo_candidate_allowed": lambda project, url: True,
+            "search_bsky_actors": lambda *args, **kwargs: [],
+            "bsky_actor_relevance": lambda project, actor: 0,
+            "search_bsky_posts": lambda *args, **kwargs: [],
+            "handle_matches_project": lambda project, handle: False,
+            "fetch_bsky_author_feed": lambda *args, **kwargs: [],
+            "timeout": 12.0,
+        }
+        values.update(overrides)
+        return investigation_core.SearchCollectorDependencies(**values)
 
     def test_search_collector_returns_evidence_without_mutating_project(self) -> None:
         project = self.make_project("proj:researchbundle")
@@ -868,7 +870,7 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         project["authority_domains"] = ["example.com", "api.example.com"]
         project["bluesky_handles"] = ["example.com"]
 
-        plan = registry.seed_investigation_queries(project)
+        plan = investigation_core.seed_investigation_queries(project)
 
         self.assertEqual(
             plan,
@@ -911,7 +913,8 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
             mock.patch.object(registry, "search_bsky_actors", side_effect=TimeoutError("actor timeout")),
             mock.patch.object(registry, "search_bsky_posts", return_value=[]),
         ):
-            registry.run_investigation_collectors(project, plan)
+            bundle = registry.collect_investigation_evidence(project, plan)
+            registry.apply_investigation_evidence(project, bundle)
 
         self.assertEqual(github_search.call_count, 1)
         self.assertEqual(project["candidate_project_repository_urls"], ["https://github.com/example/app"])
@@ -962,175 +965,6 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertIn("https://github.com/example/helper", project["candidate_project_repository_urls"])
         self.assertIn("https://app.example.com", project["service_url_candidates"])
 
-    def test_enrich_save_fetch_preserves_top_level_contract(self) -> None:
-        conn = registry.open_db()
-        try:
-            project = self.make_project("proj:researchenrich")
-            with (
-                mock.patch.object(enrichment_pipeline, "should_refresh_lexicon_surface", return_value=False),
-                mock.patch.object(enrichment_pipeline, "should_refresh_recent_record_samples", return_value=False),
-                mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
-                mock.patch.object(
-                    enrichment_pipeline,
-                    "collect_investigation_evidence",
-                    return_value=EvidenceBundle(
-                        project_key=project["project_key"],
-                        collected_at="2026-06-13T00:00:00+00:00",
-                    ),
-                ),
-                mock.patch.object(llm_transport_core, "run_local_llm", side_effect=RuntimeError("LLM unavailable")),
-            ):
-                enriched = enrichment_pipeline.enrich_project(conn, project)
-            project_record.save_project(conn, enriched, enriched=True)
-            conn.commit()
-            fetched = project_record.fetch_project(conn, project["project_key"])
-        finally:
-            conn.close()
-
-        self.assertIsNotNone(fetched)
-        assert fetched is not None
-        self.assertEqual(fetched["project_key"], "proj:researchenrich")
-        self.assertNotIn(runtime_view.RUNTIME_INVESTIGATION_RUN_ID, fetched)
-        self.assertIn("LLM unavailable", "\n".join(fetched["last_run_errors"]))
-        self.assertTrue(fetched["last_enriched_at"])
-        conn = registry.open_db()
-        try:
-            run = storage_core.latest_investigation_run(conn, "proj:researchenrich")
-        finally:
-            conn.close()
-        self.assertIsNotNone(run)
-        assert run is not None
-        self.assertEqual(run["metrics"]["version"], 3)
-        self.assertEqual(
-            set(run["metrics"]["phases"]),
-            {
-                "initial_collection_ms",
-                "planning_ms",
-                "investigation_collection_ms",
-                "triage_ms",
-                "evaluation_ms",
-                "run_history_save_ms",
-                "project_save_ms",
-            },
-        )
-        self.assertEqual(run["metrics"]["llm_requests"][0]["purpose"], "triage")
-        self.assertEqual(run["metrics"]["llm_requests"][0]["status"], "failed")
-        self.assertGreater(run["metrics"]["llm_requests"][0]["prompt_bytes"], 0)
-
-    def test_enrich_collects_known_github_repo_once_per_run(self) -> None:
-        conn = registry.open_db()
-        project = self.make_project("proj:single-repo-collection", "repo_url", "https://github.com/example/app")
-        project["project_repository_urls"] = ["https://github.com/example/app"]
-        repo_bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-10T00:00:00+00:00")
-        repo_bundle.add_collector_result(CollectorResult(
-            source="github_repo", operation="inspect", status="success",
-            observed_at=repo_bundle.collected_at, request_count=1, result_count=1,
-        ))
-        empty_bundle = EvidenceBundle(project_key=project["project_key"], collected_at=repo_bundle.collected_at)
-        try:
-            with (
-                mock.patch.object(enrichment_pipeline, "should_refresh_lexicon_surface", return_value=False),
-                mock.patch.object(enrichment_pipeline, "should_refresh_recent_record_samples", return_value=False),
-                mock.patch.object(enrichment_pipeline, "collect_github_repo_evidence", return_value=repo_bundle) as collect_repo,
-                mock.patch.object(enrichment_pipeline, "apply_github_repo_evidence"),
-                mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
-                mock.patch.object(enrichment_pipeline, "collect_investigation_evidence", return_value=empty_bundle),
-                mock.patch.object(llm_transport_core, "run_local_llm", side_effect=RuntimeError("LLM unavailable")),
-            ):
-                enrichment_pipeline.enrich_project(conn, project)
-        finally:
-            conn.close()
-
-        self.assertEqual(collect_repo.call_count, 1)
-        self.assertEqual(collect_repo.call_args.args[1], "https://github.com/example/app")
-
-    def test_repository_analysis_adds_declared_docs_site_as_candidate_resource(self) -> None:
-        conn = registry.open_db()
-        project = self.make_project("proj:repo-docs", "repo_url", "https://github.com/example/app")
-        project["project_repository_urls"] = ["https://github.com/example/app"]
-        repo_bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-26T00:00:00+00:00")
-        repo_bundle.add_record(EvidenceRecord(
-            kind="github_repo_snapshot",
-            source="github_repo:https://github.com/example/app",
-            classification="confirmed",
-            observed_at=repo_bundle.collected_at,
-            value={
-                "provider": "github",
-                "repo": {"name": "app", "description": "Example application"},
-                "revision": "abc123",
-                "readme_excerpt": "Documentation for this project is hosted at https://docs.example.com.",
-                "configuration_hints": [],
-                "tree_paths": ["mkdocs.yml", "docs/index.md", "docs/setup.md"],
-            },
-        ))
-        repo_bundle.add_collector_result(CollectorResult(
-            source="github_repo", operation="inspect", status="success",
-            observed_at=repo_bundle.collected_at, request_count=1, result_count=1,
-        ))
-        empty_bundle = EvidenceBundle(project_key=project["project_key"], collected_at=repo_bundle.collected_at)
-        analysis_material = repository_analysis.build_material(
-            "https://github.com/example/app", repo_bundle
-        )
-        docs_candidate_id = next(
-            candidate_id
-            for candidate_id, candidate in repository_analysis.observation_candidate_catalog(
-                analysis_material
-            ).items()
-            if candidate.get("predicate") == "declares_documentation_site_url"
-            and candidate.get("value") == "https://docs.example.com"
-        )
-        docs_evidence_id = repository_analysis.observation_candidate_catalog(
-            analysis_material
-        )[docs_candidate_id]["evidence_ids"][0]
-
-        def llm_result(prompt: str, **_kwargs: object) -> tuple[dict, dict]:
-            if "Analyze a confirmed project repository" in prompt:
-                return ({
-                    "summary": "ドキュメントサイトを持つAT Protocolアプリケーション。",
-                    "summary_evidence": [docs_evidence_id],
-                    "observations": [{"candidate_id": docs_candidate_id, "applicability": "current_project"}],
-                    "capabilities": [],
-                    "collections": [],
-                }, {"model": "fixture", "transport": "fixture"})
-            return ({}, {"model": "fixture", "transport": "fixture"})
-
-        try:
-            with (
-                mock.patch.object(enrichment_pipeline, "should_refresh_lexicon_surface", return_value=False),
-                mock.patch.object(enrichment_pipeline, "should_refresh_recent_record_samples", return_value=False),
-                mock.patch.object(enrichment_pipeline, "collect_github_repo_evidence", return_value=repo_bundle),
-                mock.patch.object(enrichment_pipeline, "apply_github_repo_evidence"),
-                mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
-                mock.patch.object(enrichment_pipeline, "collect_investigation_evidence", return_value=empty_bundle),
-                mock.patch.object(llm_transport_core, "run_local_llm", side_effect=llm_result) as run_llm,
-            ):
-                enriched = enrichment_pipeline.enrich_project(
-                    conn, project, llm_max_output_tokens=2048
-                )
-        finally:
-            conn.close()
-
-        docs_records = [
-            item for item in enriched["resource_url_records"]
-            if item.get("role") == "docs" and item.get("url") == "https://docs.example.com"
-        ]
-        self.assertEqual(
-            len(docs_records), 1,
-            {"resources": enriched["resource_url_records"], "analysis": enriched["repository_analysis_results"]},
-        )
-        self.assertEqual(docs_records[0]["confidence"], "candidate")
-        self.assertEqual(enriched["service_urls"], [])
-        self.assertEqual(enriched["project_site_urls"], [])
-        self.assertEqual(
-            enriched["repository_analysis_results"][0]["prompt_version"],
-            repository_analysis.POLICY_VERSION,
-        )
-        self.assertGreaterEqual(run_llm.call_count, 1)
-        self.assertTrue(all(
-            call.kwargs["llm_max_output_tokens"] == 2048
-            for call in run_llm.call_args_list
-        ))
-
     def test_repository_collection_failure_preserves_previous_success(self) -> None:
         project = self.make_project(
             "proj:repo-collection-failure", "repo_url", "https://github.com/example/app"
@@ -1155,50 +989,6 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(result["last_attempt"]["error_category"], "provider_fetch_failed")
         self.assertTrue(repository_analysis.result_is_stale(result))
 
-    def test_enrich_candidate_repo_collects_trust_before_full_content(self) -> None:
-        conn = registry.open_db()
-        project = self.make_project("proj:candidate-repo-trust")
-        repo_url = "https://github.com/example/app"
-        project["candidate_project_repository_urls"] = [repo_url]
-        trust_bundle = EvidenceBundle(
-            project_key=project["project_key"],
-            collected_at="2026-07-18T00:00:00+00:00",
-        )
-        repo_bundle = EvidenceBundle(
-            project_key=project["project_key"],
-            collected_at="2026-07-18T00:00:01+00:00",
-        )
-        empty_bundle = EvidenceBundle(
-            project_key=project["project_key"],
-            collected_at="2026-07-18T00:00:02+00:00",
-        )
-        try:
-            with (
-                mock.patch.object(enrichment_pipeline, "should_refresh_lexicon_surface", return_value=False),
-                mock.patch.object(enrichment_pipeline, "should_refresh_recent_record_samples", return_value=False),
-                mock.patch.object(enrichment_pipeline, "candidate_repo_trust_probe_urls", return_value=[repo_url]),
-                mock.patch.object(
-                    enrichment_pipeline,
-                    "collect_github_repo_evidence",
-                    side_effect=[trust_bundle, repo_bundle],
-                ) as collect_repo,
-                mock.patch.object(enrichment_pipeline, "apply_candidate_repo_trust_evidence"),
-                mock.patch.object(enrichment_pipeline, "confirm_project_repository_url_with_trust", return_value=True),
-                mock.patch.object(enrichment_pipeline, "apply_github_repo_evidence") as apply_repo,
-                mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
-                mock.patch.object(enrichment_pipeline, "collect_investigation_evidence", return_value=empty_bundle),
-                mock.patch.object(llm_transport_core, "run_local_llm", side_effect=RuntimeError("LLM unavailable")),
-            ):
-                enrichment_pipeline.enrich_project(conn, project)
-        finally:
-            conn.close()
-
-        self.assertEqual(collect_repo.call_count, 2)
-        self.assertEqual(collect_repo.call_args_list[0].kwargs, {"trust_only": True})
-        self.assertEqual(collect_repo.call_args_list[1].kwargs, {})
-        self.assertEqual(apply_repo.call_count, 1)
-        self.assertEqual(apply_repo.call_args.kwargs, {"confirm_repo_snapshot": False})
-
     def test_evidence_v2_rejects_v1_and_keeps_source_status(self) -> None:
         with self.assertRaises(ValueError):
             EvidenceBundle.from_dict({
@@ -1216,88 +1006,6 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         decoded = EvidenceBundle.from_json(bundle.to_json())
         self.assertEqual(decoded.schema_version, 2)
         self.assertEqual(decoded.collector_results[0].status, "partial")
-
-    def test_investigation_storage_and_replay_are_network_free(self) -> None:
-        conn = registry.open_db()
-        project = self.make_project("proj:storedrun", "service_url", "https://example.com")
-        project["service_urls"] = ["https://example.com"]
-        project[runtime_view.RUNTIME_VIEW_MARKER] = True
-        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-13T00:00:00+00:00")
-        bundle.add_record(relation_core.relation_record(
-            source="fixture", classification="derived", observed_at=bundle.collected_at,
-            subject_type="repo", subject_value="https://github.com/example/app",
-            predicate="uses_collection", object_type="nsid", object_value="app.example.post",
-        ))
-        bundle.add_collector_result(CollectorResult(
-            source="fixture", operation="load", status="success", observed_at=bundle.collected_at,
-            request_count=0, result_count=1,
-        ))
-        try:
-            run_id = storage_core.save_investigation_run(
-                conn, project_key=project["project_key"], started_at=bundle.collected_at,
-                completed_at=bundle.collected_at, input_project=project, output_project=project, bundle=bundle,
-            )
-            conn.commit()
-            run = storage_core.load_investigation_run(conn, run_id)
-        finally:
-            conn.close()
-        assert run is not None
-        self.assertNotIn(runtime_view.RUNTIME_VIEW_MARKER, run["input_project"])
-        self.assertEqual(run["input_project"]["service_urls"], ["https://example.com"])
-        replayed = registry.replay_core.replay_and_diff(
-            run["input_project"], run["bundle"], run["evaluation"], registry.replay_dependencies()
-        )
-        self.assertEqual(replayed["evaluation"]["atproto_contribution_level"], "substantial")
-
-    def test_investigation_storage_keeps_run_metrics_out_of_replay_evaluation(self) -> None:
-        conn = registry.open_db()
-        project = self.make_project("proj:runmetrics")
-        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-10T00:00:00+00:00")
-        try:
-            run_id = storage_core.save_investigation_run(
-                conn,
-                project_key=project["project_key"],
-                started_at=bundle.collected_at,
-                completed_at=bundle.collected_at,
-                input_project=project,
-                output_project=project,
-                bundle=bundle,
-                run_metrics={
-                    "total_ms": 120,
-                    "phases": {"initial_collection_ms": 80, "unknown_ms": 999},
-                    "llm_requests": [{
-                        "purpose": "triage",
-                        "status": "timeout",
-                        "duration_ms": 40,
-                        "prompt_bytes": 1234,
-                        "secret": "must not persist",
-                    }],
-                },
-            )
-            conn.commit()
-            run = storage_core.load_investigation_run(conn, run_id)
-            summary = storage_core.list_investigation_run_summaries(conn, project_key=project["project_key"])[0]
-            raw = storage_core.decode_history_json(conn.execute(
-                "SELECT evaluation_json FROM investigation_runs WHERE run_id = ?", (run_id,)
-            ).fetchone()[0], context=f"investigation run {run_id} evaluation_json")
-        finally:
-            conn.close()
-
-        assert run is not None
-        self.assertNotIn(storage_core.RUN_METRICS_KEY, run["evaluation"])
-        self.assertGreaterEqual(run["metrics"]["total_ms"], 120)
-        self.assertIn("run_history_save_ms", run["metrics"]["phases"])
-        self.assertNotIn("unknown_ms", run["metrics"]["phases"])
-        self.assertNotIn("secret", run["metrics"]["llm_requests"][0])
-        self.assertEqual(summary["total_ms"], run["metrics"]["total_ms"])
-        self.assertIn(storage_core.RUN_METRICS_KEY, raw)
-        replayed = registry.replay_core.replay_and_diff(
-            run["input_project"], run["bundle"], run["evaluation"], registry.replay_dependencies()
-        )
-        self.assertNotIn(
-            storage_core.RUN_METRICS_KEY,
-            {item["field"] for item in replayed["diff"]["changes"]},
-        )
 
     def test_collector_result_projection_keeps_worst_source_status(self) -> None:
         results = storage_core.aggregate_collector_results([
@@ -1317,44 +1025,6 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(results[0].request_count, 2)
         self.assertEqual(results[0].result_count, 1)
         self.assertEqual(results[0].rate_limit, {"remaining": 89})
-
-    def test_collector_run_projects_counts_without_copying_bundle_records(self) -> None:
-        conn = registry.open_db()
-        project = self.make_project("proj:collector-family")
-        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-13T00:00:00+00:00")
-        bundle.add_record(relation_core.relation_record(
-            source="github_readme:https://github.com/example/app", classification="candidate",
-            observed_at=bundle.collected_at, subject_type="repo", subject_value="https://github.com/example/app",
-            predicate="project_repository", object_type="website", object_value="https://example.com",
-        ))
-        bundle.add_collector_result(CollectorResult(
-            source="github_repo", operation="inspect", status="success", observed_at=bundle.collected_at,
-            request_count=3, result_count=1,
-        ))
-        bundle.add_collector_result(CollectorResult(
-            source="github_repo", operation="inspect", status="success", observed_at=bundle.collected_at,
-            request_count=2, result_count=1,
-        ))
-        try:
-            run_id = storage_core.save_investigation_run(
-                conn, project_key=project["project_key"], started_at=bundle.collected_at,
-                completed_at=bundle.collected_at, input_project=project, output_project=project, bundle=bundle,
-            )
-            rows = conn.execute(
-                "SELECT result_json, records_json, failures_json FROM collector_runs WHERE run_id = ?", (run_id,)
-            ).fetchall()
-            projected = storage_core.list_collector_run_rows(conn, run_id)
-        finally:
-            conn.close()
-        self.assertEqual(len(rows), 1)
-        result = json.loads(rows[0]["result_json"])
-        self.assertEqual(result["evidence_storage"], "bundle_json")
-        self.assertEqual(result["request_count"], 5)
-        self.assertEqual(result["record_count"], 1)
-        self.assertEqual(rows[0]["records_json"], "[]")
-        self.assertEqual(rows[0]["failures_json"], "[]")
-        self.assertEqual(projected[0]["record_count"], 1)
-        self.assertEqual(projected[0]["failure_count"], 0)
 
     def test_service_replay_uses_saved_probe_without_follow_up_network(self) -> None:
         project = self.make_project("proj:service-replay", "service_url", "https://example.com")
@@ -1763,138 +1433,6 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(projection["service_status"], "live")
         self.assertEqual(project, projection_input)
 
-    def test_current_service_projection_preserves_saved_investigation_history(self) -> None:
-        service_url = "https://example.com"
-        project = self.make_project("proj:current-history", "service_url", service_url)
-        project["manual_seeds"] = [{"type": "service_url", "value": service_url, "source": "manual"}]
-        project["website_url"] = service_url
-        project["service_urls"] = [service_url]
-        old_bundle = service_core.collect_service_probe_evidence(
-            project["project_key"], service_url,
-            {
-                "status_code": 200, "final_url": service_url, "title": "Example", "description": "App",
-                "service_status": "live", "service_status_confidence": "medium",
-                "service_status_evidence": ["http_200", "login_surface_detected"],
-                "links": [], "urls": [], "html": "<form>Sign in</form>",
-            },
-            observed_at="2026-07-15T00:00:00+00:00", supports_project=True,
-        )
-        old_input = copy.deepcopy(project)
-        registry.apply_service_evidence(project, old_bundle)
-        old_output = registry.finalize_project_shape(project)
-        conn = registry.open_db()
-        try:
-            project_record.save_project(conn, old_output, enriched=True)
-            run_id = storage_core.save_investigation_run(
-                conn,
-                project_key=project["project_key"],
-                started_at=old_bundle.collected_at,
-                completed_at=old_bundle.collected_at,
-                input_project=old_input,
-                output_project=old_output,
-                bundle=old_bundle,
-            )
-            conn.commit()
-
-            current = project_record.fetch_project(conn, project["project_key"])
-            assert current is not None
-            new_bundle = service_core.collect_service_probe_evidence(
-                project["project_key"], service_url,
-                {
-                    "status_code": 200, "final_url": service_url, "title": "Example", "description": "Information",
-                    "service_status": "unverified", "service_status_confidence": "low",
-                    "service_status_evidence": ["http_200"], "links": [], "urls": [], "html": "Information",
-                },
-                observed_at="2026-07-16T00:00:00+00:00", supports_project=True,
-            )
-            registry.apply_service_evidence(current, new_bundle)
-            project_record.save_project(conn, registry.finalize_project_shape(current), enriched=True)
-            conn.commit()
-            stored_run = storage_core.load_investigation_run(conn, run_id)
-            stored_current = project_record.fetch_project(conn, project["project_key"])
-        finally:
-            conn.close()
-
-        assert stored_run is not None
-        assert stored_current is not None
-        self.assertEqual(stored_run["evaluation"]["service_status"], "live")
-        self.assertEqual(stored_run["bundle"].records[0].value["service_status"], "live")
-        self.assertEqual(stored_current["service_status"], "unverified")
-        self.assertEqual(stored_current["service_status_confidence"], "low")
-
-    def test_repair_db_reports_and_applies_current_service_projection(self) -> None:
-        service_url = "https://example.com"
-        project = self.make_project("proj:repair-current-service", "service_url", service_url)
-        project["manual_seeds"] = [{"type": "service_url", "value": service_url, "source": "manual"}]
-        project["website_url"] = service_url
-        project["service_urls"] = [service_url]
-        bundle = service_core.collect_service_probe_evidence(
-            project["project_key"], service_url,
-            {
-                "status_code": 200, "final_url": service_url, "title": "Example", "description": "Information",
-                "service_status": "unverified", "service_status_confidence": "low",
-                "service_status_evidence": ["http_200"], "links": [], "urls": [], "html": "Information",
-            },
-            observed_at="2026-07-16T00:00:00+00:00", supports_project=True,
-        )
-        project["service_verification_results"] = [dict(bundle.records[0].value)]
-        project["service_status"] = "live"
-        project["service_status_confidence"] = "low"
-        project["service_status_evidence"] = ["http_200"]
-        conn = registry.open_db()
-        try:
-            project_record.save_project(conn, project, enriched=True)
-            conn.commit()
-            dry_run = registry.audit_and_repair_identifiers(conn, execute=False)
-            executed = registry.audit_and_repair_identifiers(conn, execute=True)
-            repaired = project_record.fetch_project(conn, project["project_key"])
-            after_repair = registry.audit_and_repair_identifiers(conn, execute=False)
-        finally:
-            conn.close()
-
-        assert repaired is not None
-        self.assertEqual(dry_run["current_service_projection_change_count"], 1)
-        self.assertEqual(dry_run["current_service_projection_examples"][0]["project_key"], project["project_key"])
-        self.assertEqual(executed["current_service_projection_change_count"], 1)
-        self.assertEqual(repaired["service_status"], "unverified")
-        self.assertEqual(repaired["service_status_confidence"], "low")
-        self.assertEqual(repaired["service_status_evidence"], ["http_200"])
-        self.assertEqual(after_repair["current_service_projection_change_count"], 0)
-
-    def test_repair_db_detects_relation_only_normalized_child_change(self) -> None:
-        project = self.make_project("proj:relation-only-repair", "repo_url", "https://github.com/example/app")
-        project["project_repository_urls"] = ["https://github.com/example/app"]
-        project["relation_evidence"] = [
-            {
-                "relation": {
-                    "subject": {"type": "repo", "value": "https://github.com/example/app"},
-                    "predicate": "defines_schema",
-                    "object": {"type": "nsid", "value": "org.other.post"},
-                    "locator": "lexicons/org/other/post.json",
-                    "method": "lexicon_json",
-                },
-                "source": "github_repo:https://github.com/example/app",
-                "classification": "confirmed",
-                "observed_at": "2026-06-25T00:00:00+00:00",
-            }
-        ]
-        conn = registry.open_db()
-        try:
-            project_record.save_project(conn, project)
-            dry_run = registry.audit_and_repair_identifiers(conn, execute=False)
-            registry.audit_and_repair_identifiers(conn, execute=True)
-            row = conn.execute(
-                "SELECT predicate, classification FROM project_relations WHERE project_key = ?",
-                (project["project_key"],),
-            ).fetchone()
-            after = registry.audit_and_repair_identifiers(conn, execute=False)
-        finally:
-            conn.close()
-
-        self.assertEqual(dry_run["normalized_child_change_count"], 1)
-        self.assertEqual((row["predicate"], row["classification"]), ("mentions_collection", "candidate"))
-        self.assertEqual(after["normalized_child_change_count"], 0)
-
     def test_follow_up_service_evidence_does_not_emit_operates_service_relation(self) -> None:
         bundle = service_core.collect_service_probe_evidence(
             "proj:service-followup",
@@ -2298,6 +1836,486 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertIsNotNone(entry)
         self.assertTrue(entry["atproto_relevant"])
 
+    def test_confirmed_root_www_redirect_removes_only_alias_candidate(self) -> None:
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "project_registry" / "investigation-benchmark-v2.json").read_text())[0]
+        bundle = EvidenceBundle.from_dict(fixture["bundle"])
+        project = registry.replay_core.replay_bundle(fixture["input_project"], bundle, registry.replay_dependencies())
+        self.assertEqual(project["service_url_candidates"], ["https://graph.at.fund"])
+        self.assertEqual(project["url_aliases"][0]["canonical"], "https://www.at.fund")
+
+    def test_benchmark_corpus_has_six_passing_cases(self) -> None:
+        path = Path(__file__).parent / "fixtures" / "project_registry" / "investigation-benchmark-v2.json"
+        summary = registry.replay_core.benchmark_cases(registry.load_benchmark_cases(path), registry.replay_dependencies())
+        self.assertEqual(summary["case_count"], 6)
+        self.assertEqual(summary["regression_count"], 0)
+
+
+class ProjectRegistryResearchStorageTest(TempRegistryDbTestCase):
+    def test_enrich_save_fetch_preserves_top_level_contract(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:researchenrich")
+            with (
+                mock.patch.object(enrichment_pipeline, "should_refresh_lexicon_surface", return_value=False),
+                mock.patch.object(enrichment_pipeline, "should_refresh_recent_record_samples", return_value=False),
+                mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
+                mock.patch.object(
+                    enrichment_pipeline,
+                    "collect_investigation_evidence",
+                    return_value=EvidenceBundle(
+                        project_key=project["project_key"],
+                        collected_at="2026-06-13T00:00:00+00:00",
+                    ),
+                ),
+                mock.patch.object(llm_transport_core, "run_local_llm", side_effect=RuntimeError("LLM unavailable")),
+            ):
+                enriched = enrichment_pipeline.enrich_project(conn, project)
+            project_record.save_project(conn, enriched, enriched=True)
+            conn.commit()
+            fetched = project_record.fetch_project(conn, project["project_key"])
+        finally:
+            conn.close()
+
+        self.assertIsNotNone(fetched)
+        assert fetched is not None
+        self.assertEqual(fetched["project_key"], "proj:researchenrich")
+        self.assertNotIn(runtime_view.RUNTIME_INVESTIGATION_RUN_ID, fetched)
+        self.assertIn("LLM unavailable", "\n".join(fetched["last_run_errors"]))
+        self.assertTrue(fetched["last_enriched_at"])
+        conn = registry.open_db()
+        try:
+            run = storage_core.latest_investigation_run(conn, "proj:researchenrich")
+        finally:
+            conn.close()
+        self.assertIsNotNone(run)
+        assert run is not None
+        self.assertEqual(run["metrics"]["version"], 3)
+        self.assertEqual(
+            set(run["metrics"]["phases"]),
+            {
+                "initial_collection_ms",
+                "planning_ms",
+                "investigation_collection_ms",
+                "triage_ms",
+                "evaluation_ms",
+                "run_history_save_ms",
+                "project_save_ms",
+            },
+        )
+        self.assertEqual(run["metrics"]["llm_requests"][0]["purpose"], "triage")
+        self.assertEqual(run["metrics"]["llm_requests"][0]["status"], "failed")
+        self.assertGreater(run["metrics"]["llm_requests"][0]["prompt_bytes"], 0)
+
+    def test_enrich_collects_known_github_repo_once_per_run(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project("proj:single-repo-collection", "repo_url", "https://github.com/example/app")
+        project["project_repository_urls"] = ["https://github.com/example/app"]
+        repo_bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-10T00:00:00+00:00")
+        repo_bundle.add_collector_result(CollectorResult(
+            source="github_repo", operation="inspect", status="success",
+            observed_at=repo_bundle.collected_at, request_count=1, result_count=1,
+        ))
+        empty_bundle = EvidenceBundle(project_key=project["project_key"], collected_at=repo_bundle.collected_at)
+        try:
+            with (
+                mock.patch.object(enrichment_pipeline, "should_refresh_lexicon_surface", return_value=False),
+                mock.patch.object(enrichment_pipeline, "should_refresh_recent_record_samples", return_value=False),
+                mock.patch.object(enrichment_pipeline, "collect_github_repo_evidence", return_value=repo_bundle) as collect_repo,
+                mock.patch.object(enrichment_pipeline, "apply_github_repo_evidence"),
+                mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
+                mock.patch.object(enrichment_pipeline, "collect_investigation_evidence", return_value=empty_bundle),
+                mock.patch.object(llm_transport_core, "run_local_llm", side_effect=RuntimeError("LLM unavailable")),
+            ):
+                enrichment_pipeline.enrich_project(conn, project)
+        finally:
+            conn.close()
+
+        self.assertEqual(collect_repo.call_count, 1)
+        self.assertEqual(collect_repo.call_args.args[1], "https://github.com/example/app")
+
+    def test_repository_analysis_adds_declared_docs_site_as_candidate_resource(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project("proj:repo-docs", "repo_url", "https://github.com/example/app")
+        project["project_repository_urls"] = ["https://github.com/example/app"]
+        repo_bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-26T00:00:00+00:00")
+        repo_bundle.add_record(EvidenceRecord(
+            kind="github_repo_snapshot",
+            source="github_repo:https://github.com/example/app",
+            classification="confirmed",
+            observed_at=repo_bundle.collected_at,
+            value={
+                "provider": "github",
+                "repo": {"name": "app", "description": "Example application"},
+                "revision": "abc123",
+                "readme_excerpt": "Documentation for this project is hosted at https://docs.example.com.",
+                "configuration_hints": [],
+                "tree_paths": ["mkdocs.yml", "docs/index.md", "docs/setup.md"],
+            },
+        ))
+        repo_bundle.add_collector_result(CollectorResult(
+            source="github_repo", operation="inspect", status="success",
+            observed_at=repo_bundle.collected_at, request_count=1, result_count=1,
+        ))
+        empty_bundle = EvidenceBundle(project_key=project["project_key"], collected_at=repo_bundle.collected_at)
+        analysis_material = repository_analysis.build_material(
+            "https://github.com/example/app", repo_bundle
+        )
+        docs_candidate_id = next(
+            candidate_id
+            for candidate_id, candidate in repository_analysis.observation_candidate_catalog(
+                analysis_material
+            ).items()
+            if candidate.get("predicate") == "declares_documentation_site_url"
+            and candidate.get("value") == "https://docs.example.com"
+        )
+        docs_evidence_id = repository_analysis.observation_candidate_catalog(
+            analysis_material
+        )[docs_candidate_id]["evidence_ids"][0]
+
+        def llm_result(prompt: str, **_kwargs: object) -> tuple[dict, dict]:
+            if "Analyze a confirmed project repository" in prompt:
+                return ({
+                    "summary": "ドキュメントサイトを持つAT Protocolアプリケーション。",
+                    "summary_evidence": [docs_evidence_id],
+                    "observations": [{"candidate_id": docs_candidate_id, "applicability": "current_project"}],
+                    "capabilities": [],
+                    "collections": [],
+                }, {"model": "fixture", "transport": "fixture"})
+            return ({}, {"model": "fixture", "transport": "fixture"})
+
+        try:
+            with (
+                mock.patch.object(enrichment_pipeline, "should_refresh_lexicon_surface", return_value=False),
+                mock.patch.object(enrichment_pipeline, "should_refresh_recent_record_samples", return_value=False),
+                mock.patch.object(enrichment_pipeline, "collect_github_repo_evidence", return_value=repo_bundle),
+                mock.patch.object(enrichment_pipeline, "apply_github_repo_evidence"),
+                mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
+                mock.patch.object(enrichment_pipeline, "collect_investigation_evidence", return_value=empty_bundle),
+                mock.patch.object(llm_transport_core, "run_local_llm", side_effect=llm_result) as run_llm,
+            ):
+                enriched = enrichment_pipeline.enrich_project(
+                    conn, project, llm_max_output_tokens=2048
+                )
+        finally:
+            conn.close()
+
+        docs_records = [
+            item for item in enriched["resource_url_records"]
+            if item.get("role") == "docs" and item.get("url") == "https://docs.example.com"
+        ]
+        self.assertEqual(
+            len(docs_records), 1,
+            {"resources": enriched["resource_url_records"], "analysis": enriched["repository_analysis_results"]},
+        )
+        self.assertEqual(docs_records[0]["confidence"], "candidate")
+        self.assertEqual(enriched["service_urls"], [])
+        self.assertEqual(enriched["project_site_urls"], [])
+        self.assertEqual(
+            enriched["repository_analysis_results"][0]["prompt_version"],
+            repository_analysis.POLICY_VERSION,
+        )
+        self.assertGreaterEqual(run_llm.call_count, 1)
+        self.assertTrue(all(
+            call.kwargs["llm_max_output_tokens"] == 2048
+            for call in run_llm.call_args_list
+        ))
+
+    def test_enrich_candidate_repo_collects_trust_before_full_content(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project("proj:candidate-repo-trust")
+        repo_url = "https://github.com/example/app"
+        project["candidate_project_repository_urls"] = [repo_url]
+        trust_bundle = EvidenceBundle(
+            project_key=project["project_key"],
+            collected_at="2026-07-18T00:00:00+00:00",
+        )
+        repo_bundle = EvidenceBundle(
+            project_key=project["project_key"],
+            collected_at="2026-07-18T00:00:01+00:00",
+        )
+        empty_bundle = EvidenceBundle(
+            project_key=project["project_key"],
+            collected_at="2026-07-18T00:00:02+00:00",
+        )
+        try:
+            with (
+                mock.patch.object(enrichment_pipeline, "should_refresh_lexicon_surface", return_value=False),
+                mock.patch.object(enrichment_pipeline, "should_refresh_recent_record_samples", return_value=False),
+                mock.patch.object(enrichment_pipeline, "candidate_repo_trust_probe_urls", return_value=[repo_url]),
+                mock.patch.object(
+                    enrichment_pipeline,
+                    "collect_github_repo_evidence",
+                    side_effect=[trust_bundle, repo_bundle],
+                ) as collect_repo,
+                mock.patch.object(enrichment_pipeline, "apply_candidate_repo_trust_evidence"),
+                mock.patch.object(enrichment_pipeline, "confirm_project_repository_url_with_trust", return_value=True),
+                mock.patch.object(enrichment_pipeline, "apply_github_repo_evidence") as apply_repo,
+                mock.patch.object(enrichment_pipeline, "plan_investigation_queries", return_value={}),
+                mock.patch.object(enrichment_pipeline, "collect_investigation_evidence", return_value=empty_bundle),
+                mock.patch.object(llm_transport_core, "run_local_llm", side_effect=RuntimeError("LLM unavailable")),
+            ):
+                enrichment_pipeline.enrich_project(conn, project)
+        finally:
+            conn.close()
+
+        self.assertEqual(collect_repo.call_count, 2)
+        self.assertEqual(collect_repo.call_args_list[0].kwargs, {"trust_only": True})
+        self.assertEqual(collect_repo.call_args_list[1].kwargs, {})
+        self.assertEqual(apply_repo.call_count, 1)
+        self.assertEqual(apply_repo.call_args.kwargs, {"confirm_repo_snapshot": False})
+
+    def test_investigation_storage_and_replay_are_network_free(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project("proj:storedrun", "service_url", "https://example.com")
+        project["service_urls"] = ["https://example.com"]
+        project[runtime_view.RUNTIME_VIEW_MARKER] = True
+        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-13T00:00:00+00:00")
+        bundle.add_record(relation_core.relation_record(
+            source="fixture", classification="derived", observed_at=bundle.collected_at,
+            subject_type="repo", subject_value="https://github.com/example/app",
+            predicate="uses_collection", object_type="nsid", object_value="app.example.post",
+        ))
+        bundle.add_collector_result(CollectorResult(
+            source="fixture", operation="load", status="success", observed_at=bundle.collected_at,
+            request_count=0, result_count=1,
+        ))
+        try:
+            run_id = storage_core.save_investigation_run(
+                conn, project_key=project["project_key"], started_at=bundle.collected_at,
+                completed_at=bundle.collected_at, input_project=project, output_project=project, bundle=bundle,
+            )
+            conn.commit()
+            run = storage_core.load_investigation_run(conn, run_id)
+        finally:
+            conn.close()
+        assert run is not None
+        self.assertNotIn(runtime_view.RUNTIME_VIEW_MARKER, run["input_project"])
+        self.assertEqual(run["input_project"]["service_urls"], ["https://example.com"])
+        replayed = registry.replay_core.replay_and_diff(
+            run["input_project"], run["bundle"], run["evaluation"], registry.replay_dependencies()
+        )
+        self.assertEqual(replayed["evaluation"]["atproto_contribution_level"], "substantial")
+
+    def test_investigation_storage_keeps_run_metrics_out_of_replay_evaluation(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project("proj:runmetrics")
+        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-07-10T00:00:00+00:00")
+        try:
+            run_id = storage_core.save_investigation_run(
+                conn,
+                project_key=project["project_key"],
+                started_at=bundle.collected_at,
+                completed_at=bundle.collected_at,
+                input_project=project,
+                output_project=project,
+                bundle=bundle,
+                run_metrics={
+                    "total_ms": 120,
+                    "phases": {"initial_collection_ms": 80, "unknown_ms": 999},
+                    "llm_requests": [{
+                        "purpose": "triage",
+                        "status": "timeout",
+                        "duration_ms": 40,
+                        "prompt_bytes": 1234,
+                        "secret": "must not persist",
+                    }],
+                },
+            )
+            conn.commit()
+            run = storage_core.load_investigation_run(conn, run_id)
+            summary = storage_core.list_investigation_run_summaries(conn, project_key=project["project_key"])[0]
+            raw = storage_core.decode_history_json(conn.execute(
+                "SELECT evaluation_json FROM investigation_runs WHERE run_id = ?", (run_id,)
+            ).fetchone()[0], context=f"investigation run {run_id} evaluation_json")
+        finally:
+            conn.close()
+
+        assert run is not None
+        self.assertNotIn(storage_core.RUN_METRICS_KEY, run["evaluation"])
+        self.assertGreaterEqual(run["metrics"]["total_ms"], 120)
+        self.assertIn("run_history_save_ms", run["metrics"]["phases"])
+        self.assertNotIn("unknown_ms", run["metrics"]["phases"])
+        self.assertNotIn("secret", run["metrics"]["llm_requests"][0])
+        self.assertEqual(summary["total_ms"], run["metrics"]["total_ms"])
+        self.assertIn(storage_core.RUN_METRICS_KEY, raw)
+        replayed = registry.replay_core.replay_and_diff(
+            run["input_project"], run["bundle"], run["evaluation"], registry.replay_dependencies()
+        )
+        self.assertNotIn(
+            storage_core.RUN_METRICS_KEY,
+            {item["field"] for item in replayed["diff"]["changes"]},
+        )
+
+    def test_collector_run_projects_counts_without_copying_bundle_records(self) -> None:
+        conn = registry.open_db()
+        project = self.make_project("proj:collector-family")
+        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-13T00:00:00+00:00")
+        bundle.add_record(relation_core.relation_record(
+            source="github_readme:https://github.com/example/app", classification="candidate",
+            observed_at=bundle.collected_at, subject_type="repo", subject_value="https://github.com/example/app",
+            predicate="project_repository", object_type="website", object_value="https://example.com",
+        ))
+        bundle.add_collector_result(CollectorResult(
+            source="github_repo", operation="inspect", status="success", observed_at=bundle.collected_at,
+            request_count=3, result_count=1,
+        ))
+        bundle.add_collector_result(CollectorResult(
+            source="github_repo", operation="inspect", status="success", observed_at=bundle.collected_at,
+            request_count=2, result_count=1,
+        ))
+        try:
+            run_id = storage_core.save_investigation_run(
+                conn, project_key=project["project_key"], started_at=bundle.collected_at,
+                completed_at=bundle.collected_at, input_project=project, output_project=project, bundle=bundle,
+            )
+            rows = conn.execute(
+                "SELECT result_json, records_json, failures_json FROM collector_runs WHERE run_id = ?", (run_id,)
+            ).fetchall()
+            projected = storage_core.list_collector_run_rows(conn, run_id)
+        finally:
+            conn.close()
+        self.assertEqual(len(rows), 1)
+        result = json.loads(rows[0]["result_json"])
+        self.assertEqual(result["evidence_storage"], "bundle_json")
+        self.assertEqual(result["request_count"], 5)
+        self.assertEqual(result["record_count"], 1)
+        self.assertEqual(rows[0]["records_json"], "[]")
+        self.assertEqual(rows[0]["failures_json"], "[]")
+        self.assertEqual(projected[0]["record_count"], 1)
+        self.assertEqual(projected[0]["failure_count"], 0)
+
+    def test_current_service_projection_preserves_saved_investigation_history(self) -> None:
+        service_url = "https://example.com"
+        project = self.make_project("proj:current-history", "service_url", service_url)
+        project["manual_seeds"] = [{"type": "service_url", "value": service_url, "source": "manual"}]
+        project["website_url"] = service_url
+        project["service_urls"] = [service_url]
+        old_bundle = service_core.collect_service_probe_evidence(
+            project["project_key"], service_url,
+            {
+                "status_code": 200, "final_url": service_url, "title": "Example", "description": "App",
+                "service_status": "live", "service_status_confidence": "medium",
+                "service_status_evidence": ["http_200", "login_surface_detected"],
+                "links": [], "urls": [], "html": "<form>Sign in</form>",
+            },
+            observed_at="2026-07-15T00:00:00+00:00", supports_project=True,
+        )
+        old_input = copy.deepcopy(project)
+        registry.apply_service_evidence(project, old_bundle)
+        old_output = registry.finalize_project_shape(project)
+        conn = registry.open_db()
+        try:
+            project_record.save_project(conn, old_output, enriched=True)
+            run_id = storage_core.save_investigation_run(
+                conn,
+                project_key=project["project_key"],
+                started_at=old_bundle.collected_at,
+                completed_at=old_bundle.collected_at,
+                input_project=old_input,
+                output_project=old_output,
+                bundle=old_bundle,
+            )
+            conn.commit()
+
+            current = project_record.fetch_project(conn, project["project_key"])
+            assert current is not None
+            new_bundle = service_core.collect_service_probe_evidence(
+                project["project_key"], service_url,
+                {
+                    "status_code": 200, "final_url": service_url, "title": "Example", "description": "Information",
+                    "service_status": "unverified", "service_status_confidence": "low",
+                    "service_status_evidence": ["http_200"], "links": [], "urls": [], "html": "Information",
+                },
+                observed_at="2026-07-16T00:00:00+00:00", supports_project=True,
+            )
+            registry.apply_service_evidence(current, new_bundle)
+            project_record.save_project(conn, registry.finalize_project_shape(current), enriched=True)
+            conn.commit()
+            stored_run = storage_core.load_investigation_run(conn, run_id)
+            stored_current = project_record.fetch_project(conn, project["project_key"])
+        finally:
+            conn.close()
+
+        assert stored_run is not None
+        assert stored_current is not None
+        self.assertEqual(stored_run["evaluation"]["service_status"], "live")
+        self.assertEqual(stored_run["bundle"].records[0].value["service_status"], "live")
+        self.assertEqual(stored_current["service_status"], "unverified")
+        self.assertEqual(stored_current["service_status_confidence"], "low")
+
+    def test_repair_db_reports_and_applies_current_service_projection(self) -> None:
+        service_url = "https://example.com"
+        project = self.make_project("proj:repair-current-service", "service_url", service_url)
+        project["manual_seeds"] = [{"type": "service_url", "value": service_url, "source": "manual"}]
+        project["website_url"] = service_url
+        project["service_urls"] = [service_url]
+        bundle = service_core.collect_service_probe_evidence(
+            project["project_key"], service_url,
+            {
+                "status_code": 200, "final_url": service_url, "title": "Example", "description": "Information",
+                "service_status": "unverified", "service_status_confidence": "low",
+                "service_status_evidence": ["http_200"], "links": [], "urls": [], "html": "Information",
+            },
+            observed_at="2026-07-16T00:00:00+00:00", supports_project=True,
+        )
+        project["service_verification_results"] = [dict(bundle.records[0].value)]
+        project["service_status"] = "live"
+        project["service_status_confidence"] = "low"
+        project["service_status_evidence"] = ["http_200"]
+        conn = registry.open_db()
+        try:
+            project_record.save_project(conn, project, enriched=True)
+            conn.commit()
+            dry_run = registry.audit_and_repair_identifiers(conn, execute=False)
+            executed = registry.audit_and_repair_identifiers(conn, execute=True)
+            repaired = project_record.fetch_project(conn, project["project_key"])
+            after_repair = registry.audit_and_repair_identifiers(conn, execute=False)
+        finally:
+            conn.close()
+
+        assert repaired is not None
+        self.assertEqual(dry_run["current_service_projection_change_count"], 1)
+        self.assertEqual(dry_run["current_service_projection_examples"][0]["project_key"], project["project_key"])
+        self.assertEqual(executed["current_service_projection_change_count"], 1)
+        self.assertEqual(repaired["service_status"], "unverified")
+        self.assertEqual(repaired["service_status_confidence"], "low")
+        self.assertEqual(repaired["service_status_evidence"], ["http_200"])
+        self.assertEqual(after_repair["current_service_projection_change_count"], 0)
+
+    def test_repair_db_detects_relation_only_normalized_child_change(self) -> None:
+        project = self.make_project("proj:relation-only-repair", "repo_url", "https://github.com/example/app")
+        project["project_repository_urls"] = ["https://github.com/example/app"]
+        project["relation_evidence"] = [
+            {
+                "relation": {
+                    "subject": {"type": "repo", "value": "https://github.com/example/app"},
+                    "predicate": "defines_schema",
+                    "object": {"type": "nsid", "value": "org.other.post"},
+                    "locator": "lexicons/org/other/post.json",
+                    "method": "lexicon_json",
+                },
+                "source": "github_repo:https://github.com/example/app",
+                "classification": "confirmed",
+                "observed_at": "2026-06-25T00:00:00+00:00",
+            }
+        ]
+        conn = registry.open_db()
+        try:
+            project_record.save_project(conn, project)
+            dry_run = registry.audit_and_repair_identifiers(conn, execute=False)
+            registry.audit_and_repair_identifiers(conn, execute=True)
+            row = conn.execute(
+                "SELECT predicate, classification FROM project_relations WHERE project_key = ?",
+                (project["project_key"],),
+            ).fetchone()
+            after = registry.audit_and_repair_identifiers(conn, execute=False)
+        finally:
+            conn.close()
+
+        self.assertEqual(dry_run["normalized_child_change_count"], 1)
+        self.assertEqual((row["predicate"], row["classification"]), ("mentions_collection", "candidate"))
+        self.assertEqual(after["normalized_child_change_count"], 0)
+
     def test_tangled_unmatched_does_not_advance_watermark_when_creation_is_disabled(self) -> None:
         conn = registry.open_db()
         scope = {
@@ -2508,13 +2526,6 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(summary["selected"], 0)
         self.assertEqual(summary["created"], 0)
 
-    def test_confirmed_root_www_redirect_removes_only_alias_candidate(self) -> None:
-        fixture = json.loads((Path(__file__).parent / "fixtures" / "project_registry" / "investigation-benchmark-v2.json").read_text())[0]
-        bundle = EvidenceBundle.from_dict(fixture["bundle"])
-        project = registry.replay_core.replay_bundle(fixture["input_project"], bundle, registry.replay_dependencies())
-        self.assertEqual(project["service_url_candidates"], ["https://graph.at.fund"])
-        self.assertEqual(project["url_aliases"][0]["canonical"], "https://www.at.fund")
-
     def test_repair_db_folds_only_confirmed_root_www_alias(self) -> None:
         conn = registry.open_db()
         project = self.make_project("proj:url-repair", "service_url", "https://www.at.fund")
@@ -2542,13 +2553,9 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         assert repaired is not None
         self.assertEqual(repaired["service_url_candidates"], ["https://graph.at.fund"])
 
-    def test_benchmark_corpus_has_six_passing_cases(self) -> None:
-        path = Path(__file__).parent / "fixtures" / "project_registry" / "investigation-benchmark-v2.json"
-        summary = registry.replay_core.benchmark_cases(registry.load_benchmark_cases(path), registry.replay_dependencies())
-        self.assertEqual(summary["case_count"], 6)
-        self.assertEqual(summary["regression_count"], 0)
 
-    def test_cli_and_core_api_remain_available(self) -> None:
+class ProjectRegistryResearchCliTest(unittest.TestCase):
+    def test_research_cli_parses_command_arguments(self) -> None:
         from project_registry_core import cli
 
         parser = cli.build_parser()
@@ -2558,23 +2565,6 @@ class ProjectRegistryResearchPipelineTest(TempRegistryDbTestCase):
         self.assertEqual(parser.parse_args(["sync-tangled-repos"]).command, "sync-tangled-repos")
         self.assertEqual(parser.parse_args(["verify-service", "-p", "proj:test", "--lane", "browser"]).lane, "browser")
         self.assertEqual(parser.parse_args(["replay-investigation", "--run-id", "inv:test"]).run_id, "inv:test")
-        self.assertTrue(callable(enrichment_pipeline.enrich_project))
-        for name in (
-            "collect_investigation_evidence",
-            "apply_investigation_evidence",
-            "collect_github_repo_evidence",
-            "apply_github_repo_evidence",
-            "collect_tangled_repo_evidence",
-            "apply_tangled_evidence",
-            "plan_investigation_queries",
-            "run_investigation_collectors",
-            "enrich_from_github_repo",
-            "project_owned_lexicon_nsid",
-            "classify_service_probe_result",
-        ):
-            self.assertTrue(callable(getattr(registry, name)))
-        self.assertTrue(callable(project_record.compute_atproto_contribution))
-        self.assertFalse((registry.ROOT / "scripts" / "project_registry.py").exists())
 
     def test_public_cli_wrapper_is_the_only_shell_entrypoint(self) -> None:
         env = os.environ.copy()

@@ -4,24 +4,16 @@ import json
 from pathlib import Path
 from unittest import mock
 
-from helpers import TempRegistryDbTestCase, registry
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from project_registry_core import project_record, source_sync, tangled, tangled_identity
 
 
 PARENT = "did:plc:o32gsn3jolddqna6w4kdzuv2"
 
 
-class TangledForkSyncTest(TempRegistryDbTestCase):
+class _TangledForkSyncFixtures:
     scope = {"source": "jetstream_v2", "service": "https://jetstream.us-west.bsky.network",
              "collection": "sh.tangled.repo"}
-
-    def setUp(self):
-        super().setUp()
-        self.conn = registry.open_db()
-        self.addCleanup(self.conn.close)
-        registry.write_sync_state(self.conn, "tangled-repos", self.scope,
-                                  {"seq": 100, "pending_owner_records": []})
-        self.conn.commit()
 
     def entry(self, seq=101, rkey="fork", **record):
         value = {"name": rkey, "description": "atproto project", **record}
@@ -40,6 +32,8 @@ class TangledForkSyncTest(TempRegistryDbTestCase):
     def state(self):
         return registry.read_sync_state(self.conn, "tangled-repos", self.scope)["watermark"]
 
+
+class TangledForkSyncUnitTest(_TangledForkSyncFixtures, ProjectRecordTestCase):
     def test_source_contract_distinguishes_unknown_from_declared_parent(self):
         cases = [
             ({}, None, "missing"),
@@ -67,6 +61,20 @@ class TangledForkSyncTest(TempRegistryDbTestCase):
                 self.assertIs(metadata["fork"], fork)
                 self.assertEqual(metadata["fork_source_status"], status)
                 self.assertEqual(metadata["fork_source"], record["source"] if fork else "")
+
+    def test_github_default_excludes_forks_and_explicit_query_is_preserved(self):
+        self.assertIn("fork:false", source_sync.github_search_query_with_defaults("atproto"))
+        self.assertNotIn("fork:false", source_sync.github_search_query_with_defaults("atproto fork:only"))
+
+
+class TangledForkSyncTest(_TangledForkSyncFixtures, TempRegistryDbTestCase):
+    def setUp(self):
+        super().setUp()
+        self.conn = registry.open_db()
+        self.addCleanup(self.conn.close)
+        registry.write_sync_state(self.conn, "tangled-repos", self.scope,
+                                  {"seq": 100, "pending_owner_records": []})
+        self.conn.commit()
 
     def test_real_fork_records_are_excluded_in_normal_sync(self):
         fixture = json.loads((Path(__file__).parent / "fixtures/project_registry/tangled-fork-records.json").read_text())
@@ -171,7 +179,3 @@ class TangledForkSyncTest(TempRegistryDbTestCase):
                 self.sync([self.entry(source=PARENT), self.entry(102, "normal")], execute=True)
         self.assertEqual(self.state()["seq"], 100)
         self.assertEqual(registry.all_projects(self.conn), [])
-
-    def test_github_default_excludes_forks_and_explicit_query_is_preserved(self):
-        self.assertIn("fork:false", source_sync.github_search_query_with_defaults("atproto"))
-        self.assertNotIn("fork:false", source_sync.github_search_query_with_defaults("atproto fork:only"))

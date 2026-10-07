@@ -12,7 +12,7 @@ from unittest import mock
 from http import HTTPStatus
 from io import BytesIO
 
-from helpers import SCRIPTS, TempRegistryDbTestCase, registry
+from helpers import ProjectRecordTestCase, SCRIPTS, TempRegistryDbTestCase, registry
 from project_registry_core import domain_policy, introduced_review, storage
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle
 from project_registry_web.server import (
@@ -113,40 +113,8 @@ class TrackingLock:
         return None
 
 
-class ProjectRegistryWebTest(TempRegistryDbTestCase):
+class _ProjectRegistryWebFixtures:
     token = "web-test-token"
-
-    def setUp(self) -> None:
-        super().setUp()
-        self.seed_fixture()
-        self.server = types.SimpleNamespace(
-            token=self.token,
-            db_path=self.db_path,
-            open_db=lambda: registry.open_db(),
-            jobs=FakeJobManager(),
-            mutation_lock=threading.Lock(),
-        )
-
-    def test_main_rejects_missing_database_before_starting_server(self) -> None:
-        missing_path = self.db_path.parent / "missing" / "survey.db"
-        stderr = io.StringIO()
-        with (
-            mock.patch("project_registry_web.server.sys.argv", [
-                "project-registry-web",
-                "--token",
-                self.token,
-                "--db-path",
-                str(missing_path),
-            ]),
-            mock.patch("project_registry_web.server.RegistryWebServer") as server_class,
-            mock.patch("project_registry_web.server.sys.stderr", stderr),
-        ):
-            result = web_main()
-
-        self.assertEqual(result, 2)
-        self.assertIn("registry database not found", stderr.getvalue())
-        self.assertFalse(missing_path.exists())
-        server_class.assert_not_called()
 
     def seed_fixture(self) -> None:
         conn = registry.open_db()
@@ -233,32 +201,6 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         conn.commit()
         conn.close()
 
-    def test_introduced_review_api_lists_and_resolves_post(self) -> None:
-        source = {"uri": "at://did:plc:example/app.bsky.feed.post/review", "author": {"handle": "example.test"},
-                  "indexedAt": "2026-09-23T00:00:00Z", "record": {"text": "A post", "facets": []}}
-        conn = registry.open_db()
-        try:
-            item = introduced_review.observe_posts(conn, [source])[0]
-            registry.write_sync_state(conn, "introduced", {"query": "test"}, {"review_items": [item], "last_scan_complete": False})
-            conn.commit()
-        finally:
-            conn.close()
-        status, listed, _ = self.request("/api/introduced-review")
-        self.assertEqual(status, 200)
-        self.assertEqual(listed["open_count"], 1)
-        self.assertEqual(listed["items"][0]["reason"], "no_url")
-        status, result, _ = self.request("/api/introduced-review/action", method="POST", payload={
-            "scope_key": listed["items"][0]["scope_key"], "item_id": item["id"], "action": "link",
-            "project_key": "proj:111111111111",
-        })
-        self.assertEqual(status, 200)
-        self.assertEqual(result["item"]["status"], "linked")
-        status, listed, _ = self.request("/api/introduced-review?status=all")
-        self.assertEqual(listed["open_count"], 0)
-        self.assertEqual(listed["items"][0]["status"], "linked")
-        status, detail, _ = self.request("/api/projects/proj:111111111111")
-        self.assertEqual(detail["project"]["introduced_url"], "https://bsky.app/profile/example.test/post/review")
-
     def request(
         self,
         path: str,
@@ -327,6 +269,91 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         handler.do_GET()
         return captured["status"], captured["body"], captured["content_type"]
 
+
+class ProjectRegistryWebUnitTest(_ProjectRegistryWebFixtures, ProjectRecordTestCase):
+    def test_http_request_log_excludes_query_and_payload(self) -> None:
+        handler = RegistryWebHandler.__new__(RegistryWebHandler)
+        handler.command = "POST"
+        handler.client_address = ("127.0.0.1", 12345)
+        stderr = io.StringIO()
+
+        def respond() -> None:
+            handler._response_status = HTTPStatus.CREATED
+
+        with mock.patch("project_registry_web.server.sys.stderr", stderr):
+            handler.handle_request("/api/seeds", respond)
+
+        line = stderr.getvalue()
+        self.assertIn("method=POST path='/api/seeds' status=201 duration_ms=", line)
+        self.assertNotIn("token", line)
+        self.assertNotIn("seed", line.removeprefix("http method=POST path='/api/seeds'"))
+
+    def test_restart_argv_preserves_arguments_but_uses_package_entrypoint(self) -> None:
+        self.assertEqual(
+            restart_argv(["/tmp/project_registry_web/__main__.py", "--host", "0.0.0.0", "--reload"]),
+            [sys.executable, "-m", "project_registry_web", "--host", "0.0.0.0", "--reload"],
+        )
+
+
+class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.seed_fixture()
+        self.server = types.SimpleNamespace(
+            token=self.token,
+            db_path=self.db_path,
+            open_db=lambda: registry.open_db(),
+            jobs=FakeJobManager(),
+            mutation_lock=threading.Lock(),
+        )
+
+    def test_main_rejects_missing_database_before_starting_server(self) -> None:
+        missing_path = self.db_path.parent / "missing" / "survey.db"
+        stderr = io.StringIO()
+        with (
+            mock.patch("project_registry_web.server.sys.argv", [
+                "project-registry-web",
+                "--token",
+                self.token,
+                "--db-path",
+                str(missing_path),
+            ]),
+            mock.patch("project_registry_web.server.RegistryWebServer") as server_class,
+            mock.patch("project_registry_web.server.sys.stderr", stderr),
+        ):
+            result = web_main()
+
+        self.assertEqual(result, 2)
+        self.assertIn("registry database not found", stderr.getvalue())
+        self.assertFalse(missing_path.exists())
+        server_class.assert_not_called()
+
+    def test_introduced_review_api_lists_and_resolves_post(self) -> None:
+        source = {"uri": "at://did:plc:example/app.bsky.feed.post/review", "author": {"handle": "example.test"},
+                  "indexedAt": "2026-09-23T00:00:00Z", "record": {"text": "A post", "facets": []}}
+        conn = registry.open_db()
+        try:
+            item = introduced_review.observe_posts(conn, [source])[0]
+            registry.write_sync_state(conn, "introduced", {"query": "test"}, {"review_items": [item], "last_scan_complete": False})
+            conn.commit()
+        finally:
+            conn.close()
+        status, listed, _ = self.request("/api/introduced-review")
+        self.assertEqual(status, 200)
+        self.assertEqual(listed["open_count"], 1)
+        self.assertEqual(listed["items"][0]["reason"], "no_url")
+        status, result, _ = self.request("/api/introduced-review/action", method="POST", payload={
+            "scope_key": listed["items"][0]["scope_key"], "item_id": item["id"], "action": "link",
+            "project_key": "proj:111111111111",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(result["item"]["status"], "linked")
+        status, listed, _ = self.request("/api/introduced-review?status=all")
+        self.assertEqual(listed["open_count"], 0)
+        self.assertEqual(listed["items"][0]["status"], "linked")
+        status, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(detail["project"]["introduced_url"], "https://bsky.app/profile/example.test/post/review")
+
     def test_static_assets_and_api_authentication(self) -> None:
         status, html, content_type = self.request_text("/")
         self.assertEqual(status, 200)
@@ -391,14 +418,6 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn('id="filter-identifier-kind">${enumOptions', script)
         self.assertIn('id="filter-relation-source" list=', script)
 
-    def test_merge_continuation_is_skippable_without_a_visible_list_card(self) -> None:
-        script = (SCRIPTS / "project_registry_web" / "static" / "app.js").read_text()
-
-        self.assertIn('marker.dataset.reviewContinuation = "true"', script)
-        self.assertIn('const isContinuation = current.dataset.reviewContinuation === "true"', script)
-        self.assertIn("card.dataset.projectKey === targetKey && card.dataset.mergeTarget === sourceKey", script)
-        self.assertIn("skipReviewItem(source, target)", script)
-
     def test_authorization_uses_constant_time_comparison(self) -> None:
         with mock.patch("project_registry_web.server.hmac.compare_digest", return_value=True) as compare:
             status, _settings, _ = self.request("/api/settings")
@@ -419,23 +438,6 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         self.assertIn("Traceback (most recent call last)", stderr.getvalue())
         self.assertIn("RuntimeError: diagnostic sentinel", stderr.getvalue())
 
-    def test_http_request_log_excludes_query_and_payload(self) -> None:
-        handler = RegistryWebHandler.__new__(RegistryWebHandler)
-        handler.command = "POST"
-        handler.client_address = ("127.0.0.1", 12345)
-        stderr = io.StringIO()
-
-        def respond() -> None:
-            handler._response_status = HTTPStatus.CREATED
-
-        with mock.patch("project_registry_web.server.sys.stderr", stderr):
-            handler.handle_request("/api/seeds", respond)
-
-        line = stderr.getvalue()
-        self.assertIn("method=POST path='/api/seeds' status=201 duration_ms=", line)
-        self.assertNotIn("token", line)
-        self.assertNotIn("seed", line.removeprefix("http method=POST path='/api/seeds'"))
-
     def test_post_body_is_read_before_mutation_lock(self) -> None:
         lock = TrackingLock()
         self.server.mutation_lock = lock
@@ -454,12 +456,6 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(lock.entries, 1)
-
-    def test_html_template_boundary_escapes_dynamic_result_count(self) -> None:
-        script = (SCRIPTS / "project_registry_web" / "static" / "app.js").read_text()
-        self.assertIn("every external string must pass through", script)
-        self.assertIn("<strong>${esc(count)}</strong> 件", script)
-        self.assertNotIn("read_only", script)
 
     def test_build_information_only_reads_git_checkout(self) -> None:
         root = self.db_path.parent / "source"
@@ -517,12 +513,6 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
         )
         with self.assertRaisesRegex(ValueError, "already in progress"):
             server.request_process_reload("again")
-
-    def test_restart_argv_preserves_arguments_but_uses_package_entrypoint(self) -> None:
-        self.assertEqual(
-            restart_argv(["/tmp/project_registry_web/__main__.py", "--host", "0.0.0.0", "--reload"]),
-            [sys.executable, "-m", "project_registry_web", "--host", "0.0.0.0", "--reload"],
-        )
 
     def test_sigterm_requests_server_shutdown_once(self) -> None:
         server = mock.Mock()
@@ -1871,6 +1861,22 @@ class ProjectRegistryWebTest(TempRegistryDbTestCase):
             self.server.open_db = original
         self.assertEqual(status, 503)
         self.assertEqual(payload["error"]["code"], "database_busy")
+
+    def test_merge_continuation_is_skippable_without_a_visible_list_card(self) -> None:
+        script = (SCRIPTS / "project_registry_web" / "static" / "app.js").read_text()
+
+        self.assertIn('marker.dataset.reviewContinuation = "true"', script)
+        self.assertIn('const isContinuation = current.dataset.reviewContinuation === "true"', script)
+        self.assertIn("card.dataset.projectKey === targetKey && card.dataset.mergeTarget === sourceKey", script)
+        self.assertIn("skipReviewItem(source, target)", script)
+
+
+    def test_html_template_boundary_escapes_dynamic_result_count(self) -> None:
+        script = (SCRIPTS / "project_registry_web" / "static" / "app.js").read_text()
+        self.assertIn("every external string must pass through", script)
+        self.assertIn("<strong>${esc(count)}</strong> 件", script)
+        self.assertNotIn("read_only", script)
+
 
 
 if __name__ == "__main__":

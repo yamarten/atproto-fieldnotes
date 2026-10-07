@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from unittest import mock
 
-from helpers import SCRIPTS, TempRegistryDbTestCase, registry
+from helpers import ProjectRecordTestCase, SCRIPTS, TempRegistryDbTestCase, registry
 from project_registry_core import source_sync, worker, runtime_view
 from project_registry_core.jobs import CancellationToken, OperationRequest
 from project_registry_core.application import review as review_services
@@ -68,23 +68,7 @@ write({"type":"result","payload":{"schema_version":1,"operation_id":operation_id
 '''
 
 
-class ProjectRegistryJobTest(TempRegistryDbTestCase):
-    def setUp(self) -> None:
-        super().setUp()
-        conn = registry.open_db()
-        conn.close()
-        self.worker_path = Path(self.tempdir.name) / "fake_worker.py"
-        self.worker_path.write_text(FAKE_WORKER)
-        self.manager = JobManager(
-            self.db_path,
-            worker_command=[sys.executable, str(self.worker_path)],
-            enable_scheduler=False,
-        )
-
-    def tearDown(self) -> None:
-        self.manager.close(timeout=1.0)
-        super().tearDown()
-
+class _ProjectRegistryJobFixtures:
     def wait_for(self, job_id: str, statuses: set[str], timeout: float = 3.0, manager: JobManager | None = None) -> dict:
         manager = manager or self.manager
         deadline = time.monotonic() + timeout
@@ -95,17 +79,8 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
             time.sleep(0.02)
         self.fail(f"job did not reach {statuses}: {manager.get_job(job_id)}")
 
-    def test_subprocess_job_completes_and_keeps_events(self) -> None:
-        job = self.manager.start_enrich({"all_projects": True})
-        completed = self.wait_for(job["job_id"], {"completed"})
 
-        self.assertEqual(completed["returncode"], 0)
-        self.assertEqual(completed["result"]["status"], "completed")
-        self.assertEqual([event["kind"] for event in completed["events"]], ["started", "completed"])
-        self.assertFalse(completed["can_cancel"])
-        self.assertFalse(completed["can_resume"])
-        self.assertTrue(completed["request"]["parameters"]["checkpoint_path"].endswith(".json"))
-
+class ProjectRegistryJobUnitTest(_ProjectRegistryJobFixtures, ProjectRecordTestCase):
     def test_running_job_estimates_eta_from_latest_progress(self) -> None:
         started = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=100)).isoformat()
         record = JobRecord(
@@ -191,28 +166,6 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertEqual(progress_event.data["progress"], {"current": 1, "total": None, "unit": "page"})
         self.assertEqual(result.status, "completed")
 
-    def test_generic_sync_review_and_browser_jobs_use_same_process_boundary(self) -> None:
-        sync_job = self.manager.start_sync({"source": "github"}, execute=False)
-        sync_completed = self.wait_for(sync_job["job_id"], {"completed"})
-        self.assertEqual(sync_completed["operation"], "sync")
-        self.assertFalse(sync_completed["request"]["execute"])
-        self.assertFalse(sync_completed["can_resume"])
-
-        review_job = self.manager.start_review({"kind": "stalled"}, execute=True)
-        review_completed = self.wait_for(review_job["job_id"], {"completed"})
-        self.assertEqual(review_completed["operation"], "review")
-        self.assertTrue(review_completed["request"]["execute"])
-        self.assertFalse(review_completed["can_resume"])
-
-        verify_job = self.manager.start_verify_service({
-            "project_key": "proj:example",
-            "service_url": "https://example.test",
-        })
-        verify_completed = self.wait_for(verify_job["job_id"], {"completed"})
-        self.assertEqual(verify_completed["operation"], "verify_service")
-        self.assertTrue(verify_completed["request"]["execute"])
-        self.assertFalse(verify_completed["can_resume"])
-
     def test_stalled_worker_uses_no_limit_when_parameter_is_omitted(self) -> None:
         with mock.patch.object(worker.review, "stalled", return_value={}) as stalled:
             worker._run_review(
@@ -250,6 +203,102 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
                 OperationRequest.create("verify_service", parameters={"project_key": "proj:example"}),
             )
 
+    def test_monthly_schedule_is_due_within_24_hours_only(self) -> None:
+        schedule = {
+            "enabled": True,
+            "week_of_month": 2,
+            "weekday": 1,
+            "time": "01:00",
+            "timezone": "Asia/Tokyo",
+        }
+
+        due, period, due_at = _schedule_due(schedule, dt.datetime(2026, 6, 8, 16, 0, tzinfo=dt.timezone.utc))
+        self.assertTrue(due)
+        self.assertEqual(period, "2026-06-W2-1")
+        self.assertEqual(due_at, "2026-06-08T16:00:00+00:00")
+
+        next_morning_due, next_morning_period, _ = _schedule_due(
+            schedule,
+            dt.datetime(2026, 6, 9, 14, 59, tzinfo=dt.timezone.utc),
+        )
+        self.assertTrue(next_morning_due)
+        self.assertEqual(next_morning_period, "2026-06-W2-1")
+
+        late_due, late_period, _ = _schedule_due(schedule, dt.datetime(2026, 6, 29, 14, 0, tzinfo=dt.timezone.utc))
+        self.assertFalse(late_due)
+        self.assertEqual(late_period, "2026-06-W2-1")
+
+    def test_weekly_schedule_is_due_within_24_hours_only(self) -> None:
+        schedule = {
+            "enabled": True,
+            "week_of_month": 0,
+            "weekday": 0,
+            "time": "08:00",
+            "timezone": "Asia/Tokyo",
+        }
+
+        due, period, _ = _schedule_due(schedule, dt.datetime(2026, 6, 29, 0, 0, tzinfo=dt.timezone.utc))
+        self.assertTrue(due)
+        self.assertEqual(period, "2026-W27-0")
+
+        next_day_due, next_day_period, _ = _schedule_due(schedule, dt.datetime(2026, 6, 29, 22, 59, tzinfo=dt.timezone.utc))
+        self.assertTrue(next_day_due)
+        self.assertEqual(next_day_period, "2026-W27-0")
+
+        late_due, late_period, _ = _schedule_due(schedule, dt.datetime(2026, 6, 30, 23, 0, tzinfo=dt.timezone.utc))
+        self.assertFalse(late_due)
+        self.assertEqual(late_period, "2026-W27-0")
+
+
+class ProjectRegistryJobTest(_ProjectRegistryJobFixtures, TempRegistryDbTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        conn = registry.open_db()
+        conn.close()
+        self.worker_path = Path(self.tempdir.name) / "fake_worker.py"
+        self.worker_path.write_text(FAKE_WORKER)
+        self.manager = JobManager(
+            self.db_path,
+            worker_command=[sys.executable, str(self.worker_path)],
+            enable_scheduler=False,
+        )
+
+    def tearDown(self) -> None:
+        self.manager.close(timeout=1.0)
+        super().tearDown()
+
+    def test_subprocess_job_completes_and_keeps_events(self) -> None:
+        job = self.manager.start_enrich({"all_projects": True})
+        completed = self.wait_for(job["job_id"], {"completed"})
+
+        self.assertEqual(completed["returncode"], 0)
+        self.assertEqual(completed["result"]["status"], "completed")
+        self.assertEqual([event["kind"] for event in completed["events"]], ["started", "completed"])
+        self.assertFalse(completed["can_cancel"])
+        self.assertFalse(completed["can_resume"])
+        self.assertTrue(completed["request"]["parameters"]["checkpoint_path"].endswith(".json"))
+
+    def test_generic_sync_review_and_browser_jobs_use_same_process_boundary(self) -> None:
+        sync_job = self.manager.start_sync({"source": "github"}, execute=False)
+        sync_completed = self.wait_for(sync_job["job_id"], {"completed"})
+        self.assertEqual(sync_completed["operation"], "sync")
+        self.assertFalse(sync_completed["request"]["execute"])
+        self.assertFalse(sync_completed["can_resume"])
+
+        review_job = self.manager.start_review({"kind": "stalled"}, execute=True)
+        review_completed = self.wait_for(review_job["job_id"], {"completed"})
+        self.assertEqual(review_completed["operation"], "review")
+        self.assertTrue(review_completed["request"]["execute"])
+        self.assertFalse(review_completed["can_resume"])
+
+        verify_job = self.manager.start_verify_service({
+            "project_key": "proj:example",
+            "service_url": "https://example.test",
+        })
+        verify_completed = self.wait_for(verify_job["job_id"], {"completed"})
+        self.assertEqual(verify_completed["operation"], "verify_service")
+        self.assertTrue(verify_completed["request"]["execute"])
+        self.assertFalse(verify_completed["can_resume"])
 
     def test_partial_sync_is_a_failed_worker_result_with_summary(self) -> None:
         request = OperationRequest.create("sync", parameters={"source": "lexicons"}, execute=True)
@@ -273,7 +322,6 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertEqual(completed["request"]["parameters"]["limit"], 20)
         preset = next(item for item in self.manager.list_schedules()["items"] if item["preset_id"] == "service_observation")
         self.assertFalse(preset["schedule"]["enabled"])
-
 
     def test_manual_scheduled_preset_runs_sequence_steps(self) -> None:
         queued = self.manager.run_scheduled_preset("sync_sources_then_enrich")
@@ -595,52 +643,6 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertNotIn("resume_run", completed["request"]["parameters"])
         self.assertEqual(self.manager.run_scheduler_once()["queue"], [])
 
-    def test_monthly_schedule_is_due_within_24_hours_only(self) -> None:
-        schedule = {
-            "enabled": True,
-            "week_of_month": 2,
-            "weekday": 1,
-            "time": "01:00",
-            "timezone": "Asia/Tokyo",
-        }
-
-        due, period, due_at = _schedule_due(schedule, dt.datetime(2026, 6, 8, 16, 0, tzinfo=dt.timezone.utc))
-        self.assertTrue(due)
-        self.assertEqual(period, "2026-06-W2-1")
-        self.assertEqual(due_at, "2026-06-08T16:00:00+00:00")
-
-        next_morning_due, next_morning_period, _ = _schedule_due(
-            schedule,
-            dt.datetime(2026, 6, 9, 14, 59, tzinfo=dt.timezone.utc),
-        )
-        self.assertTrue(next_morning_due)
-        self.assertEqual(next_morning_period, "2026-06-W2-1")
-
-        late_due, late_period, _ = _schedule_due(schedule, dt.datetime(2026, 6, 29, 14, 0, tzinfo=dt.timezone.utc))
-        self.assertFalse(late_due)
-        self.assertEqual(late_period, "2026-06-W2-1")
-
-    def test_weekly_schedule_is_due_within_24_hours_only(self) -> None:
-        schedule = {
-            "enabled": True,
-            "week_of_month": 0,
-            "weekday": 0,
-            "time": "08:00",
-            "timezone": "Asia/Tokyo",
-        }
-
-        due, period, _ = _schedule_due(schedule, dt.datetime(2026, 6, 29, 0, 0, tzinfo=dt.timezone.utc))
-        self.assertTrue(due)
-        self.assertEqual(period, "2026-W27-0")
-
-        next_day_due, next_day_period, _ = _schedule_due(schedule, dt.datetime(2026, 6, 29, 22, 59, tzinfo=dt.timezone.utc))
-        self.assertTrue(next_day_due)
-        self.assertEqual(next_day_period, "2026-W27-0")
-
-        late_due, late_period, _ = _schedule_due(schedule, dt.datetime(2026, 6, 30, 23, 0, tzinfo=dt.timezone.utc))
-        self.assertFalse(late_due)
-        self.assertEqual(late_period, "2026-W27-0")
-
     def test_schedule_queue_retries_running_step_after_manager_restart(self) -> None:
         state_path = self.db_path.parent / "job-schedules.json"
         state_path.write_text(json.dumps({
@@ -796,49 +798,6 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertEqual(payload["data"]["summary"]["mode"], "dry_run")
         self.assertEqual(payload["data"]["summary"]["candidate_count"], 0)
 
-    def test_stalled_review_limit_bounds_returned_candidates(self) -> None:
-        projects = [{"project_key": f"proj:{index}", runtime_view.RUNTIME_PROJECT_REVISION: 1} for index in range(3)]
-
-        def entry(project: dict, **_kwargs: object) -> dict:
-            return {
-                "project_key": project["project_key"],
-                "suggested_tracking_state": "stalled",
-            }
-
-        conn = registry.open_db()
-        try:
-            with mock.patch.object(review_services.project_record, "list_projects", return_value=projects), mock.patch.object(
-                review_services.project_record, "ensure_project_shape", side_effect=lambda project: project
-            ), mock.patch.object(review_services.core, "stalled_review_entry", side_effect=entry):
-                payload = review_services.stalled(
-                    conn,
-                    limit=2,
-                    now=dt.datetime(2026, 6, 15, tzinfo=dt.timezone.utc),
-                )
-        finally:
-            conn.close()
-
-        self.assertEqual(payload["candidate_count"], 2)
-        self.assertEqual(payload["total_candidate_count"], 3)
-        self.assertEqual(len(payload["candidates"]), 2)
-        self.assertTrue(payload["plan_fingerprint"].startswith("plan:"))
-        self.assertTrue(all(item["candidate_id"].startswith("candidate:") for item in payload["candidates"]))
-
-        with mock.patch.object(review_services.project_record, "list_projects", return_value=projects), mock.patch.object(
-            review_services.project_record, "ensure_project_shape", side_effect=lambda project: project
-        ), mock.patch.object(review_services.core, "stalled_review_entry", side_effect=entry):
-            with self.assertRaisesRegex(ValueError, "plan changed"):
-                conn = registry.open_db()
-                try:
-                    review_services.stalled(
-                        conn,
-                        limit=2,
-                        expected_plan_fingerprint="plan:stale",
-                        now=dt.datetime(2026, 6, 15, tzinfo=dt.timezone.utc),
-                    )
-                finally:
-                    conn.close()
-
     def test_sync_reports_item_progress_and_honors_boundary_cancellation(self) -> None:
         snapshot = {
             "events": [{
@@ -937,6 +896,50 @@ class ProjectRegistryJobTest(TempRegistryDbTestCase):
         self.assertTrue(summary["truncated"])
         self.assertTrue(summary["state_updated"])
         self.assertEqual(state["watermark"]["seq"], 10)
+
+    def test_stalled_review_limit_bounds_returned_candidates(self) -> None:
+        projects = [{"project_key": f"proj:{index}", runtime_view.RUNTIME_PROJECT_REVISION: 1} for index in range(3)]
+
+        def entry(project: dict, **_kwargs: object) -> dict:
+            return {
+                "project_key": project["project_key"],
+                "suggested_tracking_state": "stalled",
+            }
+
+        conn = registry.open_db()
+        try:
+            with mock.patch.object(review_services.project_record, "list_projects", return_value=projects), mock.patch.object(
+                review_services.project_record, "ensure_project_shape", side_effect=lambda project: project
+            ), mock.patch.object(review_services.core, "stalled_review_entry", side_effect=entry):
+                payload = review_services.stalled(
+                    conn,
+                    limit=2,
+                    now=dt.datetime(2026, 6, 15, tzinfo=dt.timezone.utc),
+                )
+        finally:
+            conn.close()
+
+        self.assertEqual(payload["candidate_count"], 2)
+        self.assertEqual(payload["total_candidate_count"], 3)
+        self.assertEqual(len(payload["candidates"]), 2)
+        self.assertTrue(payload["plan_fingerprint"].startswith("plan:"))
+        self.assertTrue(all(item["candidate_id"].startswith("candidate:") for item in payload["candidates"]))
+
+        with mock.patch.object(review_services.project_record, "list_projects", return_value=projects), mock.patch.object(
+            review_services.project_record, "ensure_project_shape", side_effect=lambda project: project
+        ), mock.patch.object(review_services.core, "stalled_review_entry", side_effect=entry):
+            with self.assertRaisesRegex(ValueError, "plan changed"):
+                conn = registry.open_db()
+                try:
+                    review_services.stalled(
+                        conn,
+                        limit=2,
+                        expected_plan_fingerprint="plan:stale",
+                        now=dt.datetime(2026, 6, 15, tzinfo=dt.timezone.utc),
+                    )
+                finally:
+                    conn.close()
+
 
 
 if __name__ == "__main__":

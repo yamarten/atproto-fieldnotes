@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 from unittest import mock
 
-from helpers import TempRegistryDbTestCase, registry
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from project_registry_core import editorial, project_record, service, storage
 from project_registry_core.application import investigation, presentation, projects
 from project_registry_core import worker
@@ -12,9 +12,11 @@ from project_registry_web.jobs import SCHEDULE_PRESETS, preset_steps
 from project_registry_core.evidence import EvidenceBundle, EvidenceRecord
 
 
-class TemporalDescriptionTest(TempRegistryDbTestCase):
+class _TemporalDescriptionFixtures:
     URL = "https://reading.example"
+
     OLD = "2026-07-01T00:00:00+00:00"
+
     NEW = "2026-09-14T00:00:00+00:00"
 
     def project(self, state="active"):
@@ -40,6 +42,8 @@ class TemporalDescriptionTest(TempRegistryDbTestCase):
             output["features"] = features
         registry.apply_llm_output(project, output, {"generated_at": self.NEW}, {"description_sources": [material]})
 
+
+class TemporalDescriptionUnitTest(_TemporalDescriptionFixtures, ProjectRecordTestCase):
     def test_closure_keeps_purpose_and_technical_value_in_single_description(self):
         project = self.project()
         summary = "読書記録を共有していたサービス。独自Lexiconで書籍を表現していた。2026年に提供終了。"
@@ -69,35 +73,6 @@ class TemporalDescriptionTest(TempRegistryDbTestCase):
                 before = editorial.profile(project)
                 self.propose(project, "取得できないため不明。" * 30, kind=kind, sources=refs)
                 self.assertEqual(editorial.profile(project), before)
-
-    def test_unknown_provenance_is_reviewed_and_proposal_survives_roundtrip(self):
-        project = self.project()
-        project.pop("editorial")
-        before = editorial.profile(project)
-        self.propose(project, "読書記録を共有していたサービス。2026年に提供終了。")
-        self.assertEqual(editorial.profile(project), before)
-        conn = registry.open_db()
-        try:
-            project_record.save_project(conn, project)
-            conn.commit()
-            loaded = project_record.fetch_project(conn, project["project_key"])
-            self.assertEqual(loaded["editorial"], project["editorial"])
-            queue = registry.build_review_queue(conn, kinds={"editorial_refresh"})
-            self.assertEqual(queue[0]["project_key"], project["project_key"])
-            detail = presentation.project_detail(conn, project_key=project["project_key"])
-            self.assertFalse(detail["project"]["editorial"]["automatic"])
-            self.assertEqual(detail["project"]["editorial"]["proposal"]["kind"], "changed_facts")
-            accepted = project["editorial"]["proposal"]["profile"]
-            projects.apply_profile_edit(conn, project_key=project["project_key"], name="Reading", notes="", introduced_url="", description=accepted)
-            loaded = project_record.fetch_project(conn, project["project_key"])
-            self.assertEqual(editorial.profile(loaded), accepted)
-            self.assertEqual(loaded["editorial"]["mode"], "review")
-            self.assertNotIn("proposal", loaded["editorial"])
-            self.assertEqual(loaded["editorial"]["last_update"]["kind"], "operator_accepted_proposal")
-            self.propose(loaded, "さらに変更された説明。")
-            self.assertEqual(editorial.profile(loaded), accepted)
-        finally:
-            conn.close()
 
     def test_old_browser_success_does_not_override_new_http_failure(self):
         for status in [403, 410, 503]:
@@ -147,6 +122,62 @@ class TemporalDescriptionTest(TempRegistryDbTestCase):
         self.assertEqual(project["service_verification_results"][0]["observed_at"], self.NEW)
         self.assertEqual(project["service_verification_results"][0]["last_success"]["observed_at"], self.OLD)
 
+    def test_real_source_material_changes_on_same_url_and_excludes_failures(self):
+        project = self.project()
+        good = {"lane": "static", "requested_url": self.URL, "supports_project": True,
+                "observed_at": self.OLD, "status_code": 200, "html_extract": "読書を共有するサービス。"}
+        project["service_verification_results"] = [good]
+        old_sources = registry.build_llm_evidence_bundle(project)["description_sources"]
+        self.assertEqual(len(old_sources), 1)
+        project["service_verification_results"] = [{**good, "html_extract": "書籍検索へ変更しました。", "observed_at": self.NEW}]
+        new_sources = registry.build_llm_evidence_bundle(project)["description_sources"]
+        self.assertNotEqual(old_sources[0]["id"], new_sources[0]["id"])
+        self.assertEqual(old_sources[0]["locator"], new_sources[0]["locator"])
+        for record in [{**good, "fetch_error": "timeout"}, {**good, "status_code": 503}, {**good, "supports_project": False}]:
+            project["service_verification_results"] = [record]
+            self.assertFalse(registry.build_llm_evidence_bundle(project)["description_sources"])
+
+    def test_dismissal_stops_same_proposal_and_new_evidence_can_reopen_it(self):
+        project = self.project()
+        project["editorial"]["mode"] = "review"
+        self.propose(project, "提供終了した読書共有サービス。")
+        editorial.dismiss_proposal(project)
+        self.propose(project, "提供終了した読書共有サービス。")
+        self.assertNotIn("proposal", project["editorial"])
+        self.propose(project, "再公開された読書共有サービス。", content="提供を再開しました。")
+        self.assertIn("proposal", project["editorial"])
+
+
+class TemporalDescriptionTest(_TemporalDescriptionFixtures, TempRegistryDbTestCase):
+    def test_unknown_provenance_is_reviewed_and_proposal_survives_roundtrip(self):
+        project = self.project()
+        project.pop("editorial")
+        before = editorial.profile(project)
+        self.propose(project, "読書記録を共有していたサービス。2026年に提供終了。")
+        self.assertEqual(editorial.profile(project), before)
+        conn = registry.open_db()
+        try:
+            project_record.save_project(conn, project)
+            conn.commit()
+            loaded = project_record.fetch_project(conn, project["project_key"])
+            self.assertEqual(loaded["editorial"], project["editorial"])
+            queue = registry.build_review_queue(conn, kinds={"editorial_refresh"})
+            self.assertEqual(queue[0]["project_key"], project["project_key"])
+            detail = presentation.project_detail(conn, project_key=project["project_key"])
+            self.assertFalse(detail["project"]["editorial"]["automatic"])
+            self.assertEqual(detail["project"]["editorial"]["proposal"]["kind"], "changed_facts")
+            accepted = project["editorial"]["proposal"]["profile"]
+            projects.apply_profile_edit(conn, project_key=project["project_key"], name="Reading", notes="", introduced_url="", description=accepted)
+            loaded = project_record.fetch_project(conn, project["project_key"])
+            self.assertEqual(editorial.profile(loaded), accepted)
+            self.assertEqual(loaded["editorial"]["mode"], "review")
+            self.assertNotIn("proposal", loaded["editorial"])
+            self.assertEqual(loaded["editorial"]["last_update"]["kind"], "operator_accepted_proposal")
+            self.propose(loaded, "さらに変更された説明。")
+            self.assertEqual(editorial.profile(loaded), accepted)
+        finally:
+            conn.close()
+
     def test_monitor_is_bounded_dry_run_and_includes_agreed_states(self):
         conn = registry.open_db()
         try:
@@ -174,31 +205,6 @@ class TemporalDescriptionTest(TempRegistryDbTestCase):
                 self.assertEqual(run["output_project"]["summary"], self.project()["summary"])
         finally:
             conn.close()
-
-    def test_real_source_material_changes_on_same_url_and_excludes_failures(self):
-        project = self.project()
-        good = {"lane": "static", "requested_url": self.URL, "supports_project": True,
-                "observed_at": self.OLD, "status_code": 200, "html_extract": "読書を共有するサービス。"}
-        project["service_verification_results"] = [good]
-        old_sources = registry.build_llm_evidence_bundle(project)["description_sources"]
-        self.assertEqual(len(old_sources), 1)
-        project["service_verification_results"] = [{**good, "html_extract": "書籍検索へ変更しました。", "observed_at": self.NEW}]
-        new_sources = registry.build_llm_evidence_bundle(project)["description_sources"]
-        self.assertNotEqual(old_sources[0]["id"], new_sources[0]["id"])
-        self.assertEqual(old_sources[0]["locator"], new_sources[0]["locator"])
-        for record in [{**good, "fetch_error": "timeout"}, {**good, "status_code": 503}, {**good, "supports_project": False}]:
-            project["service_verification_results"] = [record]
-            self.assertFalse(registry.build_llm_evidence_bundle(project)["description_sources"])
-
-    def test_dismissal_stops_same_proposal_and_new_evidence_can_reopen_it(self):
-        project = self.project()
-        project["editorial"]["mode"] = "review"
-        self.propose(project, "提供終了した読書共有サービス。")
-        editorial.dismiss_proposal(project)
-        self.propose(project, "提供終了した読書共有サービス。")
-        self.assertNotIn("proposal", project["editorial"])
-        self.propose(project, "再公開された読書共有サービス。", content="提供を再開しました。")
-        self.assertIn("proposal", project["editorial"])
 
     def test_service_only_verification_does_not_refresh_enrichment_age(self):
         project = self.project()

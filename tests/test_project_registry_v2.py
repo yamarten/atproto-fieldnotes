@@ -7,14 +7,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from helpers import TempRegistryDbTestCase, registry
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 import promotion_evaluation
 from project_registry_core import database
 from project_registry_core import runtime_view
 from project_registry_core import project_record
 
 
-class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
+class ProjectRegistryV2StorageUnitTest(ProjectRecordTestCase):
     def test_project_record_is_the_storage_boundary_without_registry_reexports(self) -> None:
         self.assertNotIn("registry", vars(project_record))
         self.assertNotIn("project_record", vars(database))
@@ -30,6 +30,8 @@ class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
             self.assertTrue(callable(getattr(project_record, name)))
             self.assertFalse(hasattr(registry, name))
 
+
+class ProjectRegistryV2StorageTest(TempRegistryDbTestCase):
     def test_open_database_initialization_survives_close_without_caller_commit(self) -> None:
         fresh_path = Path(self.tempdir.name) / "fresh.db"
         conn = database.open_database(fresh_path, create=True)
@@ -322,57 +324,6 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
         self.assertEqual(len(linked_cases), 4)
         self.assertTrue(all(item["browser_calibration_case_id"] in browser_case_ids for item in linked_cases))
 
-    def test_manual_gold_promotion_cases_project_machine_policy_without_priority_guessing(self) -> None:
-        path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
-        cases = json.loads(path.read_text(encoding="utf-8"))["promotion_cases"]
-        expected_service_groups = {
-            "juntos": "needs_validation",
-            "moat": "needs_validation",
-            "gmstn-systems": "needs_validation",
-            "echosky": "confirmed",
-            "atshare": "needs_validation",
-            "mathr": "confirmed",
-        }
-
-        for item in cases:
-            project = dict(item["subject"])
-            service_url = project.pop("service_url")
-            project["website_url"] = service_url
-            project["service_urls"] = [service_url]
-            shaped = registry.apply_promotion_state(project_record.ensure_project_shape(project))
-            signals = registry.compute_showcase_signals(shaped)
-            policy = registry.promotion_policy_projection(shaped, signals)
-            disposition = item["expected_promotion"]["disposition"]
-
-            if disposition == "exclude":
-                self.assertEqual(policy["candidate_visibility"]["group"], "excluded")
-                self.assertEqual(signals, [])
-                self.assertEqual(policy["service_evidence_group"], "not_applicable")
-            else:
-                self.assertEqual(policy["candidate_visibility"], {"group": "eligible", "reasons": []})
-                self.assertEqual(
-                    policy["service_evidence_group"],
-                    expected_service_groups[project["ref"]],
-                )
-                self.assertEqual(policy["priority_group"], "normal")
-                if disposition == "deprioritize":
-                    registry.set_promotion_priority_on_project(
-                        shaped,
-                        lowered=True,
-                        reason=item["expected_promotion"]["reason"],
-                    )
-                    policy = registry.promotion_policy_projection(shaped, signals)
-                    self.assertEqual(policy["priority_group"], "lowered")
-                    self.assertEqual(
-                        policy["priority_reason"],
-                        item["expected_promotion"]["reason"],
-                    )
-
-        lowered_priority_cases = [
-            item for item in cases
-            if item["expected_promotion"]["disposition"] == "deprioritize"
-        ]
-        self.assertEqual(len(lowered_priority_cases), 4)
 
     def test_promotion_benchmark_executes_all_cases_and_detects_order_regression(self) -> None:
         path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
@@ -420,24 +371,6 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
 
         meyasuat = next(item for item in cases if item["subject"]["ref"] == "meyasuat")
         self.assertIn("not an automated ranking signal", meyasuat["manual_context"][0])
-
-    def test_excluded_promotion_cases_match_policy(self) -> None:
-        path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        cases = payload["promotion_cases"]
-        excluded_cases = [
-            item
-            for item in cases
-            if item["expected_promotion"]["disposition"] == "exclude"
-        ]
-
-        self.assertEqual(len(excluded_cases), 8)
-        for item in excluded_cases:
-            project = dict(item["subject"])
-            service_url = project.pop("service_url")
-            project["website_url"] = service_url
-            project["service_urls"] = [service_url]
-            self.assertEqual(registry.compute_showcase_signals(project), [])
 
     def test_manual_gold_fixture_omits_volatile_log_identity(self) -> None:
         path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
@@ -498,6 +431,78 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
         self.assertEqual(sanitized["url"], "https://example.com/path")
         self.assertEqual(sanitized["message"], "Authorization: Bearer [redacted]")
         self.assertEqual(sanitized["public_identifier"], "app.example.record")
+
+    def test_manual_gold_promotion_cases_project_machine_policy_without_priority_guessing(self) -> None:
+        path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
+        cases = json.loads(path.read_text(encoding="utf-8"))["promotion_cases"]
+        expected_service_groups = {
+            "juntos": "needs_validation",
+            "moat": "needs_validation",
+            "gmstn-systems": "needs_validation",
+            "echosky": "confirmed",
+            "atshare": "needs_validation",
+            "mathr": "confirmed",
+        }
+
+        for item in cases:
+            project = dict(item["subject"])
+            service_url = project.pop("service_url")
+            project["website_url"] = service_url
+            project["service_urls"] = [service_url]
+            shaped = registry.apply_promotion_state(project_record.ensure_project_shape(project))
+            signals = registry.compute_showcase_signals(shaped)
+            policy = registry.promotion_policy_projection(shaped, signals)
+            disposition = item["expected_promotion"]["disposition"]
+
+            if disposition == "exclude":
+                self.assertEqual(policy["candidate_visibility"]["group"], "excluded")
+                self.assertEqual(signals, [])
+                self.assertEqual(policy["service_evidence_group"], "not_applicable")
+            else:
+                self.assertEqual(policy["candidate_visibility"], {"group": "eligible", "reasons": []})
+                self.assertEqual(
+                    policy["service_evidence_group"],
+                    expected_service_groups[project["ref"]],
+                )
+                self.assertEqual(policy["priority_group"], "normal")
+                if disposition == "deprioritize":
+                    registry.set_promotion_priority_on_project(
+                        shaped,
+                        lowered=True,
+                        reason=item["expected_promotion"]["reason"],
+                    )
+                    policy = registry.promotion_policy_projection(shaped, signals)
+                    self.assertEqual(policy["priority_group"], "lowered")
+                    self.assertEqual(
+                        policy["priority_reason"],
+                        item["expected_promotion"]["reason"],
+                    )
+
+        lowered_priority_cases = [
+            item for item in cases
+            if item["expected_promotion"]["disposition"] == "deprioritize"
+        ]
+        self.assertEqual(len(lowered_priority_cases), 4)
+
+
+    def test_excluded_promotion_cases_match_policy(self) -> None:
+        path = Path(__file__).parent / "fixtures" / "project_registry" / "manual-gold-v1.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        cases = payload["promotion_cases"]
+        excluded_cases = [
+            item
+            for item in cases
+            if item["expected_promotion"]["disposition"] == "exclude"
+        ]
+
+        self.assertEqual(len(excluded_cases), 8)
+        for item in excluded_cases:
+            project = dict(item["subject"])
+            service_url = project.pop("service_url")
+            project["website_url"] = service_url
+            project["service_urls"] = [service_url]
+            self.assertEqual(registry.compute_showcase_signals(project), [])
+
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from helpers import TempRegistryDbTestCase, captured_stdout, registry
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, captured_stdout, registry
 from project_registry_core import cli, database, domain_policy, relations, source_sync
 from project_registry_core.commands import maintenance as maintenance_commands
 from project_registry_core.commands import review as review_commands
@@ -17,6 +17,660 @@ from project_registry_core.application import maintenance as maintenance_service
 from project_registry_core.application import merge as merge_services
 from project_registry_core.application import sync as sync_services
 from project_registry_core import project_record
+
+
+class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
+    def test_split_project_parser_has_no_explicit_new_key_option(self) -> None:
+        args = cli.build_parser().parse_args([
+            "split-project",
+            "--project-key",
+            "proj:source",
+            "--identifier-type",
+            "nsid",
+            "--value",
+            "app.example.post",
+        ])
+
+        self.assertFalse(hasattr(args, "new_project_key"))
+
+        domain_args = cli.build_parser().parse_args([
+            "split-project",
+            "--project-key",
+            "proj:source",
+            "--identifier-type",
+            "domain",
+            "--value",
+            "app.example.com",
+        ])
+        self.assertEqual(domain_args.identifier_type, "domain")
+
+    def test_explain_parser_accepts_topic_and_format(self) -> None:
+        args = cli.build_parser().parse_args([
+            "explain", "--project-key", "proj:abc", "--topic", "ownership", "--format", "json"
+        ])
+        self.assertEqual(args.topic, "ownership")
+        self.assertEqual(args.format, "json")
+
+    def test_sync_parsers_create_unmatched_by_default_with_opt_out(self) -> None:
+        parser = cli.build_parser()
+
+        for command in ("sync-collections", "sync-github-search", "sync-semble-collections"):
+            self.assertTrue(parser.parse_args([command]).create_unmatched)
+            self.assertFalse(parser.parse_args([command, "--no-create-unmatched"]).create_unmatched)
+
+    def test_sync_parsers_are_incremental_by_default(self) -> None:
+        parser = cli.build_parser()
+
+        for command in ("sync-introduced", "sync-collections", "sync-github-search", "sync-semble-collections"):
+            self.assertTrue(parser.parse_args([command]).incremental)
+            self.assertFalse(parser.parse_args([command, "--no-incremental"]).incremental)
+
+        introduced = parser.parse_args(["sync-introduced"])
+        self.assertIsNone(introduced.query)
+        self.assertIsNone(introduced.lookback_days)
+        self.assertIsNone(introduced.limit)
+        self.assertIsNone(parser.parse_args(["sync-semble-collections"]).pages)
+
+        config = registry.load_config()
+        self.assertEqual(config["introduced_search"]["lookback_days"], 7)
+        self.assertEqual(config["introduced_search"]["limit"], 10)
+        self.assertEqual(config["semble_collections"]["pages"], 100)
+        self.assertEqual(
+            config["semble_collections"]["tracked_collections"],
+            list(registry.SEMBLE_TRACKED_COLLECTIONS),
+        )
+
+    def test_builtin_lexicon_policy_does_not_come_from_source_config(self) -> None:
+        with mock.patch.object(registry, "load_config", return_value={"collection_inventory": {"builtin_prefixes": ["evil."]}}):
+            self.assertEqual(project_record.builtin_lexicon_prefixes(), ("app.bsky.", "chat.bsky.", "com.atproto."))
+
+    def test_parser_accepts_defer_identifier_command(self) -> None:
+        args = cli.build_parser().parse_args(
+            [
+                "defer-identifier",
+                "--project-key",
+                "proj:121212121212",
+                "--identifier-type",
+                "service_url",
+                "--value",
+                "https://example.com",
+                "--days",
+                "14",
+            ]
+        )
+
+        self.assertEqual(args.func.__module__, "project_registry_core.commands.decisions")
+        self.assertEqual(args.days, 14)
+
+    def test_parser_accepts_defer_promotion_command(self) -> None:
+        args = cli.build_parser().parse_args(
+            [
+                "defer-promotion",
+                "--project-key",
+                "proj:121212121212",
+                "--reason",
+                "中核機能が未実装",
+            ]
+        )
+
+        self.assertEqual(args.func.__module__, "project_registry_core.commands.decisions")
+        self.assertIsNone(args.days)
+
+    def test_parser_accepts_audit_url_fields_command(self) -> None:
+        parser = cli.build_parser()
+        args = parser.parse_args(["audit-url-fields", "--example-limit", "3"])
+
+        self.assertEqual(args.func.__module__, "project_registry_core.commands.maintenance")
+        self.assertEqual(args.example_limit, 3)
+
+        storage_cleanup_args = parser.parse_args([
+            "cleanup-storage-payloads",
+            "--execute",
+            "--example-limit",
+            "3",
+            "--vacuum",
+        ])
+
+        self.assertEqual(
+            storage_cleanup_args.func.__module__,
+            "project_registry_core.commands.maintenance",
+        )
+        self.assertTrue(storage_cleanup_args.execute)
+        self.assertEqual(storage_cleanup_args.example_limit, 3)
+        self.assertTrue(storage_cleanup_args.vacuum)
+
+        workspace_temp_args = parser.parse_args([
+            "cleanup-workspace-temp",
+            "--older-than-hours",
+            "6",
+            "--example-limit",
+            "3",
+            "--execute",
+        ])
+
+        self.assertEqual(
+            workspace_temp_args.func.__module__,
+            "project_registry_core.commands.maintenance",
+        )
+        self.assertEqual(workspace_temp_args.older_than_hours, 6)
+        self.assertEqual(workspace_temp_args.example_limit, 3)
+        self.assertTrue(workspace_temp_args.execute)
+
+        compression_args = parser.parse_args([
+            "compress-investigation-history",
+            "--execute",
+            "--example-limit",
+            "3",
+            "--vacuum",
+        ])
+
+        self.assertEqual(
+            compression_args.func.__module__,
+            "project_registry_core.commands.maintenance",
+        )
+        self.assertTrue(compression_args.execute)
+        self.assertEqual(compression_args.example_limit, 3)
+        self.assertTrue(compression_args.vacuum)
+
+        repair_args = parser.parse_args(["repair-db", "--execute"])
+
+        self.assertEqual(repair_args.func.__module__, "project_registry_core.commands.maintenance")
+        self.assertTrue(repair_args.execute)
+
+        prune_args = parser.parse_args([
+            "prune-investigation-history",
+            "--retention-days",
+            "30",
+            "--keep-latest-per-project",
+            "2",
+            "--execute",
+            "--vacuum",
+        ])
+
+        self.assertEqual(prune_args.func.__module__, "project_registry_core.commands.maintenance")
+        self.assertEqual(prune_args.retention_days, 30)
+        self.assertEqual(prune_args.keep_latest_per_project, 2)
+        self.assertTrue(prune_args.execute)
+        self.assertTrue(prune_args.vacuum)
+
+    def test_audit_source_config_parser_is_interactive_by_default(self) -> None:
+        parser = cli.build_parser()
+
+        args = parser.parse_args(["audit-source-config", "example.com"])
+        dry_run_args = parser.parse_args(["audit-source-config", "example.com", "--no-interactive"])
+
+        self.assertEqual(args.func.__module__, "project_registry_core.commands.maintenance")
+        self.assertTrue(args.interactive)
+        self.assertFalse(dry_run_args.interactive)
+
+    def test_out_of_scope_tracking_state_is_available_to_cli(self) -> None:
+        parser = cli.build_parser()
+
+        state_args = parser.parse_args(
+            ["set-tracking-state", "--project-key", "proj:121212121212", "--tracking-state", "out_of_scope"]
+        )
+        review_args = parser.parse_args(["review-out-of-scope"])
+        enrich_args = parser.parse_args(["enrich", "--all", "--include-out-of-scope"])
+
+        self.assertEqual(state_args.tracking_state, "out_of_scope")
+        self.assertIs(review_args.func, review_commands.cmd_review_out_of_scope)
+        self.assertTrue(enrich_args.include_out_of_scope)
+
+    def test_review_stalled_parser_accepts_freshness_option(self) -> None:
+        parser = cli.build_parser()
+
+        args = parser.parse_args(["review-stalled", "--max-enrich-age-days", "21"])
+
+        self.assertEqual(args.max_enrich_age_days, 21)
+
+    def test_promotion_queue_parser_accepts_supported_kinds(self) -> None:
+        args = cli.build_parser().parse_args(
+            [
+                "promotion-queue",
+                "--kinds",
+                "technical_insight_candidate",
+                "service_candidate_needs_validation",
+            ]
+        )
+
+        self.assertEqual(
+            args.kinds,
+            ["technical_insight_candidate", "service_candidate_needs_validation"],
+        )
+
+    def test_merge_pair_suggests_unconfigured_multi_tenant_suffix(self) -> None:
+        source = self.make_project("proj:foo", "service_url", "https://foo.example.com")
+        registry.add_manual_seed(source, "service_url", "https://foo.example.com", source="test")
+        target = self.make_project("proj:bar", "service_url", "https://bar.example.com")
+        registry.add_manual_seed(target, "service_url", "https://bar.example.com", source="test")
+
+        suggestions = registry.merge_pair_multi_tenant_suffix_suggestions(source, target)
+
+        self.assertEqual([item["suffix"] for item in suggestions], ["example.com"])
+        self.assertEqual(suggestions[0]["source_tenants"], ["foo.example.com"])
+        self.assertEqual(suggestions[0]["target_tenants"], ["bar.example.com"])
+
+    def test_defer_service_url_downgrades_to_candidate_and_blocks_confirmation(self) -> None:
+        project = self.make_project("proj:121212121212", "service_url", "https://example.com")
+        project["website_url"] = "https://example.com"
+        project["service_urls"] = ["https://example.com"]
+
+        registry.defer_identifier_on_project(project, "service_url", "https://example.com", days=30)
+        project = registry.finalize_project_shape(project)
+
+        self.assertNotIn("https://example.com", project["service_urls"])
+        self.assertEqual(project["website_url"], "https://example.com")
+        self.assertIn("https://example.com", project["service_url_candidates"])
+        registry.confirm_service_seed(project, "https://example.com", source="test")
+        self.assertNotIn("https://example.com", project["service_urls"])
+
+    def test_defer_repo_url_downgrades_to_candidate(self) -> None:
+        project = self.make_project("proj:343434343434", "repo_url", "https://github.com/example/app")
+        project["project_repository_urls"] = ["https://github.com/example/app"]
+
+        registry.defer_identifier_on_project(project, "repo_url", "https://github.com/example/app", days=14)
+        project = registry.finalize_project_shape(project)
+
+        self.assertNotIn("https://github.com/example/app", project["project_repository_urls"])
+        self.assertIn("https://github.com/example/app", project["candidate_project_repository_urls"])
+        self.assertEqual(project["deferred_identifiers"][0]["type"], "repo_url")
+
+    def test_manual_repo_seed_stays_confirmed_project_repository(self) -> None:
+        project = self.make_project("proj:manualrepo", "repo_url", "https://github.com/example/app")
+        registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
+        registry.add_confirmed_identifier_decision(project, "repo_url", "https://github.com/example/app", source="test")
+
+        project = registry.finalize_project_shape(project)
+
+        self.assertIn("https://github.com/example/app", project["project_repository_urls"])
+        self.assertNotIn("https://github.com/example/app", project["candidate_project_repository_urls"])
+        self.assertIn(
+            {"kind": "repo_url", "value": "https://github.com/example/app"},
+            registry.trusted_anchor_nodes(project),
+        )
+
+    def test_deferred_manual_repo_seed_is_not_trusted_anchor(self) -> None:
+        project = self.make_project("proj:deferredrepo", "repo_url", "https://github.com/example/app")
+        registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
+        registry.defer_identifier_on_project(project, "repo_url", "https://github.com/example/app", days=14)
+
+        project = registry.finalize_project_shape(project)
+
+        self.assertNotIn("https://github.com/example/app", project["project_repository_urls"])
+        self.assertIn("https://github.com/example/app", project["candidate_project_repository_urls"])
+        self.assertNotIn(
+            {"kind": "repo_url", "value": "https://github.com/example/app"},
+            registry.trusted_anchor_nodes(project),
+        )
+
+    def test_defer_nsid_keeps_value_in_temporary_category(self) -> None:
+        project = self.make_project("proj:565656565656", "nsid", "app.example.post")
+        project["input_nsids"] = ["app.example.post"]
+
+        registry.defer_identifier_on_project(project, "nsid", "app.example.post", days=30)
+        project = registry.finalize_project_shape(project)
+
+        self.assertNotIn("app.example.post", project["input_nsids"])
+        self.assertEqual(project["deferred_identifiers"][0]["value"], "app.example.post")
+
+    def test_expired_deferred_identifier_stops_blocking_confirmation(self) -> None:
+        project = self.make_project("proj:defdefdefdef", "service_url", "https://example.com")
+        project["deferred_identifiers"] = [
+            {
+                "type": "service_url",
+                "value": "https://example.com",
+                "added_at": "2026-01-01T00:00:00+00:00",
+                "expires_at": (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)).isoformat(),
+            }
+        ]
+
+        project = project_record.ensure_project_shape(project)
+        registry.confirm_service_seed(project, "https://example.com", source="test")
+
+        self.assertEqual(project["deferred_identifiers"], [])
+        self.assertIn("https://example.com", project["service_urls"])
+
+    def test_promotion_deferral_hides_queue_item_until_expiry(self) -> None:
+        project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
+        project.update({
+            "category": "project",
+            "service_status": "live",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "login_surface_detected"],
+        })
+        registry.confirm_service_seed(project, "https://example.com", source="test")
+
+        registry.defer_promotion_on_project(project, reason="中核機能が未実装")
+
+        self.assertEqual(registry.compute_showcase_signals(project), [])
+        project["promotion_deferrals"][0]["expires_at"] = (
+            dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)
+        ).isoformat()
+        self.assertEqual(
+            [signal["kind"] for signal in registry.compute_showcase_signals(project)],
+            ["service_surface_confirmed"],
+        )
+
+    def test_out_of_scope_project_is_not_promoted(self) -> None:
+        project = self.make_project("proj:outofscope", "service_url", "https://example.com")
+        project.update({
+            "category": "project",
+            "service_status": "live",
+            "service_status_confidence": "medium",
+            "tracking_state": "out_of_scope",
+        })
+        registry.confirm_service_seed(project, "https://example.com", source="test")
+
+        self.assertEqual(registry.compute_showcase_signals(project), [])
+
+    def test_dns_verified_lexicon_publisher_is_high_priority_promotion_candidate(self) -> None:
+        project = self.make_project("proj:lexiconpublisher", "nsid", "app.example.post")
+        project.update({
+            "category": "project",
+            "resolved_nsids": ["app.example.post"],
+            "lexicon_schema_samples": [{"nsid": "app.example.post", "id": "app.example.post"}],
+            "lexicon_resolution_entries": [{
+                "input_nsid": "app.example.post",
+                "resolved_nsid": "app.example.post",
+                "repo_did": "did:plc:publisher",
+                "authority_domain": "example.app",
+                "pds_url": "https://pds.example",
+                "record_uri": "at://did:plc:publisher/com.atproto.lexicon.schema/app.example.post",
+                "resolved_at": "2026-08-28T00:00:00+00:00",
+            }],
+        })
+
+        signals = registry.compute_showcase_signals(project)
+
+        self.assertEqual([signal["kind"] for signal in signals], ["lexicon_publisher_confirmed"])
+        self.assertEqual(signals[0]["priority"], 7)
+        self.assertEqual(signals[0]["details"]["publication_count"], 1)
+        self.assertEqual(
+            registry.promotion_queue_score_breakdown(project, signals)["components"]["lexicon_publication"],
+            160,
+        )
+
+    def test_lexicon_schema_without_dns_resolution_is_not_promotion_signal(self) -> None:
+        project = self.make_project("proj:reposchema", "nsid", "app.example.post")
+        project.update({
+            "category": "project",
+            "resolved_nsids": ["app.example.post"],
+            "lexicon_schema_samples": [{"nsid": "app.example.post", "id": "app.example.post"}],
+            "lexicon_resolution_entries": [],
+        })
+
+        self.assertEqual(registry.compute_showcase_signals(project), [])
+
+    def test_dns_resolved_candidate_nsid_is_not_confirmed_publisher_signal(self) -> None:
+        project = self.make_project("proj:candidatelexicon", "nsid", "app.example.post")
+        project.update({
+            "category": "project",
+            "resolved_nsids": [],
+            "input_nsids": ["app.example.post"],
+            "lexicon_schema_samples": [{"nsid": "app.example.post", "id": "app.example.post"}],
+            "lexicon_resolution_entries": [{
+                "input_nsid": "app.example.post",
+                "resolved_nsid": "app.example.post",
+                "repo_did": "did:plc:publisher",
+                "authority_domain": "example.app",
+                "record_uri": "at://did:plc:publisher/com.atproto.lexicon.schema/app.example.post",
+            }],
+        })
+
+        self.assertEqual(registry.compute_showcase_signals(project), [])
+
+    def test_lexicon_publication_requires_matching_authority_and_record_uri(self) -> None:
+        base = self.make_project("proj:mismatchedlexicon", "nsid", "app.example.post")
+        base.update({
+            "category": "project",
+            "resolved_nsids": ["app.example.post"],
+            "lexicon_schema_samples": [{"nsid": "app.example.post", "id": "app.example.post"}],
+        })
+        entry = {
+            "input_nsid": "app.example.post",
+            "resolved_nsid": "app.example.post",
+            "repo_did": "did:plc:publisher",
+            "authority_domain": "example.app",
+            "record_uri": "at://did:plc:publisher/com.atproto.lexicon.schema/app.example.post",
+        }
+
+        for field, invalid_value in (
+            ("authority_domain", "unrelated.example"),
+            ("record_uri", "at://did:plc:other/com.atproto.lexicon.schema/app.example.post"),
+        ):
+            with self.subTest(field=field):
+                project = dict(base)
+                project["lexicon_resolution_entries"] = [{**entry, field: invalid_value}]
+                self.assertEqual(registry.compute_showcase_signals(project), [])
+
+    def test_personal_tool_lexicon_publisher_requires_include_flag(self) -> None:
+        project = self.make_project("proj:personallexicon", "nsid", "app.example.post")
+        project.update({
+            "category": "personal_tool",
+            "resolved_nsids": ["app.example.post"],
+            "lexicon_schema_samples": [{"nsid": "app.example.post", "id": "app.example.post"}],
+            "lexicon_resolution_entries": [{
+                "input_nsid": "app.example.post",
+                "resolved_nsid": "app.example.post",
+                "repo_did": "did:plc:publisher",
+                "authority_domain": "example.app",
+                "record_uri": "at://did:plc:publisher/com.atproto.lexicon.schema/app.example.post",
+            }],
+        })
+
+        self.assertEqual(registry.compute_showcase_signals(project), [])
+        self.assertEqual(
+            [signal["kind"] for signal in registry.compute_showcase_signals(project, include_personal_tools=True)],
+            ["lexicon_publisher_confirmed"],
+        )
+
+    def test_low_confidence_http_only_service_is_validation_candidate(self) -> None:
+        project = self.make_project("proj:http200only", "service_url", "https://example.com")
+        project.update({
+            "category": "project",
+            "service_status": "live",
+            "service_status_confidence": "low",
+            "service_status_evidence": ["http_200"],
+        })
+        registry.confirm_service_seed(project, "https://example.com", source="test")
+
+        signals = registry.compute_showcase_signals(project)
+
+        self.assertEqual([signal["kind"] for signal in signals], ["service_candidate_needs_validation"])
+        self.assertEqual(
+            signals[0]["details"]["validation_reasons"],
+            ["low_service_status_confidence", "usable_surface_unconfirmed"],
+        )
+
+    def test_unverified_service_remains_validation_candidate_even_with_usable_surface_evidence(self) -> None:
+        project = self.make_project("proj:unverified", "service_url", "https://example.com")
+        project.update({
+            "category": "project",
+            "service_status": "unverified",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "login_surface_detected"],
+        })
+        registry.confirm_service_seed(project, "https://example.com", source="test")
+
+        signals = registry.compute_showcase_signals(project)
+
+        self.assertEqual([signal["kind"] for signal in signals], ["service_candidate_needs_validation"])
+        self.assertEqual(
+            signals[0]["details"]["validation_reasons"],
+            ["service_status_unverified"],
+        )
+
+    def test_docs_only_service_is_validation_candidate(self) -> None:
+        project = self.make_project("proj:docsonly", "service_url", "https://example.com")
+        project.update({
+            "category": "project",
+            "service_status": "live",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "docs_only_surface_detected"],
+        })
+        registry.confirm_service_seed(project, "https://example.com", source="test")
+
+        signals = registry.compute_showcase_signals(project)
+
+        self.assertEqual([signal["kind"] for signal in signals], ["service_candidate_needs_validation"])
+        self.assertEqual(
+            signals[0]["details"]["validation_reasons"],
+            ["usable_surface_unconfirmed"],
+        )
+
+    def test_infra_tool_with_usable_surface_is_promoted_as_service(self) -> None:
+        project = self.make_project("proj:infraservice", "service_url", "https://infra.example")
+        project.update({
+            "category": "infra_tool",
+            "service_status": "live",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "app_shell_detected"],
+        })
+        registry.confirm_service_seed(project, "https://infra.example", source="test")
+
+        signals = registry.compute_showcase_signals(project)
+
+        self.assertEqual([signal["kind"] for signal in signals], ["service_surface_confirmed"])
+        self.assertEqual(signals[0]["details"]["category"], "infra_tool")
+
+    def test_unverified_infra_tool_remains_validation_candidate(self) -> None:
+        project = self.make_project("proj:infravalidation", "service_url", "https://infra.example")
+        project.update({
+            "category": "infra_tool",
+            "service_status": "unverified",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "app_shell_detected"],
+        })
+        registry.confirm_service_seed(project, "https://infra.example", source="test")
+
+        signals = registry.compute_showcase_signals(project)
+
+        self.assertEqual([signal["kind"] for signal in signals], ["service_candidate_needs_validation"])
+
+    def test_library_with_service_fields_does_not_receive_service_signal(self) -> None:
+        project = self.make_project("proj:librarydocs", "service_url", "https://library.example")
+        project.update({
+            "category": "library",
+            "service_status": "live",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "app_shell_detected"],
+        })
+        registry.confirm_service_seed(project, "https://library.example", source="test")
+
+        self.assertEqual(registry.compute_showcase_signals(project), [])
+
+    def test_validation_candidate_sorts_below_confirmed_service_surface(self) -> None:
+        confirmed = self.make_project("proj:confirmed", "service_url", "https://confirmed.example")
+        confirmed.update({
+            "category": "project",
+            "service_status": "live",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "login_surface_detected"],
+        })
+        registry.confirm_service_seed(confirmed, "https://confirmed.example", source="test")
+        validation = dict(confirmed)
+        validation["project_key"] = "proj:validation"
+        validation["service_status_evidence"] = ["http_200"]
+
+        confirmed_signals = registry.compute_showcase_signals(confirmed)
+        validation_signals = registry.compute_showcase_signals(validation)
+
+        self.assertEqual([item["kind"] for item in confirmed_signals], ["service_surface_confirmed"])
+        self.assertEqual([item["kind"] for item in validation_signals], ["service_candidate_needs_validation"])
+        self.assertEqual(
+            registry.promotion_queue_sort_score(confirmed, confirmed_signals)
+            - registry.promotion_queue_sort_score(validation, validation_signals),
+            100,
+        )
+
+    def test_promotion_policy_separates_visibility_service_and_manual_priority(self) -> None:
+        project = self.make_project("proj:policyaxes", "service_url", "https://example.com")
+        project.update({
+            "category": "project",
+            "service_status": "live",
+            "service_status_confidence": "medium",
+            "service_status_evidence": ["http_200", "login_surface_detected"],
+        })
+        registry.confirm_service_seed(project, "https://example.com", source="test")
+        signals = registry.compute_showcase_signals(project)
+
+        policy = registry.promotion_policy_projection(project, signals)
+
+        self.assertEqual(policy["candidate_visibility"], {"group": "eligible", "reasons": []})
+        self.assertEqual(policy["service_evidence_group"], "confirmed")
+        self.assertEqual(policy["priority_group"], "normal")
+        self.assertEqual(
+            policy["score_breakdown"]["total"],
+            sum(policy["score_breakdown"]["components"].values()),
+        )
+        self.assertEqual(policy["score_breakdown"]["components"]["service_evidence"], 200)
+
+        registry.set_promotion_priority_on_project(project, lowered=True)
+        policy = registry.promotion_policy_projection(project, signals)
+        self.assertEqual(policy["priority_group"], "lowered")
+        self.assertEqual(policy["priority_reason"], "")
+
+        registry.defer_promotion_on_project(project, reason="editorial review later")
+        self.assertEqual(
+            registry.promotion_candidate_visibility(project),
+            {"group": "deferred", "reasons": ["active_promotion_deferral"]},
+        )
+
+    def test_merge_keeps_canonical_target_promotion_priority(self) -> None:
+        target = self.make_project("proj:editorialtarget", "service_url", "https://target.example")
+        source = self.make_project("proj:editorialsource", "service_url", "https://source.example")
+        registry.set_promotion_priority_on_project(
+            target,
+            lowered=True,
+            reason="not ready for a standalone introduction",
+        )
+        registry.set_promotion_priority_on_project(
+            source,
+            lowered=True,
+            reason="best grouped with similar projects",
+        )
+
+        merged = registry.merge_project_records(target, source)
+
+        self.assertEqual(
+            registry.active_promotion_priority_adjustment(merged)["reason"],
+            "not ready for a standalone introduction",
+        )
+        adjustments = merged["promotion_priority_adjustments"]
+        self.assertEqual(len(adjustments), 2)
+        self.assertFalse(adjustments[0].get("cleared_at"))
+        self.assertTrue(adjustments[1].get("cleared_at"))
+
+    def test_promotion_deferral_allows_empty_reason_and_clear_keeps_history(self) -> None:
+        project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
+
+        registry.defer_promotion_on_project(project, reason="中核機能が未実装")
+        registry.clear_active_promotion_deferrals(project)
+        entry = registry.defer_promotion_on_project(project)
+
+        self.assertEqual(entry["reason"], "")
+        self.assertEqual(len(project["promotion_deferrals"]), 2)
+        self.assertTrue(project["promotion_deferrals"][0]["cleared_at"])
+        self.assertEqual(registry.active_promotion_deferral(project)["reason"], "")
+
+    def test_promotion_deferral_default_is_thirty_days_regardless_of_age_and_history(self) -> None:
+        project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
+        project["first_seen_at"] = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=3)).isoformat()
+        for _ in range(5):
+            entry = registry.defer_promotion_on_project(project)
+            duration = project_record.parse_iso(entry["expires_at"]) - project_record.parse_iso(entry["added_at"])
+            self.assertAlmostEqual(duration.total_seconds(), 30 * 86400, delta=1)
+
+    def test_promotion_deferral_uses_explicit_days_when_provided(self) -> None:
+        project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
+
+        entry = registry.defer_promotion_on_project(project, reason="explicit", days=7)
+        expires = project_record.parse_iso(entry["expires_at"])
+        added = project_record.parse_iso(entry["added_at"])
+
+        self.assertIsNotNone(expires)
+        self.assertIsNotNone(added)
+        self.assertAlmostEqual((expires - added).total_seconds(), 7 * 24 * 60 * 60, delta=5)
 
 
 class ProjectRegistryStorageTest(TempRegistryDbTestCase):
@@ -367,30 +1021,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         assert saved is not None
         self.assertEqual(len(saved["resource_url_records"]), 4)
 
-    def test_split_project_parser_has_no_explicit_new_key_option(self) -> None:
-        args = cli.build_parser().parse_args([
-            "split-project",
-            "--project-key",
-            "proj:source",
-            "--identifier-type",
-            "nsid",
-            "--value",
-            "app.example.post",
-        ])
-
-        self.assertFalse(hasattr(args, "new_project_key"))
-
-        domain_args = cli.build_parser().parse_args([
-            "split-project",
-            "--project-key",
-            "proj:source",
-            "--identifier-type",
-            "domain",
-            "--value",
-            "app.example.com",
-        ])
-        self.assertEqual(domain_args.identifier_type, "domain")
-
     def test_split_project_by_authority_domain_moves_domain_group(self) -> None:
         conn = registry.open_db()
         try:
@@ -449,10 +1079,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertIn(target["project_key"], source["separate_project_keys"])
         self.assertIn(source["project_key"], target["separate_project_keys"])
 
-    def test_init_db_parser_accepts_custom_path(self) -> None:
-        args = cli.build_parser().parse_args(["init-db", "--db-path", "custom.db"])
-        self.assertEqual(args.db_path, Path("custom.db"))
-
     def test_init_db_command_explicitly_creates_custom_database(self) -> None:
         custom_path = Path(self.tempdir.name) / "custom" / "survey.db"
         args = cli.build_parser().parse_args(["init-db", "--db-path", str(custom_path)])
@@ -481,42 +1107,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
         self.assertGreaterEqual(busy_timeout_ms, 30000)
         self.assertEqual(journal_mode, "wal")
-
-    def test_explain_parser_accepts_topic_and_format(self) -> None:
-        args = cli.build_parser().parse_args([
-            "explain", "--project-key", "proj:abc", "--topic", "ownership", "--format", "json"
-        ])
-        self.assertEqual(args.topic, "ownership")
-        self.assertEqual(args.format, "json")
-
-    def test_sync_parsers_create_unmatched_by_default_with_opt_out(self) -> None:
-        parser = cli.build_parser()
-
-        for command in ("sync-collections", "sync-github-search", "sync-semble-collections"):
-            self.assertTrue(parser.parse_args([command]).create_unmatched)
-            self.assertFalse(parser.parse_args([command, "--no-create-unmatched"]).create_unmatched)
-
-    def test_sync_parsers_are_incremental_by_default(self) -> None:
-        parser = cli.build_parser()
-
-        for command in ("sync-introduced", "sync-collections", "sync-github-search", "sync-semble-collections"):
-            self.assertTrue(parser.parse_args([command]).incremental)
-            self.assertFalse(parser.parse_args([command, "--no-incremental"]).incremental)
-
-        introduced = parser.parse_args(["sync-introduced"])
-        self.assertIsNone(introduced.query)
-        self.assertIsNone(introduced.lookback_days)
-        self.assertIsNone(introduced.limit)
-        self.assertIsNone(parser.parse_args(["sync-semble-collections"]).pages)
-
-        config = registry.load_config()
-        self.assertEqual(config["introduced_search"]["lookback_days"], 7)
-        self.assertEqual(config["introduced_search"]["limit"], 10)
-        self.assertEqual(config["semble_collections"]["pages"], 100)
-        self.assertEqual(
-            config["semble_collections"]["tracked_collections"],
-            list(registry.SEMBLE_TRACKED_COLLECTIONS),
-        )
 
     def test_sync_service_resolves_introduced_defaults_from_config(self) -> None:
         config = {
@@ -581,10 +1171,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertEqual(sync.call_args.kwargs["per_page"], 4)
         self.assertEqual(sync.call_args.kwargs["lookback_days"], 5)
         self.assertEqual(sync.call_args.kwargs["tracked_collections"][0]["api_url"], "https://semble.example")
-
-    def test_builtin_lexicon_policy_does_not_come_from_source_config(self) -> None:
-        with mock.patch.object(registry, "load_config", return_value={"collection_inventory": {"builtin_prefixes": ["evil."]}}):
-            self.assertEqual(project_record.builtin_lexicon_prefixes(), ("app.bsky.", "chat.bsky.", "com.atproto."))
 
     def test_bluesky_lexicon_sync_imports_only_app_and_chat_record_schemas(self) -> None:
         conn = registry.open_db()
@@ -1433,232 +2019,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertFalse(summary["state_updated"])
         self.assertEqual(state["watermark"], {})
 
-    def test_parser_accepts_defer_identifier_command(self) -> None:
-        args = cli.build_parser().parse_args(
-            [
-                "defer-identifier",
-                "--project-key",
-                "proj:121212121212",
-                "--identifier-type",
-                "service_url",
-                "--value",
-                "https://example.com",
-                "--days",
-                "14",
-            ]
-        )
-
-        self.assertEqual(args.func.__module__, "project_registry_core.commands.decisions")
-        self.assertEqual(args.days, 14)
-
-    def test_parser_accepts_defer_promotion_command(self) -> None:
-        args = cli.build_parser().parse_args(
-            [
-                "defer-promotion",
-                "--project-key",
-                "proj:121212121212",
-                "--reason",
-                "中核機能が未実装",
-            ]
-        )
-
-        self.assertEqual(args.func.__module__, "project_registry_core.commands.decisions")
-        self.assertIsNone(args.days)
-
-    def test_parser_accepts_audit_url_fields_command(self) -> None:
-        parser = cli.build_parser()
-        args = parser.parse_args(["audit-url-fields", "--example-limit", "3"])
-
-        self.assertEqual(args.func.__module__, "project_registry_core.commands.maintenance")
-        self.assertEqual(args.example_limit, 3)
-
-        storage_cleanup_args = parser.parse_args([
-            "cleanup-storage-payloads",
-            "--execute",
-            "--example-limit",
-            "3",
-            "--vacuum",
-        ])
-
-        self.assertEqual(
-            storage_cleanup_args.func.__module__,
-            "project_registry_core.commands.maintenance",
-        )
-        self.assertTrue(storage_cleanup_args.execute)
-        self.assertEqual(storage_cleanup_args.example_limit, 3)
-        self.assertTrue(storage_cleanup_args.vacuum)
-
-        workspace_temp_args = parser.parse_args([
-            "cleanup-workspace-temp",
-            "--older-than-hours",
-            "6",
-            "--example-limit",
-            "3",
-            "--execute",
-        ])
-
-        self.assertEqual(
-            workspace_temp_args.func.__module__,
-            "project_registry_core.commands.maintenance",
-        )
-        self.assertEqual(workspace_temp_args.older_than_hours, 6)
-        self.assertEqual(workspace_temp_args.example_limit, 3)
-        self.assertTrue(workspace_temp_args.execute)
-
-        compression_args = parser.parse_args([
-            "compress-investigation-history",
-            "--execute",
-            "--example-limit",
-            "3",
-            "--vacuum",
-        ])
-
-        self.assertEqual(
-            compression_args.func.__module__,
-            "project_registry_core.commands.maintenance",
-        )
-        self.assertTrue(compression_args.execute)
-        self.assertEqual(compression_args.example_limit, 3)
-        self.assertTrue(compression_args.vacuum)
-
-        repair_args = parser.parse_args(["repair-db", "--execute"])
-
-        self.assertEqual(repair_args.func.__module__, "project_registry_core.commands.maintenance")
-        self.assertTrue(repair_args.execute)
-
-        prune_args = parser.parse_args([
-            "prune-investigation-history",
-            "--retention-days",
-            "30",
-            "--keep-latest-per-project",
-            "2",
-            "--execute",
-            "--vacuum",
-        ])
-
-        self.assertEqual(prune_args.func.__module__, "project_registry_core.commands.maintenance")
-        self.assertEqual(prune_args.retention_days, 30)
-        self.assertEqual(prune_args.keep_latest_per_project, 2)
-        self.assertTrue(prune_args.execute)
-        self.assertTrue(prune_args.vacuum)
-
-    def test_audit_source_config_parser_is_interactive_by_default(self) -> None:
-        parser = cli.build_parser()
-
-        args = parser.parse_args(["audit-source-config", "example.com"])
-        dry_run_args = parser.parse_args(["audit-source-config", "example.com", "--no-interactive"])
-
-        self.assertEqual(args.func.__module__, "project_registry_core.commands.maintenance")
-        self.assertTrue(args.interactive)
-        self.assertFalse(dry_run_args.interactive)
-
-    def test_out_of_scope_tracking_state_is_available_to_cli(self) -> None:
-        parser = cli.build_parser()
-
-        state_args = parser.parse_args(
-            ["set-tracking-state", "--project-key", "proj:121212121212", "--tracking-state", "out_of_scope"]
-        )
-        review_args = parser.parse_args(["review-out-of-scope"])
-        enrich_args = parser.parse_args(["enrich", "--all", "--include-out-of-scope"])
-
-        self.assertEqual(state_args.tracking_state, "out_of_scope")
-        self.assertIs(review_args.func, review_commands.cmd_review_out_of_scope)
-        self.assertTrue(enrich_args.include_out_of_scope)
-
-    def test_review_stalled_parser_accepts_freshness_option(self) -> None:
-        parser = cli.build_parser()
-
-        args = parser.parse_args(["review-stalled", "--max-enrich-age-days", "21"])
-
-        self.assertEqual(args.max_enrich_age_days, 21)
-
-    def test_interactive_stalled_review_runs_from_command_adapter(self) -> None:
-        conn = registry.open_db()
-        try:
-            project = self.make_project("proj:interactive-stalled")
-            project_record.save_project(conn, project)
-            conn.commit()
-            args = cli.build_parser().parse_args(["review-stalled", "--interactive"])
-            stdout = io.StringIO()
-            stderr = io.StringIO()
-            stdout.isatty = lambda: True
-            with (
-                mock.patch.object(registry, "open_db", return_value=conn),
-                mock.patch.object(
-                    registry,
-                    "stalled_review_entry",
-                    return_value={
-                        "project_key": project["project_key"],
-                        "name": "Example",
-                        "suggested_tracking_state": "stalled",
-                    },
-                ),
-                mock.patch.object(review_commands.sys, "stdout", stdout),
-                mock.patch.object(review_commands.sys, "stderr", stderr),
-                mock.patch.object(review_commands.sys.stdin, "isatty", return_value=True),
-                mock.patch("builtins.input", return_value="y"),
-            ):
-                result = review_commands.cmd_review_stalled(args)
-
-            updated = project_record.fetch_project(conn, project["project_key"])
-            assert updated is not None
-            self.assertEqual(result, 0)
-            self.assertEqual(updated["tracking_state"], "stalled")
-        finally:
-            conn.close()
-
-    def test_interactive_ignore_review_runs_from_command_adapter(self) -> None:
-        conn = registry.open_db()
-        try:
-            project = self.make_project("proj:interactive-ignore")
-            project_record.save_project(conn, project)
-            conn.commit()
-            args = cli.build_parser().parse_args(["review-ignore", "--interactive", "--limit", "1"])
-            stdout = io.StringIO()
-            stderr = io.StringIO()
-            stdout.isatty = lambda: True
-            with (
-                mock.patch.object(registry, "open_db", return_value=conn),
-                mock.patch.object(
-                    registry,
-                    "ignore_review_entry",
-                    return_value={
-                        "project_key": project["project_key"],
-                        "name": "Example",
-                        "kind": "fork_without_independent_identity",
-                        "suggested_tracking_state": "ignore",
-                    },
-                ),
-                mock.patch.object(review_commands.sys, "stdout", stdout),
-                mock.patch.object(review_commands.sys, "stderr", stderr),
-                mock.patch.object(review_commands.sys.stdin, "isatty", return_value=True),
-                mock.patch("builtins.input", side_effect=["y", "", ""]),
-            ):
-                result = review_commands.cmd_review_ignore(args)
-
-            updated = project_record.fetch_project(conn, project["project_key"])
-            assert updated is not None
-            self.assertEqual(result, 0)
-            self.assertEqual(updated["tracking_state"], "ignore")
-            self.assertEqual(updated["tracking_note"], "review-ignore: 独自性の薄いfork")
-        finally:
-            conn.close()
-
-    def test_promotion_queue_parser_accepts_supported_kinds(self) -> None:
-        args = cli.build_parser().parse_args(
-            [
-                "promotion-queue",
-                "--kinds",
-                "technical_insight_candidate",
-                "service_candidate_needs_validation",
-            ]
-        )
-
-        self.assertEqual(
-            args.kinds,
-            ["technical_insight_candidate", "service_candidate_needs_validation"],
-        )
-
     def test_add_configured_multi_tenant_suffix_updates_domain_overrides_and_cache(self) -> None:
         original_config_path = registry.CONFIG_PATH
         original_domain_overrides_path = domain_policy.DOMAIN_OVERRIDES_PATH
@@ -1706,18 +2066,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertTrue(tenant_groups["foo.example.com"]["suggested_split_commands"])
         finally:
             conn.close()
-
-    def test_merge_pair_suggests_unconfigured_multi_tenant_suffix(self) -> None:
-        source = self.make_project("proj:foo", "service_url", "https://foo.example.com")
-        registry.add_manual_seed(source, "service_url", "https://foo.example.com", source="test")
-        target = self.make_project("proj:bar", "service_url", "https://bar.example.com")
-        registry.add_manual_seed(target, "service_url", "https://bar.example.com", source="test")
-
-        suggestions = registry.merge_pair_multi_tenant_suffix_suggestions(source, target)
-
-        self.assertEqual([item["suffix"] for item in suggestions], ["example.com"])
-        self.assertEqual(suggestions[0]["source_tenants"], ["foo.example.com"])
-        self.assertEqual(suggestions[0]["target_tenants"], ["bar.example.com"])
 
     def test_source_config_tenant_split_moves_group_atomically(self) -> None:
         conn = registry.open_db()
@@ -1791,372 +2139,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
-    def test_defer_service_url_downgrades_to_candidate_and_blocks_confirmation(self) -> None:
-        project = self.make_project("proj:121212121212", "service_url", "https://example.com")
-        project["website_url"] = "https://example.com"
-        project["service_urls"] = ["https://example.com"]
-
-        registry.defer_identifier_on_project(project, "service_url", "https://example.com", days=30)
-        project = registry.finalize_project_shape(project)
-
-        self.assertNotIn("https://example.com", project["service_urls"])
-        self.assertEqual(project["website_url"], "https://example.com")
-        self.assertIn("https://example.com", project["service_url_candidates"])
-        registry.confirm_service_seed(project, "https://example.com", source="test")
-        self.assertNotIn("https://example.com", project["service_urls"])
-
-    def test_defer_repo_url_downgrades_to_candidate(self) -> None:
-        project = self.make_project("proj:343434343434", "repo_url", "https://github.com/example/app")
-        project["project_repository_urls"] = ["https://github.com/example/app"]
-
-        registry.defer_identifier_on_project(project, "repo_url", "https://github.com/example/app", days=14)
-        project = registry.finalize_project_shape(project)
-
-        self.assertNotIn("https://github.com/example/app", project["project_repository_urls"])
-        self.assertIn("https://github.com/example/app", project["candidate_project_repository_urls"])
-        self.assertEqual(project["deferred_identifiers"][0]["type"], "repo_url")
-
-    def test_manual_repo_seed_stays_confirmed_project_repository(self) -> None:
-        project = self.make_project("proj:manualrepo", "repo_url", "https://github.com/example/app")
-        registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
-        registry.add_confirmed_identifier_decision(project, "repo_url", "https://github.com/example/app", source="test")
-
-        project = registry.finalize_project_shape(project)
-
-        self.assertIn("https://github.com/example/app", project["project_repository_urls"])
-        self.assertNotIn("https://github.com/example/app", project["candidate_project_repository_urls"])
-        self.assertIn(
-            {"kind": "repo_url", "value": "https://github.com/example/app"},
-            registry.trusted_anchor_nodes(project),
-        )
-
-    def test_deferred_manual_repo_seed_is_not_trusted_anchor(self) -> None:
-        project = self.make_project("proj:deferredrepo", "repo_url", "https://github.com/example/app")
-        registry.add_manual_seed(project, "repo_url", "https://github.com/example/app", source="test")
-        registry.defer_identifier_on_project(project, "repo_url", "https://github.com/example/app", days=14)
-
-        project = registry.finalize_project_shape(project)
-
-        self.assertNotIn("https://github.com/example/app", project["project_repository_urls"])
-        self.assertIn("https://github.com/example/app", project["candidate_project_repository_urls"])
-        self.assertNotIn(
-            {"kind": "repo_url", "value": "https://github.com/example/app"},
-            registry.trusted_anchor_nodes(project),
-        )
-
-    def test_defer_nsid_keeps_value_in_temporary_category(self) -> None:
-        project = self.make_project("proj:565656565656", "nsid", "app.example.post")
-        project["input_nsids"] = ["app.example.post"]
-
-        registry.defer_identifier_on_project(project, "nsid", "app.example.post", days=30)
-        project = registry.finalize_project_shape(project)
-
-        self.assertNotIn("app.example.post", project["input_nsids"])
-        self.assertEqual(project["deferred_identifiers"][0]["value"], "app.example.post")
-
-    def test_expired_deferred_identifier_stops_blocking_confirmation(self) -> None:
-        project = self.make_project("proj:defdefdefdef", "service_url", "https://example.com")
-        project["deferred_identifiers"] = [
-            {
-                "type": "service_url",
-                "value": "https://example.com",
-                "added_at": "2026-01-01T00:00:00+00:00",
-                "expires_at": (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)).isoformat(),
-            }
-        ]
-
-        project = project_record.ensure_project_shape(project)
-        registry.confirm_service_seed(project, "https://example.com", source="test")
-
-        self.assertEqual(project["deferred_identifiers"], [])
-        self.assertIn("https://example.com", project["service_urls"])
-
-    def test_promotion_deferral_hides_queue_item_until_expiry(self) -> None:
-        project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
-        project.update({
-            "category": "project",
-            "service_status": "live",
-            "service_status_confidence": "medium",
-            "service_status_evidence": ["http_200", "login_surface_detected"],
-        })
-        registry.confirm_service_seed(project, "https://example.com", source="test")
-
-        registry.defer_promotion_on_project(project, reason="中核機能が未実装")
-
-        self.assertEqual(registry.compute_showcase_signals(project), [])
-        project["promotion_deferrals"][0]["expires_at"] = (
-            dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)
-        ).isoformat()
-        self.assertEqual(
-            [signal["kind"] for signal in registry.compute_showcase_signals(project)],
-            ["service_surface_confirmed"],
-        )
-
-    def test_out_of_scope_project_is_not_promoted(self) -> None:
-        project = self.make_project("proj:outofscope", "service_url", "https://example.com")
-        project.update({
-            "category": "project",
-            "service_status": "live",
-            "service_status_confidence": "medium",
-            "tracking_state": "out_of_scope",
-        })
-        registry.confirm_service_seed(project, "https://example.com", source="test")
-
-        self.assertEqual(registry.compute_showcase_signals(project), [])
-
-    def test_dns_verified_lexicon_publisher_is_high_priority_promotion_candidate(self) -> None:
-        project = self.make_project("proj:lexiconpublisher", "nsid", "app.example.post")
-        project.update({
-            "category": "project",
-            "resolved_nsids": ["app.example.post"],
-            "lexicon_schema_samples": [{"nsid": "app.example.post", "id": "app.example.post"}],
-            "lexicon_resolution_entries": [{
-                "input_nsid": "app.example.post",
-                "resolved_nsid": "app.example.post",
-                "repo_did": "did:plc:publisher",
-                "authority_domain": "example.app",
-                "pds_url": "https://pds.example",
-                "record_uri": "at://did:plc:publisher/com.atproto.lexicon.schema/app.example.post",
-                "resolved_at": "2026-08-28T00:00:00+00:00",
-            }],
-        })
-
-        signals = registry.compute_showcase_signals(project)
-
-        self.assertEqual([signal["kind"] for signal in signals], ["lexicon_publisher_confirmed"])
-        self.assertEqual(signals[0]["priority"], 7)
-        self.assertEqual(signals[0]["details"]["publication_count"], 1)
-        self.assertEqual(
-            registry.promotion_queue_score_breakdown(project, signals)["components"]["lexicon_publication"],
-            160,
-        )
-
-    def test_lexicon_schema_without_dns_resolution_is_not_promotion_signal(self) -> None:
-        project = self.make_project("proj:reposchema", "nsid", "app.example.post")
-        project.update({
-            "category": "project",
-            "resolved_nsids": ["app.example.post"],
-            "lexicon_schema_samples": [{"nsid": "app.example.post", "id": "app.example.post"}],
-            "lexicon_resolution_entries": [],
-        })
-
-        self.assertEqual(registry.compute_showcase_signals(project), [])
-
-    def test_dns_resolved_candidate_nsid_is_not_confirmed_publisher_signal(self) -> None:
-        project = self.make_project("proj:candidatelexicon", "nsid", "app.example.post")
-        project.update({
-            "category": "project",
-            "resolved_nsids": [],
-            "input_nsids": ["app.example.post"],
-            "lexicon_schema_samples": [{"nsid": "app.example.post", "id": "app.example.post"}],
-            "lexicon_resolution_entries": [{
-                "input_nsid": "app.example.post",
-                "resolved_nsid": "app.example.post",
-                "repo_did": "did:plc:publisher",
-                "authority_domain": "example.app",
-                "record_uri": "at://did:plc:publisher/com.atproto.lexicon.schema/app.example.post",
-            }],
-        })
-
-        self.assertEqual(registry.compute_showcase_signals(project), [])
-
-    def test_lexicon_publication_requires_matching_authority_and_record_uri(self) -> None:
-        base = self.make_project("proj:mismatchedlexicon", "nsid", "app.example.post")
-        base.update({
-            "category": "project",
-            "resolved_nsids": ["app.example.post"],
-            "lexicon_schema_samples": [{"nsid": "app.example.post", "id": "app.example.post"}],
-        })
-        entry = {
-            "input_nsid": "app.example.post",
-            "resolved_nsid": "app.example.post",
-            "repo_did": "did:plc:publisher",
-            "authority_domain": "example.app",
-            "record_uri": "at://did:plc:publisher/com.atproto.lexicon.schema/app.example.post",
-        }
-
-        for field, invalid_value in (
-            ("authority_domain", "unrelated.example"),
-            ("record_uri", "at://did:plc:other/com.atproto.lexicon.schema/app.example.post"),
-        ):
-            with self.subTest(field=field):
-                project = dict(base)
-                project["lexicon_resolution_entries"] = [{**entry, field: invalid_value}]
-                self.assertEqual(registry.compute_showcase_signals(project), [])
-
-    def test_personal_tool_lexicon_publisher_requires_include_flag(self) -> None:
-        project = self.make_project("proj:personallexicon", "nsid", "app.example.post")
-        project.update({
-            "category": "personal_tool",
-            "resolved_nsids": ["app.example.post"],
-            "lexicon_schema_samples": [{"nsid": "app.example.post", "id": "app.example.post"}],
-            "lexicon_resolution_entries": [{
-                "input_nsid": "app.example.post",
-                "resolved_nsid": "app.example.post",
-                "repo_did": "did:plc:publisher",
-                "authority_domain": "example.app",
-                "record_uri": "at://did:plc:publisher/com.atproto.lexicon.schema/app.example.post",
-            }],
-        })
-
-        self.assertEqual(registry.compute_showcase_signals(project), [])
-        self.assertEqual(
-            [signal["kind"] for signal in registry.compute_showcase_signals(project, include_personal_tools=True)],
-            ["lexicon_publisher_confirmed"],
-        )
-
-    def test_low_confidence_http_only_service_is_validation_candidate(self) -> None:
-        project = self.make_project("proj:http200only", "service_url", "https://example.com")
-        project.update({
-            "category": "project",
-            "service_status": "live",
-            "service_status_confidence": "low",
-            "service_status_evidence": ["http_200"],
-        })
-        registry.confirm_service_seed(project, "https://example.com", source="test")
-
-        signals = registry.compute_showcase_signals(project)
-
-        self.assertEqual([signal["kind"] for signal in signals], ["service_candidate_needs_validation"])
-        self.assertEqual(
-            signals[0]["details"]["validation_reasons"],
-            ["low_service_status_confidence", "usable_surface_unconfirmed"],
-        )
-
-    def test_unverified_service_remains_validation_candidate_even_with_usable_surface_evidence(self) -> None:
-        project = self.make_project("proj:unverified", "service_url", "https://example.com")
-        project.update({
-            "category": "project",
-            "service_status": "unverified",
-            "service_status_confidence": "medium",
-            "service_status_evidence": ["http_200", "login_surface_detected"],
-        })
-        registry.confirm_service_seed(project, "https://example.com", source="test")
-
-        signals = registry.compute_showcase_signals(project)
-
-        self.assertEqual([signal["kind"] for signal in signals], ["service_candidate_needs_validation"])
-        self.assertEqual(
-            signals[0]["details"]["validation_reasons"],
-            ["service_status_unverified"],
-        )
-
-    def test_docs_only_service_is_validation_candidate(self) -> None:
-        project = self.make_project("proj:docsonly", "service_url", "https://example.com")
-        project.update({
-            "category": "project",
-            "service_status": "live",
-            "service_status_confidence": "medium",
-            "service_status_evidence": ["http_200", "docs_only_surface_detected"],
-        })
-        registry.confirm_service_seed(project, "https://example.com", source="test")
-
-        signals = registry.compute_showcase_signals(project)
-
-        self.assertEqual([signal["kind"] for signal in signals], ["service_candidate_needs_validation"])
-        self.assertEqual(
-            signals[0]["details"]["validation_reasons"],
-            ["usable_surface_unconfirmed"],
-        )
-
-    def test_infra_tool_with_usable_surface_is_promoted_as_service(self) -> None:
-        project = self.make_project("proj:infraservice", "service_url", "https://infra.example")
-        project.update({
-            "category": "infra_tool",
-            "service_status": "live",
-            "service_status_confidence": "medium",
-            "service_status_evidence": ["http_200", "app_shell_detected"],
-        })
-        registry.confirm_service_seed(project, "https://infra.example", source="test")
-
-        signals = registry.compute_showcase_signals(project)
-
-        self.assertEqual([signal["kind"] for signal in signals], ["service_surface_confirmed"])
-        self.assertEqual(signals[0]["details"]["category"], "infra_tool")
-
-    def test_unverified_infra_tool_remains_validation_candidate(self) -> None:
-        project = self.make_project("proj:infravalidation", "service_url", "https://infra.example")
-        project.update({
-            "category": "infra_tool",
-            "service_status": "unverified",
-            "service_status_confidence": "medium",
-            "service_status_evidence": ["http_200", "app_shell_detected"],
-        })
-        registry.confirm_service_seed(project, "https://infra.example", source="test")
-
-        signals = registry.compute_showcase_signals(project)
-
-        self.assertEqual([signal["kind"] for signal in signals], ["service_candidate_needs_validation"])
-
-    def test_library_with_service_fields_does_not_receive_service_signal(self) -> None:
-        project = self.make_project("proj:librarydocs", "service_url", "https://library.example")
-        project.update({
-            "category": "library",
-            "service_status": "live",
-            "service_status_confidence": "medium",
-            "service_status_evidence": ["http_200", "app_shell_detected"],
-        })
-        registry.confirm_service_seed(project, "https://library.example", source="test")
-
-        self.assertEqual(registry.compute_showcase_signals(project), [])
-
-    def test_validation_candidate_sorts_below_confirmed_service_surface(self) -> None:
-        confirmed = self.make_project("proj:confirmed", "service_url", "https://confirmed.example")
-        confirmed.update({
-            "category": "project",
-            "service_status": "live",
-            "service_status_confidence": "medium",
-            "service_status_evidence": ["http_200", "login_surface_detected"],
-        })
-        registry.confirm_service_seed(confirmed, "https://confirmed.example", source="test")
-        validation = dict(confirmed)
-        validation["project_key"] = "proj:validation"
-        validation["service_status_evidence"] = ["http_200"]
-
-        confirmed_signals = registry.compute_showcase_signals(confirmed)
-        validation_signals = registry.compute_showcase_signals(validation)
-
-        self.assertEqual([item["kind"] for item in confirmed_signals], ["service_surface_confirmed"])
-        self.assertEqual([item["kind"] for item in validation_signals], ["service_candidate_needs_validation"])
-        self.assertEqual(
-            registry.promotion_queue_sort_score(confirmed, confirmed_signals)
-            - registry.promotion_queue_sort_score(validation, validation_signals),
-            100,
-        )
-
-    def test_promotion_policy_separates_visibility_service_and_manual_priority(self) -> None:
-        project = self.make_project("proj:policyaxes", "service_url", "https://example.com")
-        project.update({
-            "category": "project",
-            "service_status": "live",
-            "service_status_confidence": "medium",
-            "service_status_evidence": ["http_200", "login_surface_detected"],
-        })
-        registry.confirm_service_seed(project, "https://example.com", source="test")
-        signals = registry.compute_showcase_signals(project)
-
-        policy = registry.promotion_policy_projection(project, signals)
-
-        self.assertEqual(policy["candidate_visibility"], {"group": "eligible", "reasons": []})
-        self.assertEqual(policy["service_evidence_group"], "confirmed")
-        self.assertEqual(policy["priority_group"], "normal")
-        self.assertEqual(
-            policy["score_breakdown"]["total"],
-            sum(policy["score_breakdown"]["components"].values()),
-        )
-        self.assertEqual(policy["score_breakdown"]["components"]["service_evidence"], 200)
-
-        registry.set_promotion_priority_on_project(project, lowered=True)
-        policy = registry.promotion_policy_projection(project, signals)
-        self.assertEqual(policy["priority_group"], "lowered")
-        self.assertEqual(policy["priority_reason"], "")
-
-        registry.defer_promotion_on_project(project, reason="editorial review later")
-        self.assertEqual(
-            registry.promotion_candidate_visibility(project),
-            {"group": "deferred", "reasons": ["active_promotion_deferral"]},
-        )
-
     def test_promotion_queue_item_exposes_policy_projection(self) -> None:
         conn = registry.open_db()
         try:
@@ -2215,62 +2197,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(lowered_item["priority_reason"], "weak candidate")
         finally:
             conn.close()
-
-    def test_merge_keeps_canonical_target_promotion_priority(self) -> None:
-        target = self.make_project("proj:editorialtarget", "service_url", "https://target.example")
-        source = self.make_project("proj:editorialsource", "service_url", "https://source.example")
-        registry.set_promotion_priority_on_project(
-            target,
-            lowered=True,
-            reason="not ready for a standalone introduction",
-        )
-        registry.set_promotion_priority_on_project(
-            source,
-            lowered=True,
-            reason="best grouped with similar projects",
-        )
-
-        merged = registry.merge_project_records(target, source)
-
-        self.assertEqual(
-            registry.active_promotion_priority_adjustment(merged)["reason"],
-            "not ready for a standalone introduction",
-        )
-        adjustments = merged["promotion_priority_adjustments"]
-        self.assertEqual(len(adjustments), 2)
-        self.assertFalse(adjustments[0].get("cleared_at"))
-        self.assertTrue(adjustments[1].get("cleared_at"))
-
-    def test_promotion_deferral_allows_empty_reason_and_clear_keeps_history(self) -> None:
-        project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
-
-        registry.defer_promotion_on_project(project, reason="中核機能が未実装")
-        registry.clear_active_promotion_deferrals(project)
-        entry = registry.defer_promotion_on_project(project)
-
-        self.assertEqual(entry["reason"], "")
-        self.assertEqual(len(project["promotion_deferrals"]), 2)
-        self.assertTrue(project["promotion_deferrals"][0]["cleared_at"])
-        self.assertEqual(registry.active_promotion_deferral(project)["reason"], "")
-
-    def test_promotion_deferral_default_is_thirty_days_regardless_of_age_and_history(self) -> None:
-        project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
-        project["first_seen_at"] = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=3)).isoformat()
-        for _ in range(5):
-            entry = registry.defer_promotion_on_project(project)
-            duration = project_record.parse_iso(entry["expires_at"]) - project_record.parse_iso(entry["added_at"])
-            self.assertAlmostEqual(duration.total_seconds(), 30 * 86400, delta=1)
-
-    def test_promotion_deferral_uses_explicit_days_when_provided(self) -> None:
-        project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
-
-        entry = registry.defer_promotion_on_project(project, reason="explicit", days=7)
-        expires = project_record.parse_iso(entry["expires_at"])
-        added = project_record.parse_iso(entry["added_at"])
-
-        self.assertIsNotNone(expires)
-        self.assertIsNotNone(added)
-        self.assertAlmostEqual((expires - added).total_seconds(), 7 * 24 * 60 * 60, delta=5)
 
     def test_save_project_splits_scalars_profile_state_and_normalized_children(self) -> None:
         conn = registry.open_db()
@@ -2768,6 +2694,85 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 registry.audit_and_repair_identifiers(conn)
         finally:
             conn.close()
+
+    def test_init_db_parser_accepts_custom_path(self) -> None:
+        args = cli.build_parser().parse_args(["init-db", "--db-path", "custom.db"])
+        self.assertEqual(args.db_path, Path("custom.db"))
+
+
+    def test_interactive_stalled_review_runs_from_command_adapter(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:interactive-stalled")
+            project_record.save_project(conn, project)
+            conn.commit()
+            args = cli.build_parser().parse_args(["review-stalled", "--interactive"])
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            stdout.isatty = lambda: True
+            with (
+                mock.patch.object(registry, "open_db", return_value=conn),
+                mock.patch.object(
+                    registry,
+                    "stalled_review_entry",
+                    return_value={
+                        "project_key": project["project_key"],
+                        "name": "Example",
+                        "suggested_tracking_state": "stalled",
+                    },
+                ),
+                mock.patch.object(review_commands.sys, "stdout", stdout),
+                mock.patch.object(review_commands.sys, "stderr", stderr),
+                mock.patch.object(review_commands.sys.stdin, "isatty", return_value=True),
+                mock.patch("builtins.input", return_value="y"),
+            ):
+                result = review_commands.cmd_review_stalled(args)
+
+            updated = project_record.fetch_project(conn, project["project_key"])
+            assert updated is not None
+            self.assertEqual(result, 0)
+            self.assertEqual(updated["tracking_state"], "stalled")
+        finally:
+            conn.close()
+
+
+    def test_interactive_ignore_review_runs_from_command_adapter(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:interactive-ignore")
+            project_record.save_project(conn, project)
+            conn.commit()
+            args = cli.build_parser().parse_args(["review-ignore", "--interactive", "--limit", "1"])
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            stdout.isatty = lambda: True
+            with (
+                mock.patch.object(registry, "open_db", return_value=conn),
+                mock.patch.object(
+                    registry,
+                    "ignore_review_entry",
+                    return_value={
+                        "project_key": project["project_key"],
+                        "name": "Example",
+                        "kind": "fork_without_independent_identity",
+                        "suggested_tracking_state": "ignore",
+                    },
+                ),
+                mock.patch.object(review_commands.sys, "stdout", stdout),
+                mock.patch.object(review_commands.sys, "stderr", stderr),
+                mock.patch.object(review_commands.sys.stdin, "isatty", return_value=True),
+                mock.patch("builtins.input", side_effect=["y", "", ""]),
+            ):
+                result = review_commands.cmd_review_ignore(args)
+
+            updated = project_record.fetch_project(conn, project["project_key"])
+            assert updated is not None
+            self.assertEqual(result, 0)
+            self.assertEqual(updated["tracking_state"], "ignore")
+            self.assertEqual(updated["tracking_note"], "review-ignore: 独自性の薄いfork")
+        finally:
+            conn.close()
+
 
 
 if __name__ == "__main__":

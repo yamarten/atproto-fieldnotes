@@ -5,7 +5,7 @@ import json
 from contextlib import closing
 from unittest.mock import patch
 
-from helpers import TempRegistryDbTestCase, registry
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from project_registry_core import collection_trust, collector_adapters, identifiers, project_record, replay, runtime_view, storage
 from project_registry_core.evidence import EvidenceBundle
 
@@ -36,7 +36,7 @@ def project() -> dict:
     return p
 
 
-class CollectionPublicationTrustTest(TempRegistryDbTestCase):
+class CollectionPublicationTrustUnitTest(ProjectRecordTestCase):
     def test_publisher_support_is_scoped_explainable_and_not_an_identity_or_merge_anchor(self) -> None:
         p = project()
         registry.apply_lexicon_record_result(p, A, publication(A))
@@ -153,19 +153,6 @@ class CollectionPublicationTrustTest(TempRegistryDbTestCase):
         registry.apply_lexicon_record_result(p, C, publication(C))
         self.assertNotIn(C, p["resolved_nsids"])
 
-    def test_review_required_or_cleared_adoption_and_stale_foreign_rows_are_not_roots(self) -> None:
-        with closing(registry.open_db()) as conn:
-            p = project()
-            project_record.save_project(conn, p)
-            p = project_record.fetch_project(conn, p["project_key"])
-            for nsid in (A, B):
-                registry.apply_lexicon_record_result(p, nsid, publication(nsid))
-            for changes in ({"review_required": 1}, {"cleared_at": WHEN}, {"project_key": "proj:other"}):
-                q = copy.deepcopy(p)
-                for row in q[runtime_view.RUNTIME_ADOPTION_ROWS]:
-                    row.update(changes)
-                self.assertFalse(collection_trust.evaluate_publisher_support(q, B)["auto_confirm"])
-
     def test_new_authority_delegation_invalidates_older_paths_even_for_other_schema(self) -> None:
         p = project()
         for nsid in (A, B):
@@ -184,6 +171,34 @@ class CollectionPublicationTrustTest(TempRegistryDbTestCase):
         self.assertEqual(normalized, project_record.normalize_lexicon_resolution_entries(normalized))
         p["lexicon_resolution_entries"] = normalized
         self.assertFalse(collection_trust.evaluate_publisher_support(p, B)["auto_confirm"])
+
+    def test_fetch_records_exact_dns_authority_without_changing_endpoint_contract(self) -> None:
+        result = publication(A)
+        with patch.object(registry, "resolve_lexicon_authority_did", return_value=DID) as dns, \
+             patch.object(registry, "resolve_did_document", return_value={"id": DID}) as did, \
+             patch.object(registry, "extract_pds_url", return_value=result["pds_url"]), \
+             patch.object(registry.http_transport, "request_json", return_value=result["record"]) as get:
+            fetched = registry.fetch_lexicon_record(A)
+        self.assertEqual(fetched["authority_domain"], "profile.example.org")
+        self.assertTrue(collection_trust.publication_validation(A, fetched))
+        self.assertEqual(dns.call_args.args[0], "profile.example.org")
+        self.assertEqual(did.call_args.args[0], DID)
+        self.assertIn("collection=com.atproto.lexicon.schema", get.call_args.args[0])
+
+
+class CollectionPublicationTrustTest(TempRegistryDbTestCase):
+    def test_review_required_or_cleared_adoption_and_stale_foreign_rows_are_not_roots(self) -> None:
+        with closing(registry.open_db()) as conn:
+            p = project()
+            project_record.save_project(conn, p)
+            p = project_record.fetch_project(conn, p["project_key"])
+            for nsid in (A, B):
+                registry.apply_lexicon_record_result(p, nsid, publication(nsid))
+            for changes in ({"review_required": 1}, {"cleared_at": WHEN}, {"project_key": "proj:other"}):
+                q = copy.deepcopy(p)
+                for row in q[runtime_view.RUNTIME_ADOPTION_ROWS]:
+                    row.update(changes)
+                self.assertFalse(collection_trust.evaluate_publisher_support(q, B)["auto_confirm"])
 
     def test_save_fetch_and_saved_investigation_replay_preserve_provenance(self) -> None:
         with closing(registry.open_db()) as conn:
@@ -215,16 +230,3 @@ class CollectionPublicationTrustTest(TempRegistryDbTestCase):
             loaded = project_record.fetch_project(conn, p["project_key"])
             registry.apply_lexicon_record_result(loaded, C, publication(C))
             self.assertNotIn(C, loaded["resolved_nsids"])
-
-    def test_fetch_records_exact_dns_authority_without_changing_endpoint_contract(self) -> None:
-        result = publication(A)
-        with patch.object(registry, "resolve_lexicon_authority_did", return_value=DID) as dns, \
-             patch.object(registry, "resolve_did_document", return_value={"id": DID}) as did, \
-             patch.object(registry, "extract_pds_url", return_value=result["pds_url"]), \
-             patch.object(registry.http_transport, "request_json", return_value=result["record"]) as get:
-            fetched = registry.fetch_lexicon_record(A)
-        self.assertEqual(fetched["authority_domain"], "profile.example.org")
-        self.assertTrue(collection_trust.publication_validation(A, fetched))
-        self.assertEqual(dns.call_args.args[0], "profile.example.org")
-        self.assertEqual(did.call_args.args[0], DID)
-        self.assertIn("collection=com.atproto.lexicon.schema", get.call_args.args[0])

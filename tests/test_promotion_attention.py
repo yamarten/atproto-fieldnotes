@@ -5,12 +5,109 @@ import contextlib
 import json
 from unittest import mock
 
-from helpers import TempRegistryDbTestCase, registry
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from project_registry_core import project_record, promotion_attention, runtime_view
 from project_registry_core.application import decisions, merge, presentation
 
 
-class PromotionAttentionTest(TempRegistryDbTestCase):
+class _PromotionAttentionFixtures:
+    def candidate(self, key):
+        project = self.make_project(key, "service_url", "https://app.example")
+        project.update(category="project", service_status="live", service_status_confidence="medium",
+                       service_status_evidence=["http_200", "login_surface_detected"])
+        registry.confirm_service_seed(project, "https://app.example", source="test")
+        return project_record.ensure_project_shape(project)
+
+    def assert_lowered_matches_full_scan(self, conn, **options):
+        arguments = dict(queue="promotion", tracking_states={"active"}, promotion_view="lowered")
+        arguments.update(options)
+        actual = presentation.queue_payload(conn, **arguments)
+        # Retain the previous all-project input path as the semantic oracle;
+        # the unchanged builder and presentation layer perform final selection.
+        with mock.patch.object(project_record, "list_projects_with_decision",
+                               side_effect=lambda conn, kind, **kw: project_record.list_projects(conn, **kw)):
+            expected = presentation.queue_payload(conn, **arguments)
+        self.assertEqual(actual, expected)
+        return actual
+
+    def legacy_project(self, conn, key, *, expired=False, cleared=False, defer_days=None, legacy_defer=False):
+        project = self.candidate(key)
+        project_record.save_project(conn, project)
+        if defer_days is not None:
+            decisions.set_promotion_defer(conn, project_key=key, reason="release", days=defer_days)
+            if legacy_defer:
+                saved = project_record.fetch_project(conn, key)
+                saved["promotion_deferrals"][0].pop("fingerprint")
+                project_record.save_project(conn, saved)
+        saved = project_record.fetch_project(conn, key)
+        now = dt.datetime.now(dt.timezone.utc)
+        original = {"fingerprint": promotion_attention.fingerprint(saved),
+                    "snapshot": promotion_attention.snapshot(saved),
+                    "outcome_counts": {"reviewed": 3, "defer": 1},
+                    "last_outcome": "restore" if cleared else "reviewed",
+                    "last_action_at": now.isoformat()}
+        if not cleared:
+            original.update(reviewed_until=(now + dt.timedelta(days=-1 if expired else 20)).isoformat(),
+                            reviewed_fingerprint=original["fingerprint"])
+        state = json.loads(conn.execute("SELECT state_json FROM projects WHERE project_key=?", (key,)).fetchone()[0])
+        state.setdefault("ops", {})["promotion_attention"] = original
+        conn.execute("UPDATE projects SET state_json=? WHERE project_key=?", (json.dumps(state), key))
+        conn.commit()
+        return original
+
+
+class PromotionAttentionUnitTest(_PromotionAttentionFixtures, ProjectRecordTestCase):
+    def test_fifty_held_candidates_leave_normal_queue_but_remain_recoverable(self):
+        projects = [self.candidate(f"proj:{n:012d}") for n in range(55)]
+        first = registry.build_showcase_queue_from_projects(projects)
+        self.assertEqual(len(first), 50)
+        for project in projects[:50]:
+            registry.defer_promotion_on_project(project)
+        next_queue = registry.build_showcase_queue_from_projects(projects)
+        self.assertEqual(len(next_queue), 5)
+        self.assertEqual([item["project_key"] for item in next_queue[:5]], [p["project_key"] for p in projects[50:]])
+        inbox = registry.build_showcase_queue_from_projects(projects, view="inbox")
+        self.assertEqual(len(inbox), 5)
+        self.assertEqual(len(registry.build_showcase_queue_from_projects(projects, view="all", limit=None)), 55)
+        registry.clear_active_promotion_deferrals(projects[0])
+        self.assertEqual(len(registry.build_showcase_queue_from_projects(projects, view="inbox")), 6)
+
+    def test_fingerprint_ignores_refresh_but_detects_material_change_and_expiry(self):
+        project = self.candidate("proj:attention")
+        now = dt.datetime.now(dt.timezone.utc)
+        registry.defer_promotion_on_project(project)
+        original = promotion_attention.fingerprint(project)
+        project.update(last_seen_at="2099-01-01", last_enriched_at="2099-01-01", summary="A wording revision",
+                       collection_observations=[{"recent_count": 500}])
+        # First material becoming available is a change; subsequent prose is not.
+        self.assertNotEqual(original, promotion_attention.fingerprint(project))
+        registry.defer_promotion_on_project(project)
+        project["summary"] = "Same purpose, different wording"
+        self.assertEqual(promotion_attention.projection(project, now=now)["group"], "held")
+        self.assertEqual(promotion_attention.projection(project, now=now + dt.timedelta(days=31))["group"], "due")
+        project["features"] = ["new record interoperability"]
+        self.assertEqual(promotion_attention.projection(project, now=now)["group"], "changed")
+
+    def test_material_schema_and_identifier_changes_reopen_review(self):
+        project = self.candidate("proj:schema")
+        project["resolved_nsids"] = ["app.example.record"]
+        project["lexicon_schema_samples"] = [{"nsid":"app.example.record", "defs":{"main":{"type":"record"}}}]
+        registry.defer_promotion_on_project(project)
+        project["lexicon_schema_samples"][0]["observed_at"] = "2099-01-01"
+        self.assertEqual(promotion_attention.projection(project)["group"], "held")
+        project["lexicon_schema_samples"][0]["defs"]["extra"] = {"type":"string"}
+        self.assertEqual(promotion_attention.projection(project)["group"], "changed")
+
+    def test_kind_filter_keeps_existing_score_scope(self):
+        project = self.candidate("proj:technical")
+        project.update(technical_interest_level="high", technical_interest_reasons=["novel_design_pattern"],
+                       technical_interest_summary="Distinctive protocol design")
+        item = registry.build_showcase_queue_from_projects([project], kinds={"technical_insight_candidate"})[0]
+        self.assertEqual(item["service_evidence_group"], "not_applicable")
+        self.assertEqual(item["score_breakdown"]["components"]["service_evidence"], 0)
+
+
+class PromotionAttentionTest(_PromotionAttentionFixtures, TempRegistryDbTestCase):
     def test_all_views_match_full_hydration_across_pages_filters_and_updates(self):
         with contextlib.closing(registry.open_db()) as conn:
             for n in range(12):
@@ -113,25 +210,6 @@ class PromotionAttentionTest(TempRegistryDbTestCase):
             current = project_record.fetch_project(conn, key)
             self.assertEqual(current["name"], "updated")
             self.assertEqual(registry.active_promotion_priority_adjustment(current)["reason"], "new")
-
-    def candidate(self, key):
-        project = self.make_project(key, "service_url", "https://app.example")
-        project.update(category="project", service_status="live", service_status_confidence="medium",
-                       service_status_evidence=["http_200", "login_surface_detected"])
-        registry.confirm_service_seed(project, "https://app.example", source="test")
-        return project_record.ensure_project_shape(project)
-
-    def assert_lowered_matches_full_scan(self, conn, **options):
-        arguments = dict(queue="promotion", tracking_states={"active"}, promotion_view="lowered")
-        arguments.update(options)
-        actual = presentation.queue_payload(conn, **arguments)
-        # Retain the previous all-project input path as the semantic oracle;
-        # the unchanged builder and presentation layer perform final selection.
-        with mock.patch.object(project_record, "list_projects_with_decision",
-                               side_effect=lambda conn, kind, **kw: project_record.list_projects(conn, **kw)):
-            expected = presentation.queue_payload(conn, **arguments)
-        self.assertEqual(actual, expected)
-        return actual
 
     def test_lowered_prefilter_preserves_full_response_across_filters_and_pages(self):
         with contextlib.closing(registry.open_db()) as conn:
@@ -238,37 +316,6 @@ class PromotionAttentionTest(TempRegistryDbTestCase):
             self.assertFalse(conn.in_transaction)
             self.assertEqual(self.assert_lowered_matches_full_scan(conn)["total"], 0)
 
-    def test_fifty_held_candidates_leave_normal_queue_but_remain_recoverable(self):
-        projects = [self.candidate(f"proj:{n:012d}") for n in range(55)]
-        first = registry.build_showcase_queue_from_projects(projects)
-        self.assertEqual(len(first), 50)
-        for project in projects[:50]:
-            registry.defer_promotion_on_project(project)
-        next_queue = registry.build_showcase_queue_from_projects(projects)
-        self.assertEqual(len(next_queue), 5)
-        self.assertEqual([item["project_key"] for item in next_queue[:5]], [p["project_key"] for p in projects[50:]])
-        inbox = registry.build_showcase_queue_from_projects(projects, view="inbox")
-        self.assertEqual(len(inbox), 5)
-        self.assertEqual(len(registry.build_showcase_queue_from_projects(projects, view="all", limit=None)), 55)
-        registry.clear_active_promotion_deferrals(projects[0])
-        self.assertEqual(len(registry.build_showcase_queue_from_projects(projects, view="inbox")), 6)
-
-    def test_fingerprint_ignores_refresh_but_detects_material_change_and_expiry(self):
-        project = self.candidate("proj:attention")
-        now = dt.datetime.now(dt.timezone.utc)
-        registry.defer_promotion_on_project(project)
-        original = promotion_attention.fingerprint(project)
-        project.update(last_seen_at="2099-01-01", last_enriched_at="2099-01-01", summary="A wording revision",
-                       collection_observations=[{"recent_count": 500}])
-        # First material becoming available is a change; subsequent prose is not.
-        self.assertNotEqual(original, promotion_attention.fingerprint(project))
-        registry.defer_promotion_on_project(project)
-        project["summary"] = "Same purpose, different wording"
-        self.assertEqual(promotion_attention.projection(project, now=now)["group"], "held")
-        self.assertEqual(promotion_attention.projection(project, now=now + dt.timedelta(days=31))["group"], "due")
-        project["features"] = ["new record interoperability"]
-        self.assertEqual(promotion_attention.projection(project, now=now)["group"], "changed")
-
     def test_defer_reappears_on_change_preserves_legacy_and_history(self):
         with contextlib.closing(registry.open_db()) as conn:
             project = self.candidate("proj:deferred")
@@ -325,49 +372,6 @@ class PromotionAttentionTest(TempRegistryDbTestCase):
                 promotion_view="lowered", reason="認証", limit=1, offset=1)
             self.assertNotEqual(payload["items"][0]["project_key"], next_page["items"][0]["project_key"])
             self.assertFalse(next_page["has_more"])
-
-    def test_material_schema_and_identifier_changes_reopen_review(self):
-        project = self.candidate("proj:schema")
-        project["resolved_nsids"] = ["app.example.record"]
-        project["lexicon_schema_samples"] = [{"nsid":"app.example.record", "defs":{"main":{"type":"record"}}}]
-        registry.defer_promotion_on_project(project)
-        project["lexicon_schema_samples"][0]["observed_at"] = "2099-01-01"
-        self.assertEqual(promotion_attention.projection(project)["group"], "held")
-        project["lexicon_schema_samples"][0]["defs"]["extra"] = {"type":"string"}
-        self.assertEqual(promotion_attention.projection(project)["group"], "changed")
-
-    def test_kind_filter_keeps_existing_score_scope(self):
-        project = self.candidate("proj:technical")
-        project.update(technical_interest_level="high", technical_interest_reasons=["novel_design_pattern"],
-                       technical_interest_summary="Distinctive protocol design")
-        item = registry.build_showcase_queue_from_projects([project], kinds={"technical_insight_candidate"})[0]
-        self.assertEqual(item["service_evidence_group"], "not_applicable")
-        self.assertEqual(item["score_breakdown"]["components"]["service_evidence"], 0)
-
-    def legacy_project(self, conn, key, *, expired=False, cleared=False, defer_days=None, legacy_defer=False):
-        project = self.candidate(key)
-        project_record.save_project(conn, project)
-        if defer_days is not None:
-            decisions.set_promotion_defer(conn, project_key=key, reason="release", days=defer_days)
-            if legacy_defer:
-                saved = project_record.fetch_project(conn, key)
-                saved["promotion_deferrals"][0].pop("fingerprint")
-                project_record.save_project(conn, saved)
-        saved = project_record.fetch_project(conn, key)
-        now = dt.datetime.now(dt.timezone.utc)
-        original = {"fingerprint": promotion_attention.fingerprint(saved),
-                    "snapshot": promotion_attention.snapshot(saved),
-                    "outcome_counts": {"reviewed": 3, "defer": 1},
-                    "last_outcome": "restore" if cleared else "reviewed",
-                    "last_action_at": now.isoformat()}
-        if not cleared:
-            original.update(reviewed_until=(now + dt.timedelta(days=-1 if expired else 20)).isoformat(),
-                            reviewed_fingerprint=original["fingerprint"])
-        state = json.loads(conn.execute("SELECT state_json FROM projects WHERE project_key=?", (key,)).fetchone()[0])
-        state.setdefault("ops", {})["promotion_attention"] = original
-        conn.execute("UPDATE projects SET state_json=? WHERE project_key=?", (json.dumps(state), key))
-        conn.commit()
-        return original
 
     def test_legacy_review_and_defer_read_conversion_and_roundtrip(self):
         with contextlib.closing(registry.open_db()) as conn:

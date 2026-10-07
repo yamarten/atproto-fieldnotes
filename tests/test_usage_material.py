@@ -4,13 +4,24 @@ import contextlib
 import copy
 from unittest import mock
 
-from helpers import TempRegistryDbTestCase, registry
+from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from project_registry_core import oauth_metadata, project_record, repository_analysis, service, usage_material
 from project_registry_core.application import presentation
 from project_registry_core.evidence import EvidenceBundle
 
 
-class UsageMaterialTest(TempRegistryDbTestCase):
+class _UsageMaterialFixtures:
+    def collect(self, html, *, date="2026-09-22T10:00:00+00:00"):
+        project = self.make_project("proj:material", "service_url", "https://example.com")
+        bundle = service.collect_service_probe_evidence(project["project_key"], "https://example.com", {
+            "html": html, "status_code": 200, "service_status": "live", "title": "Example",
+            "description": "", "final_url": "https://example.com", "links": [], "urls": [],
+        }, observed_at=date, supports_project=True)
+        registry.apply_service_evidence(project, bundle)
+        return project, bundle
+
+
+class UsageMaterialUnitTest(_UsageMaterialFixtures, ProjectRecordTestCase):
     def test_collection_join_preserves_observation_kinds_and_missing_schema_fields(self):
         project = {"oauth_client_metadata": [oauth_metadata.observe("https://example.com/client.json", {
             "scope": "atproto repo:app.example.note?action=delete repo:* include:app.example.permissionSet",
@@ -37,26 +48,6 @@ class UsageMaterialTest(TempRegistryDbTestCase):
         self.assertEqual(rows["app.other.note"]["permissions"], [])
         self.assertEqual(project, before)
 
-    def test_collection_only_passage_is_collected_in_normal_path_and_replayed(self):
-        project = self.make_project("proj:material", "service_url", "https://example.com")
-        project["lexicon_schema_samples"] = [{"nsid": "app.example.note", "defs": {"main": {"type": "record"}}}]
-        text = "Plans to save notes in app.example.note. Anonymous drafts are not saved there."
-        html = "<style>" + "padding " * 2000 + "</style><p>" + text + "</p>"
-        result = {"html": html, "status_code": 200, "service_status": "live", "title": "Example",
-                  "description": "", "final_url": "https://example.com", "links": [], "urls": []}
-        with mock.patch.object(registry, "collect_first_party_links", return_value=[]), \
-             mock.patch.object(registry, "service_probe_supports_project", return_value=True):
-            bundle = registry.collect_service_evidence_with_followups(project, "https://example.com", result)
-        observation = bundle.records[0].value
-        self.assertNotIn(text, observation["html_extract"])
-        self.assertEqual(observation["atproto_text_candidates"]["searched_collections"], ["app.example.note"])
-        self.assertEqual(observation["atproto_text_candidates"]["passages"][0]["text"], text)
-        registry.apply_replay_evidence(project, EvidenceBundle.from_dict(bundle.to_dict()))
-        with contextlib.closing(registry.open_db()) as conn:
-            project_record.save_project(conn, project)
-            material = presentation.project_detail(conn, project_key=project["project_key"])["service_ownership_review"]["atproto_material"]
-        self.assertEqual(material["sources"][0]["literal_collections"], ["app.example.note"])
-
     def test_later_collection_knowledge_searches_only_retained_html(self):
         project, _ = self.collect("<p>Plans to save in app.example.note. This is not implemented.</p>")
         project["recent_record_samples"] = [{"collection": "app.example.note", "record": {"createdAt": "today"}}]
@@ -75,30 +66,6 @@ class UsageMaterialTest(TempRegistryDbTestCase):
         fields = next(r for r in catalog["rows"] if r["collection"] == "app.example.record0")["schemas"][0]
         self.assertEqual(fields["fields"][0]["description"], "Article title")
         self.assertEqual(fields["fields_status"], "saved")
-
-    def collect(self, html, *, date="2026-09-22T10:00:00+00:00"):
-        project = self.make_project("proj:material", "service_url", "https://example.com")
-        bundle = service.collect_service_probe_evidence(project["project_key"], "https://example.com", {
-            "html": html, "status_code": 200, "service_status": "live", "title": "Example",
-            "description": "", "final_url": "https://example.com", "links": [], "urls": [],
-        }, observed_at=date, supports_project=True)
-        registry.apply_service_evidence(project, bundle)
-        return project, bundle
-
-    def test_late_storage_description_survives_html_prefix_limit_and_replay(self):
-        html = '<html><head><style>' + ('a { color: red; }' * 1000) + '</style></head><body><h1>Highlights</h1><p>Your highlights live in your personal data repository.</p></body></html>'
-        project, bundle = self.collect(html)
-        observation = project["service_verification_results"][0]
-        self.assertNotIn("highlights live", observation["html_extract"])
-        self.assertIn("highlights live", observation["atproto_text_candidates"]["passages"][0]["text"])
-        replay = self.make_project(project["project_key"], "service_url", "https://example.com")
-        registry.apply_replay_evidence(replay, EvidenceBundle.from_dict(bundle.to_dict()))
-        with contextlib.closing(registry.open_db()) as conn:
-            project_record.save_project(conn, replay)
-            detail = presentation.project_detail(conn, project_key=project["project_key"])
-        material = detail["service_ownership_review"]["atproto_material"]
-        self.assertEqual(material["status"], "matches")
-        self.assertIn("highlights live", material["sources"][0]["passages"][0]["text"])
 
     def test_negation_future_and_third_party_context_remain_exact(self):
         text = "A third-party example plans to store notes on a PDS. Our app does not store notes there."
@@ -193,3 +160,40 @@ class UsageMaterialTest(TempRegistryDbTestCase):
         self.assertEqual(material["sources"][0]["passages"][0]["text"], "Reads public AT Protocol records.")
         project["project_repository_urls"] = []
         self.assertEqual(usage_material.review(project)["status"], "not_observed")
+
+
+class UsageMaterialTest(_UsageMaterialFixtures, TempRegistryDbTestCase):
+    def test_collection_only_passage_is_collected_in_normal_path_and_replayed(self):
+        project = self.make_project("proj:material", "service_url", "https://example.com")
+        project["lexicon_schema_samples"] = [{"nsid": "app.example.note", "defs": {"main": {"type": "record"}}}]
+        text = "Plans to save notes in app.example.note. Anonymous drafts are not saved there."
+        html = "<style>" + "padding " * 2000 + "</style><p>" + text + "</p>"
+        result = {"html": html, "status_code": 200, "service_status": "live", "title": "Example",
+                  "description": "", "final_url": "https://example.com", "links": [], "urls": []}
+        with mock.patch.object(registry, "collect_first_party_links", return_value=[]), \
+             mock.patch.object(registry, "service_probe_supports_project", return_value=True):
+            bundle = registry.collect_service_evidence_with_followups(project, "https://example.com", result)
+        observation = bundle.records[0].value
+        self.assertNotIn(text, observation["html_extract"])
+        self.assertEqual(observation["atproto_text_candidates"]["searched_collections"], ["app.example.note"])
+        self.assertEqual(observation["atproto_text_candidates"]["passages"][0]["text"], text)
+        registry.apply_replay_evidence(project, EvidenceBundle.from_dict(bundle.to_dict()))
+        with contextlib.closing(registry.open_db()) as conn:
+            project_record.save_project(conn, project)
+            material = presentation.project_detail(conn, project_key=project["project_key"])["service_ownership_review"]["atproto_material"]
+        self.assertEqual(material["sources"][0]["literal_collections"], ["app.example.note"])
+
+    def test_late_storage_description_survives_html_prefix_limit_and_replay(self):
+        html = '<html><head><style>' + ('a { color: red; }' * 1000) + '</style></head><body><h1>Highlights</h1><p>Your highlights live in your personal data repository.</p></body></html>'
+        project, bundle = self.collect(html)
+        observation = project["service_verification_results"][0]
+        self.assertNotIn("highlights live", observation["html_extract"])
+        self.assertIn("highlights live", observation["atproto_text_candidates"]["passages"][0]["text"])
+        replay = self.make_project(project["project_key"], "service_url", "https://example.com")
+        registry.apply_replay_evidence(replay, EvidenceBundle.from_dict(bundle.to_dict()))
+        with contextlib.closing(registry.open_db()) as conn:
+            project_record.save_project(conn, replay)
+            detail = presentation.project_detail(conn, project_key=project["project_key"])
+        material = detail["service_ownership_review"]["atproto_material"]
+        self.assertEqual(material["status"], "matches")
+        self.assertIn("highlights live", material["sources"][0]["passages"][0]["text"])

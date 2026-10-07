@@ -18,6 +18,8 @@
 
 `bin/project-registry-test`は全unit testの入口です。外部API・正本DB・実LLMに接続せず、testごとのtemp DBを使います。文書変更ではlink、記載したcommand、現行実装との整合性が確認対象です。
 
+testの準備は対象の依存に合わせます。project dictだけを使うtestは`tests/helpers.py`の`ProjectRecordTestCase`、DBの保存・queryを使うtestは`TempRegistryDbTestCase`を使い、project不要のtestは`unittest.TestCase`を使います。内部関数名の存在だけでなく、担当moduleの入出力や通常経路での適用・保存結果を確認します。
+
 変更が作用する経路ごとの確認方法は次のとおりです。
 
 - Web UI: Python側の関連API test、`node --check scripts/project_registry_web/static/app.js`、変更した主要導線の実ブラウザ確認

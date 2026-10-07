@@ -9,14 +9,14 @@ import threading
 import time
 from unittest import mock
 
-from helpers import SCRIPTS, TempRegistryDbTestCase, registry
+from helpers import ProjectRecordTestCase, SCRIPTS, TempRegistryDbTestCase, registry
 from project_registry_core import project_record
 from project_registry_core.application import presentation
 from project_registry_web.request_cancellation import RequestCancellation, RequestCancelled
 from project_registry_web.server import RegistryWebServer
 
 
-class MergeAnalysisCancellationTest(TempRegistryDbTestCase):
+class MergeAnalysisCancellationUnitTest(ProjectRecordTestCase):
     def test_browser_request_races_and_abort_errors(self):
         script = r'''
 const assert = require('node:assert/strict');
@@ -63,6 +63,23 @@ vm.runInContext(part('async function api(', 'function restoreStateFromUrl(') +
                                 text=True, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_disconnect_is_per_socket_and_peek_does_not_consume(self):
+        left, right = socket.socketpair()
+        try:
+            cancellation = RequestCancellation(left)
+            right.sendall(b'x')
+            cancellation.check()
+            self.assertEqual(left.recv(1), b'x')
+            right.close()
+            cancellation.next_check = 0
+            with self.assertRaises(RequestCancelled):
+                cancellation.check()
+        finally:
+            left.close()
+            right.close()
+
+
+class MergeAnalysisCancellationTest(TempRegistryDbTestCase):
     def setUp(self):
         super().setUp()
         with contextlib.closing(registry.open_db()) as conn:
@@ -124,21 +141,6 @@ vm.runInContext(part('async function api(', 'function restoreStateFromUrl(') +
                 with self.assertRaises(RequestCancelled), cancellation.during_queries(conn):
                     conn.execute('WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1000000) SELECT sum(x) FROM n').fetchone()
             self.assertEqual(conn.execute('SELECT 42').fetchone()[0], 42)
-
-    def test_disconnect_is_per_socket_and_peek_does_not_consume(self):
-        left, right = socket.socketpair()
-        try:
-            cancellation = RequestCancellation(left)
-            right.sendall(b'x')
-            cancellation.check()
-            self.assertEqual(left.recv(1), b'x')
-            right.close()
-            cancellation.next_check = 0
-            with self.assertRaises(RequestCancelled):
-                cancellation.check()
-        finally:
-            left.close()
-            right.close()
 
     def test_real_http_disconnect_stops_work_and_keeps_other_request(self):
         started = threading.Event()
