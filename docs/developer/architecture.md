@@ -50,6 +50,8 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 
 通常一覧は`projects`とnormalized identifier・relation・decisionへの`EXISTS` queryで絞り込み、全projectをhydrateしません。詳細は選択した1件の子行を読みます。文字列検索は保存済みfieldの部分一致で、操作は[Web UIガイド](../user/web-ui.md#登録プロジェクト)を参照してください。
 
+通常一覧の保留表示・filterは、期限内の保留または旧確認期限を持つprojectだけを同じread snapshot内でhydrateし、`promotion_attention.active_deferral`で根拠変化・解除・期限を評価します。SQLは候補の先行絞込みに使い、保留の有効性を別実装しません。decisionの期限filterは時差を含む日時として比較します。
+
 紹介候補一覧は完全runtime viewを使い、読込み時の正規化結果をqueueとsignalで再利用します。先行絞込みとread snapshotの契約は[評価仕様](specs/project-evaluation.md#紹介候補の表示順位保留)に従います。
 
 詳細のマージ候補は`/api/projects/{key}/merge-analysis`で別途計算し、重複候補の計算結果を推薦とExplainで共有します。比較集合は`project_record.list_duplicate_projects`が同じread snapshotから識別情報・必要なstate・identifier・decision・adoptionを組み立てます。この部分的なviewは保存不可で、projectや候補のcacheは持ちません。呼出元が比較集合を渡す経路はその集合を使います。

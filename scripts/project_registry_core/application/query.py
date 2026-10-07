@@ -4,7 +4,7 @@ import datetime as dt
 import sqlite3
 from typing import Any
 
-from project_registry_core import project_record
+from project_registry_core import concurrency, project_record, promotion_attention
 
 
 def _like(value: str) -> str:
@@ -43,6 +43,7 @@ def search_project_rows(
     """Return lightweight project rows without hydrating normalized children."""
     conditions: list[str] = []
     parameters: list[Any] = []
+    now = dt.datetime.now(dt.timezone.utc)
 
     if lexicon_type:
         if lexicon_type == "unobserved_declaration":
@@ -164,13 +165,12 @@ def search_project_rows(
         else:
             decision_parts.append(_choice_condition(column, value, decision_parameters))
     if decision_status:
-        now = dt.datetime.now(dt.timezone.utc).isoformat()
         if decision_status == "active":
-            decision_parts.append("d.cleared_at = '' AND (d.expires_at = '' OR d.expires_at > ?)")
-            decision_parameters.append(now)
+            decision_parts.append("d.cleared_at = '' AND (d.expires_at = '' OR julianday(d.expires_at) > julianday(?))")
+            decision_parameters.append(now.isoformat())
         elif decision_status == "expired":
-            decision_parts.append("d.cleared_at = '' AND d.expires_at != '' AND d.expires_at <= ?")
-            decision_parameters.append(now)
+            decision_parts.append("d.cleared_at = '' AND d.expires_at != '' AND julianday(d.expires_at) <= julianday(?)")
+            decision_parameters.append(now.isoformat())
         elif decision_status == "cleared":
             decision_parts.append("d.cleared_at != ''")
     if decision_parts:
@@ -189,20 +189,28 @@ def search_project_rows(
         "AND confirmed_ci.kind = ci.kind "
         "AND confirmed_ci.value = ci.value "
         "AND confirmed_ci.classification = 'confirmed')) AS query_has_candidates, "
-        "EXISTS (SELECT 1 FROM project_decisions pd WHERE pd.project_key = p.project_key "
+        "(EXISTS (SELECT 1 FROM project_decisions pd WHERE pd.project_key = p.project_key "
         "AND pd.kind = 'defer_promotion' AND pd.cleared_at = '' "
-        "AND (pd.expires_at = '' OR pd.expires_at > CURRENT_TIMESTAMP)) AS query_promotion_hold "
+        "AND julianday(pd.expires_at) > julianday(?)) "
+        "OR COALESCE(julianday(json_extract(p.state_json, '$.ops.promotion_attention.reviewed_until')) > julianday(?), 0)) "
+        "AS query_may_have_promotion_hold "
         "FROM projects p"
     )
     if conditions:
         sql += " WHERE " + " AND ".join(conditions)
     sql += " ORDER BY p.last_seen_at DESC, p.project_key ASC"
     output: list[dict[str, Any]] = []
-    for row in conn.execute(sql, tuple(parameters)).fetchall():
-        project = project_record.project_from_row_payload(row)
-        project["_query_has_candidates"] = bool(row["query_has_candidates"])
-        project["_query_promotion_hold"] = bool(row["query_promotion_hold"])
-        output.append(project)
+    with concurrency.read_snapshot(conn):
+        for row in conn.execute(sql, (now.isoformat(), now.isoformat(), *parameters)).fetchall():
+            project = project_record.project_from_row_payload(row)
+            project["_query_has_candidates"] = bool(row["query_has_candidates"])
+            project["_query_promotion_hold"] = False
+            if row["query_may_have_promotion_hold"]:
+                # SQL only selects candidates. Fingerprint and legacy-review
+                # semantics belong to the same policy used by detail and queues.
+                current = project_record.fetch_project(conn, str(row["project_key"]))
+                project["_query_promotion_hold"] = promotion_attention.active_deferral(current, now=now) is not None
+            output.append(project)
     return output
 
 
