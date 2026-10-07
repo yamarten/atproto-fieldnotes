@@ -1836,17 +1836,13 @@ class ProjectRegistryResearchPipelineTest(ProjectRecordTestCase):
         self.assertIsNotNone(entry)
         self.assertTrue(entry["atproto_relevant"])
 
-    def test_confirmed_root_www_redirect_removes_only_alias_candidate(self) -> None:
-        fixture = json.loads((Path(__file__).parent / "fixtures" / "project_registry" / "investigation-benchmark-v2.json").read_text())[0]
-        bundle = EvidenceBundle.from_dict(fixture["bundle"])
-        project = registry.replay_core.replay_bundle(fixture["input_project"], bundle, registry.replay_dependencies())
-        self.assertEqual(project["service_url_candidates"], ["https://graph.at.fund"])
-        self.assertEqual(project["url_aliases"][0]["canonical"], "https://www.at.fund")
-
     def test_benchmark_corpus_has_six_passing_cases(self) -> None:
         path = Path(__file__).parent / "fixtures" / "project_registry" / "investigation-benchmark-v2.json"
         summary = registry.replay_core.benchmark_cases(registry.load_benchmark_cases(path), registry.replay_dependencies())
         self.assertEqual(summary["case_count"], 6)
+        for result in summary["results"]:
+            with self.subTest(case=result["case_id"]):
+                self.assertFalse(result["diff"]["changed"], result["diff"])
         self.assertEqual(summary["regression_count"], 0)
 
 

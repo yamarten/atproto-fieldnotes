@@ -1084,7 +1084,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         args = cli.build_parser().parse_args(["init-db", "--db-path", str(custom_path)])
 
         with captured_stdout() as output:
-            result = maintenance_commands.cmd_init_db(args)
+            result = args.func(args)
 
         self.assertEqual(result, 0)
         self.assertEqual(json.loads(output.getvalue())["db_path"], str(custom_path.resolve()))
@@ -2694,10 +2694,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 registry.audit_and_repair_identifiers(conn)
         finally:
             conn.close()
-
-    def test_init_db_parser_accepts_custom_path(self) -> None:
-        args = cli.build_parser().parse_args(["init-db", "--db-path", "custom.db"])
-        self.assertEqual(args.db_path, Path("custom.db"))
 
 
 if __name__ == "__main__":
