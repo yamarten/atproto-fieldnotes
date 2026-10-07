@@ -3072,30 +3072,6 @@ def keep_bluesky_account(project: dict[str, Any], handle: str, source: str = "")
     return True
 
 
-def add_investigation_query(project: dict[str, Any], query: str) -> None:
-    normalized_query = str(query or "").strip()
-    if not normalized_query:
-        return
-    project["investigation_queries"] = project_record.add_unique(project.get("investigation_queries", []), normalized_query)
-
-
-def add_investigation_log(project: dict[str, Any], kind: str, **payload: Any) -> None:
-    project.setdefault("investigation_log", [])
-    entry = {"kind": kind, **payload}
-    project["investigation_log"].append(entry)
-
-
-def note_failure(project: dict[str, Any], message: str) -> None:
-    errors = project.setdefault("_run_errors", [])
-    if message not in errors:
-        errors.append(message)
-
-
-def reset_investigation_state(project: dict[str, Any]) -> None:
-    project["investigation_queries"] = []
-    project["investigation_log"] = []
-
-
 def bsky_post_web_url(post: dict[str, Any]) -> str:
     author = post.get("author", {}) if isinstance(post.get("author"), dict) else {}
     handle = str(author.get("handle") or "").strip()
@@ -5525,21 +5501,14 @@ def apply_github_repo_evidence(
         project,
         bundle,
         integration_core.GitHubRepoIntegrationDependencies(
-            normalize_url=identifier_core.normalize_url,
-            normalize_github_repo_url=repo_url_core.normalize_github_repo_url,
-            normalize_service_candidate_url=project_record.normalize_service_candidate_url,
             confirm_project_repository_url=confirm_project_repository_url,
-            add_investigation_log=add_investigation_log,
             add_candidate_url=add_candidate_url,
             project_owned_lexicon_nsid=project_owned_lexicon_nsid,
-            derive_authority_domain=identifier_core.derive_authority_domain,
             add_authority_service_candidates=add_authority_service_candidates,
             upsert_lexicon_schema_sample=upsert_lexicon_schema_sample,
             repo_url_allowed_for_project=repo_url_allowed_for_project,
             add_candidate_project_repository_url=add_candidate_project_repository_url,
             repo_context_service_candidate_allowed=repo_context_service_candidate_allowed,
-            record_trust_edge=project_record.record_trust_edge,
-            remove_trust_edges=trust_graph_core.remove_edges,
         ),
         confirm_repo_snapshot=confirm_repo_snapshot,
     )
@@ -5601,7 +5570,7 @@ def apply_service_probe_result(
     canonical_service_url = service_probe_canonical_url(normalized_service_url, result)
     represents_service_identity = service_probe_represents_service_identity(canonical_service_url, result)
     if result.get("redirected"):
-        add_investigation_log(
+        integration_core.add_investigation_log(
             project,
             "service_redirect",
             url=normalized_service_url,
@@ -5686,9 +5655,9 @@ def apply_service_probe_result(
         try:
             nested = probe_service_url(follow_url, timeout=follow_up_timeout)
             collect_first_party_links(project, follow_url, nested.get("links", []), f"service_follow_up:{follow_url}")
-            add_investigation_log(project, "service_follow_up", url=follow_url, result_count=len(nested.get("links", [])), at=project_record.iso_now())
+            integration_core.add_investigation_log(project, "service_follow_up", url=follow_url, result_count=len(nested.get("links", [])), at=project_record.iso_now())
         except Exception as exc:
-            note_failure(project, f"service follow-up failed for {follow_url}: {exc}")
+            integration_core.note_failure(project, f"service follow-up failed for {follow_url}: {exc}")
 
 
 CURRENT_SERVICE_BASE_LANE_PRIORITY = {"authority": 1, "static": 2, "deep": 3}
@@ -5931,7 +5900,7 @@ def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -
         if description:
             project_record.add_candidate_text(project, "summary", description, f"resource_meta:{normalized_resource_url}")
             project_record.add_candidate_text(project, "tagline", description, f"resource_meta:{normalized_resource_url}")
-        add_investigation_log(
+        integration_core.add_investigation_log(
             project,
             "resource_probe",
             url=normalized_resource_url,
@@ -5963,7 +5932,7 @@ def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -
                 project_record.add_candidate_text(project, "summary", nested_description, f"resource_follow_up:{normalized_follow_url}")
                 project_record.add_candidate_text(project, "tagline", nested_description, f"resource_follow_up:{normalized_follow_url}")
             collect_first_party_links(project, normalized_follow_url, nested.get("links", []), f"resource_follow_up:{normalized_follow_url}")
-            add_investigation_log(
+            integration_core.add_investigation_log(
                 project,
                 "resource_follow_up",
                 url=normalized_follow_url,
@@ -6250,7 +6219,7 @@ def plan_investigation_queries(
         investigation_core.PlanningDependencies(
             build_prompt=build_investigation_prompt,
             run_llm=llm_runner or llm_transport.run_local_llm,
-            note_failure=note_failure,
+            note_failure=integration_core.note_failure,
         ),
         observation=observation,
         llm_endpoint=llm_endpoint,
@@ -6290,17 +6259,9 @@ def apply_investigation_evidence(project: dict[str, Any], bundle: EvidenceBundle
     integration_core.apply_investigation_evidence(
         project,
         bundle,
-        integration_core.IntegrationDependencies(
-            add_investigation_query=add_investigation_query,
-            add_investigation_log=add_investigation_log,
+        integration_core.CandidateIntegrationDependencies(
             add_candidate_project_repository_url=add_candidate_project_repository_url,
             add_candidate_url=add_candidate_url,
-            normalize_github_repo_url=repo_url_core.normalize_github_repo_url,
-            normalize_tangled_repo_url=repo_url_core.normalize_tangled_repo_url,
-            canonical_repo_url=repo_url_core.canonical_repo_url,
-            is_supported_repo_url=repo_url_core.is_supported_repo_url,
-            record_developer_handle=project_record.record_developer_handle,
-            note_failure=note_failure,
         ),
     )
 
@@ -6313,16 +6274,11 @@ def apply_service_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> N
             apply_probe=lambda target, url, result: apply_service_probe_result(
                 target,
                 url,
-                {**result, "html": str(result.get("html_extract") or "")},
+                {**result, 'html': str(result.get('html_extract') or '')},
                 follow_up_timeout=min(service_probe_timeout_for_project(target, url), REQUEST_TIMEOUT_SHORT),
                 collect_follow_ups=False,
             ),
-            service_url_is_guarded=lambda target, url: (
-                project_record.identifier_is_blocked(target, "service_url", url)
-                or project_record.identifier_is_deferred(target, "service_url", url)
-            ),
             add_candidate_project_repository_url=add_candidate_project_repository_url,
-            note_failure=note_failure,
         ),
     )
     apply_current_service_observation_state(project)
@@ -6603,7 +6559,7 @@ def apply_homepage_role_evidence(project: dict[str, Any], bundle: EvidenceBundle
             project["project_site_url_candidates"] = project_record.add_unique(
                 project.get("project_site_url_candidates", []), url,
             )
-        add_investigation_log(project, "homepage_role_assessment", url=url, action=action,
+        integration_core.add_investigation_log(project, "homepage_role_assessment", url=url, action=action,
                               policy_version=homepage_adoption.POLICY_VERSION)
 
 
@@ -6670,16 +6626,11 @@ def apply_saved_service_evidence(project: dict[str, Any], bundle: EvidenceBundle
             apply_probe=lambda target, url, result: apply_service_probe_result(
                 target,
                 url,
-                {**result, "html": str(result.get("html_extract") or "")},
+                {**result, 'html': str(result.get('html_extract') or '')},
                 follow_up_timeout=0,
                 collect_follow_ups=False,
             ),
-            service_url_is_guarded=lambda target, url: (
-                project_record.identifier_is_blocked(target, "service_url", url)
-                or project_record.identifier_is_deferred(target, "service_url", url)
-            ),
             add_candidate_project_repository_url=add_candidate_project_repository_url,
-            note_failure=note_failure,
         ),
     )
     apply_current_service_observation_state(project)
@@ -6714,14 +6665,9 @@ def apply_tangled_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> N
     integration_core.apply_tangled_evidence(
         project,
         bundle,
-        integration_core.TangledIntegrationDependencies(
-            confirm_project_repository_url=confirm_project_repository_url,
+        integration_core.CandidateIntegrationDependencies(
             add_candidate_project_repository_url=add_candidate_project_repository_url,
-            add_developer_account=lambda target, handle, source, did: project_record.add_developer_account(target, handle, source, did=did),
             add_candidate_url=add_candidate_url,
-            normalize_service_candidate_url=project_record.normalize_service_candidate_url,
-            record_trust_edge=project_record.record_trust_edge,
-            note_failure=note_failure,
         ),
     )
 
@@ -6730,11 +6676,7 @@ def apply_collector_snapshot_evidence(project: dict[str, Any], bundle: EvidenceB
     integration_core.apply_collector_snapshot_evidence(
         project,
         bundle,
-        integration_core.CollectorIntegrationDependencies(
-            apply_lexicon_result=apply_lexicon_record_result,
-            normalize_resource_url_records=project_record.normalize_resource_url_records,
-            note_failure=note_failure,
-        ),
+        apply_lexicon_result=apply_lexicon_record_result,
     )
 
 

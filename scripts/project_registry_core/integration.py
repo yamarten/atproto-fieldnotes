@@ -5,49 +5,33 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from . import service, naming, project_record
-from . import oauth_metadata
+from . import oauth_metadata, identifiers, repo_urls, trust_graph
 from .evidence import EvidenceBundle
 from .relations import normalize_relation_records
 
+
 @dataclass(frozen=True)
-class IntegrationDependencies:
-    add_investigation_query: Callable[[dict[str, Any], str], None]
-    add_investigation_log: Callable[..., None]
+class CandidateIntegrationDependencies:
     add_candidate_project_repository_url: Callable[..., None]
     add_candidate_url: Callable[[dict[str, Any], str, str], None]
-    normalize_github_repo_url: Callable[[str], str | None]
-    normalize_tangled_repo_url: Callable[[str], str | None]
-    canonical_repo_url: Callable[[str], str]
-    is_supported_repo_url: Callable[[str], bool]
-    record_developer_handle: Callable[[dict[str, Any], str, str], None]
-    note_failure: Callable[[dict[str, Any], str], None]
 
 
 @dataclass(frozen=True)
 class GitHubRepoIntegrationDependencies:
-    normalize_url: Callable[[str], str]
-    normalize_github_repo_url: Callable[[str], str | None]
-    normalize_service_candidate_url: Callable[[str], str]
     confirm_project_repository_url: Callable[..., None]
-    add_investigation_log: Callable[..., None]
     add_candidate_url: Callable[[dict[str, Any], str, str], None]
     project_owned_lexicon_nsid: Callable[[dict[str, Any], str], bool]
-    derive_authority_domain: Callable[[str], str]
     add_authority_service_candidates: Callable[..., None]
     upsert_lexicon_schema_sample: Callable[[dict[str, Any], str, dict[str, Any]], None]
     repo_url_allowed_for_project: Callable[[dict[str, Any], str], bool]
     add_candidate_project_repository_url: Callable[..., None]
     repo_context_service_candidate_allowed: Callable[..., bool]
-    record_trust_edge: Callable[..., dict[str, Any]]
-    remove_trust_edges: Callable[..., int]
 
 
 @dataclass(frozen=True)
 class ServiceIntegrationDependencies:
     apply_probe: Callable[[dict[str, Any], str, dict[str, Any]], None]
-    service_url_is_guarded: Callable[[dict[str, Any], str], bool]
     add_candidate_project_repository_url: Callable[..., None]
-    note_failure: Callable[[dict[str, Any], str], None]
 
 
 def apply_saved_service_probe(project: dict[str, Any], value: dict[str, Any]) -> None:
@@ -71,32 +55,15 @@ def apply_saved_service_probe(project: dict[str, Any], value: dict[str, Any]) ->
     ))
 
 
-@dataclass(frozen=True)
-class TangledIntegrationDependencies:
-    confirm_project_repository_url: Callable[..., None]
-    add_candidate_project_repository_url: Callable[..., None]
-    add_developer_account: Callable[[dict[str, Any], str, str, str], None]
-    add_candidate_url: Callable[[dict[str, Any], str, str], None]
-    normalize_service_candidate_url: Callable[[str], str]
-    record_trust_edge: Callable[..., dict[str, Any]]
-    note_failure: Callable[[dict[str, Any], str], None]
-
-
-@dataclass(frozen=True)
-class CollectorIntegrationDependencies:
-    apply_lexicon_result: Callable[[dict[str, Any], str, dict[str, Any]], None]
-    normalize_resource_url_records: Callable[[list[Any]], list[dict[str, str]]]
-    note_failure: Callable[[dict[str, Any], str], None]
-
-
 def apply_collector_snapshot_evidence(
     project: dict[str, Any],
     bundle: EvidenceBundle,
-    dependencies: CollectorIntegrationDependencies,
+    *,
+    apply_lexicon_result: Callable[[dict[str, Any], str, dict[str, Any]], None],
 ) -> None:
     for record in bundle.records:
         if record.kind == "lexicon_resolution_snapshot" and isinstance(record.value, dict):
-            dependencies.apply_lexicon_result(
+            apply_lexicon_result(
                 project, str(record.value.get("nsid") or ""), dict(record.value.get("result") or {})
             )
         elif record.kind == "record_samples_snapshot" and isinstance(record.value, dict):
@@ -109,18 +76,18 @@ def apply_collector_snapshot_evidence(
             for key, value in fields.items():
                 if key in allowed:
                     project[key] = (
-                        dependencies.normalize_resource_url_records(list(value or []))
+                        project_record.normalize_resource_url_records(list(value or []))
                         if key == "resource_url_records" and isinstance(value, list)
                         else value
                     )
     for failure in bundle.failures:
-        dependencies.note_failure(project, failure.message)
+        note_failure(project, failure.message)
 
 
 def apply_tangled_evidence(
     project: dict[str, Any],
     bundle: EvidenceBundle,
-    dependencies: TangledIntegrationDependencies,
+    dependencies: CandidateIntegrationDependencies,
 ) -> None:
     for record in bundle.records:
         if record.kind == "relation" and isinstance(record.value, dict):
@@ -144,7 +111,7 @@ def apply_tangled_evidence(
         description = str(tangled_record.get("description") or "").strip()
         website = str(tangled_record.get("website") or "").strip()
         if handle or did:
-            dependencies.add_developer_account(project, handle, record.source, did)
+            project_record.add_developer_account(project, handle, record.source, did=did)
         repo_url = str(value.get("repo_url") or "")
         score = int(value.get("score") or 0)
         if repo_name:
@@ -153,11 +120,11 @@ def apply_tangled_evidence(
             project_record.add_candidate_text(project, "summary", description, record.source)
             project_record.add_candidate_text(project, "tagline", description, record.source)
         if website:
-            normalized_website = dependencies.normalize_service_candidate_url(website)
+            normalized_website = project_record.normalize_service_candidate_url(website)
             if normalized_website:
                 dependencies.add_candidate_url(project, "service_url", normalized_website)
         if did and repo_url:
-            dependencies.record_trust_edge(
+            project_record.record_trust_edge(
                 project,
                 "did",
                 did,
@@ -186,14 +153,14 @@ def apply_tangled_evidence(
                 evidence_kind="tangled_pds_record", evidence_url=repo_url,
             )
     for failure in bundle.failures:
-        dependencies.note_failure(project, failure.message)
+        note_failure(project, failure.message)
 
 
 def _apply_tangled_repo_inspection(
     project: dict[str, Any],
     snapshot: dict[str, Any],
     record: Any,
-    dependencies: TangledIntegrationDependencies,
+    dependencies: CandidateIntegrationDependencies,
 ) -> None:
     repo_url = str(snapshot.get("repo_url") or "").rstrip("/")
     repo = dict(snapshot.get("repo") or {})
@@ -216,11 +183,11 @@ def _apply_tangled_repo_inspection(
             continue
         if parsed.netloc in {"github.com", "tangled.org", "tangled.sh"}:
             continue
-        normalized_service = dependencies.normalize_service_candidate_url(url)
+        normalized_service = project_record.normalize_service_candidate_url(url)
         if not normalized_service:
             continue
         if repo_url:
-            dependencies.record_trust_edge(
+            project_record.record_trust_edge(
                 project,
                 "repo_url",
                 repo_url,
@@ -252,7 +219,8 @@ def apply_service_evidence(
                 and (
                     str(record.source).startswith("service_follow_up:")
                     or relation.get("method") == "follow_up_probe"
-                    or dependencies.service_url_is_guarded(project, str(relation.get("object", {}).get("value") or ""))
+                    or project_record.identifier_is_blocked(project, "service_url", str(relation.get("object", {}).get("value") or ""))
+                    or project_record.identifier_is_deferred(project, "service_url", str(relation.get("object", {}).get("value") or ""))
                 )
             ):
                 continue
@@ -305,13 +273,13 @@ def apply_service_evidence(
             elif value.get("lane") == "browser":
                 apply_saved_service_probe(project, service.browser_service_observation(value))
     for failure in bundle.failures:
-        dependencies.note_failure(project, failure.message)
+        note_failure(project, failure.message)
 
 
 def apply_investigation_evidence(
     project: dict[str, Any],
     bundle: EvidenceBundle,
-    dependencies: IntegrationDependencies,
+    dependencies: CandidateIntegrationDependencies,
 ) -> None:
     if str(project.get("project_key") or "") != bundle.project_key:
         raise ValueError("evidence project_key does not match target project")
@@ -339,12 +307,12 @@ def apply_investigation_evidence(
             )
             continue
         if record.kind == "investigation_query":
-            dependencies.add_investigation_query(project, str(record.value or ""))
+            add_investigation_query(project, str(record.value or ""))
             continue
         if record.kind == "investigation_log" and isinstance(record.value, dict):
             payload = dict(record.value)
             kind = str(payload.pop("kind", ""))
-            dependencies.add_investigation_log(project, kind, **payload)
+            add_investigation_log(project, kind, **payload)
             continue
         if record.kind == "github_repo_search_candidate" and isinstance(record.value, dict):
             repo_url = str(record.value.get("url") or "")
@@ -363,11 +331,11 @@ def apply_investigation_evidence(
                 dependencies.add_candidate_url(project, "service_url", homepage)
             continue
         if record.kind == "developer_handle_candidate":
-            dependencies.record_developer_handle(project, str(record.value or ""), record.source)
+            project_record.record_developer_handle(project, str(record.value or ""), record.source)
             continue
         if record.kind == "source_code_reference":
             url = str(record.value or "")
-            normalized = dependencies.canonical_repo_url(url) if dependencies.is_supported_repo_url(url) else ""
+            normalized = repo_urls.canonical_repo_url(url) if repo_urls.is_supported_repo_url(url) else ""
             if normalized:
                 dependencies.add_candidate_project_repository_url(
                     project,
@@ -382,7 +350,7 @@ def apply_investigation_evidence(
     # a complete metadata snapshot is already available for the same source.
     oauth_metadata.reconcile_relations(project)
     for failure in bundle.failures:
-        dependencies.note_failure(project, failure.message)
+        note_failure(project, failure.message)
 
 
 def apply_github_repo_evidence(
@@ -396,7 +364,7 @@ def apply_github_repo_evidence(
         raise ValueError("evidence project_key does not match target project")
 
     inspected_repo_urls = {
-        dependencies.normalize_github_repo_url(str(record.value.get("repo_url") or ""))
+        repo_urls.normalize_github_repo_url(str(record.value.get("repo_url") or ""))
         for record in bundle.records
         if record.kind == "github_repo_snapshot" and isinstance(record.value, dict)
     }
@@ -408,14 +376,14 @@ def apply_github_repo_evidence(
             subject = relation.get("subject") if isinstance(relation.get("subject"), dict) else {}
             is_inspected_repo = (
                 subject.get("type") == "repo"
-                and dependencies.normalize_github_repo_url(str(subject.get("value") or ""))
+                and repo_urls.normalize_github_repo_url(str(subject.get("value") or ""))
                 in inspected_repo_urls
             )
             if is_inspected_repo and relation.get("predicate") == "repository_homepage":
                 continue
             retained_relations.append(item)
         project["relation_evidence"] = retained_relations
-        dependencies.remove_trust_edges(
+        trust_graph.remove_edges(
             project,
             predicate="repo_links_service",
             methods={"repository_homepage_pair"},
@@ -425,7 +393,7 @@ def apply_github_repo_evidence(
     for record in bundle.records:
         if record.kind != "github_repo_snapshot" or not isinstance(record.value, dict):
             continue
-        repo_url = dependencies.normalize_github_repo_url(str(record.value.get("repo_url") or ""))
+        repo_url = repo_urls.normalize_github_repo_url(str(record.value.get("repo_url") or ""))
         if not repo_url:
             continue
         snapshot_lexicon_ids[repo_url] = [
@@ -460,10 +428,10 @@ def apply_github_repo_evidence(
                 # Homepage is a page to inspect; its service role is not yet known.
                 continue
             if str(record.source).startswith("github_readme:") and subject.get("type") == "repo":
-                repo_url = dependencies.normalize_github_repo_url(str(subject.get("value") or ""))
+                repo_url = repo_urls.normalize_github_repo_url(str(subject.get("value") or ""))
                 object_value = str(obj.get("value") or "")
                 if obj.get("type") == "repo":
-                    normalized_repo = dependencies.normalize_github_repo_url(object_value)
+                    normalized_repo = repo_urls.normalize_github_repo_url(object_value)
                     if (
                         normalized_repo
                         and normalized_repo != repo_url
@@ -480,7 +448,7 @@ def apply_github_repo_evidence(
                             updated_at="",
                         )
                 elif obj.get("type") in {"website", "service"} and repo_url:
-                    normalized_service = dependencies.normalize_service_candidate_url(object_value)
+                    normalized_service = project_record.normalize_service_candidate_url(object_value)
                     if normalized_service and dependencies.repo_context_service_candidate_allowed(
                         project,
                         normalized_service,
@@ -501,7 +469,7 @@ def apply_github_repo_evidence(
         repo_updated_at = str(repo.get("updated_at") or "")
         fork = bool(repo.get("fork"))
         fork_parent = repo.get("parent", {}) if isinstance(repo.get("parent", {}), dict) else {}
-        fork_parent_url = dependencies.normalize_github_repo_url(str(fork_parent.get("html_url") or ""))
+        fork_parent_url = repo_urls.normalize_github_repo_url(str(fork_parent.get("html_url") or ""))
         fork_parent_full_name = str(fork_parent.get("full_name") or "")
 
         if confirm_repo_snapshot:
@@ -520,20 +488,20 @@ def apply_github_repo_evidence(
                 updated_at=repo_updated_at,
             )
         if fork:
-            dependencies.add_investigation_log(
+            add_investigation_log(
                 project,
                 "github_repo_fork",
-                repo_url=dependencies.normalize_url(repo_url),
+                repo_url=identifiers.normalize_url(repo_url),
                 parent_url=fork_parent_url,
                 parent_full_name=fork_parent_full_name,
             )
         project["evidence_urls"] = _add_unique(
             list(project.get("evidence_urls", [])),
-            dependencies.normalize_url(repo_url),
+            identifiers.normalize_url(repo_url),
         )
         if full_name:
             naming.add_name_candidate(project, full_name.split("/")[-1], f"github_repo_name:{full_name}")
-        source_label = full_name or dependencies.normalize_url(repo_url)
+        source_label = full_name or identifiers.normalize_url(repo_url)
         project_record.add_candidate_text(project, "summary", description, f"github:{source_label}")
         project_record.add_candidate_text(project, "tagline", description, f"github:{source_label}")
 
@@ -547,16 +515,16 @@ def apply_github_repo_evidence(
             if not nsid:
                 continue
             if not dependencies.project_owned_lexicon_nsid(project, nsid):
-                dependencies.add_investigation_log(
+                add_investigation_log(
                     project,
                     "github_repo_lexicon_reference",
-                    repo_url=dependencies.normalize_url(repo_url),
+                    repo_url=identifiers.normalize_url(repo_url),
                     nsid=nsid,
                     path=str(item.get("path") or ""),
                 )
                 continue
             project["input_nsids"] = _add_unique(list(project.get("input_nsids", [])), nsid)
-            authority_domain = dependencies.derive_authority_domain(nsid)
+            authority_domain = identifiers.derive_authority_domain(nsid)
             if authority_domain:
                 project["authority_domains"] = _add_unique(
                     list(project.get("authority_domains", [])),
@@ -566,10 +534,10 @@ def apply_github_repo_evidence(
             schema = item.get("schema")
             if isinstance(schema, dict):
                 dependencies.upsert_lexicon_schema_sample(project, nsid, schema)
-            dependencies.add_investigation_log(
+            add_investigation_log(
                 project,
                 "github_repo_lexicon_hint",
-                repo_url=dependencies.normalize_url(repo_url),
+                repo_url=identifiers.normalize_url(repo_url),
                 nsid=nsid,
                 path=str(item.get("path") or ""),
             )
@@ -578,10 +546,10 @@ def apply_github_repo_evidence(
             url = str(url_value or "")
             parsed = urllib.parse.urlparse(url)
             if parsed.netloc == "github.com":
-                normalized_repo = dependencies.normalize_github_repo_url(url)
+                normalized_repo = repo_urls.normalize_github_repo_url(url)
                 if not normalized_repo:
                     continue
-                if normalized_repo == dependencies.normalize_github_repo_url(repo_url):
+                if normalized_repo == repo_urls.normalize_github_repo_url(repo_url):
                     dependencies.confirm_project_repository_url(
                         project,
                         normalized_repo,
@@ -604,14 +572,14 @@ def apply_github_repo_evidence(
                         updated_at="",
                     )
             elif parsed.scheme in {"http", "https"}:
-                normalized_service = dependencies.normalize_service_candidate_url(url)
+                normalized_service = project_record.normalize_service_candidate_url(url)
                 if normalized_service and dependencies.repo_context_service_candidate_allowed(
                     project,
                     normalized_service,
                     repo_url=repo_url,
                     lexicon_ids=repo_lexicon_ids,
                 ):
-                    dependencies.record_trust_edge(
+                    project_record.record_trust_edge(
                         project,
                         "repo_url",
                         repo_url,
@@ -637,20 +605,19 @@ def _add_unique(values: list[str], value: str) -> list[str]:
 
 def _accepted_github_repo_urls(
     project: dict[str, Any],
-    normalize_github_repo_url: Callable[[str], str | None],
 ) -> set[str]:
     urls: set[str] = set()
     for value in (
         [str(project.get("project_repository_url") or ""), str(project.get("seed_value") or "")]
         + [str(item or "") for item in project.get("project_repository_urls", [])]
     ):
-        normalized = normalize_github_repo_url(value)
+        normalized = repo_urls.normalize_github_repo_url(value)
         if normalized:
             urls.add(normalized)
     for seed in project.get("manual_seeds", []):
         if not isinstance(seed, dict) or str(seed.get("type") or "") != "repo_url":
             continue
-        normalized = normalize_github_repo_url(str(seed.get("value") or ""))
+        normalized = repo_urls.normalize_github_repo_url(str(seed.get("value") or ""))
         if normalized:
             urls.add(normalized)
     return urls
@@ -668,9 +635,9 @@ def _normalize_github_repo_schema_relation(
     obj = relation.get("object") or {}
     if subject.get("type") != "repo" or obj.get("type") != "nsid":
         return relation, classification
-    repo_url = dependencies.normalize_github_repo_url(str(subject.get("value") or ""))
+    repo_url = repo_urls.normalize_github_repo_url(str(subject.get("value") or ""))
     nsid = str(obj.get("value") or "").strip()
-    repo_accepted = bool(repo_url and repo_url in _accepted_github_repo_urls(project, dependencies.normalize_github_repo_url))
+    repo_accepted = bool(repo_url and repo_url in _accepted_github_repo_urls(project))
     nsid_accepted = bool(nsid and dependencies.project_owned_lexicon_nsid(project, nsid))
     if repo_accepted and nsid_accepted:
         return relation, "confirmed"
@@ -678,3 +645,27 @@ def _normalize_github_repo_schema_relation(
     downgraded = dict(relation)
     downgraded["predicate"] = "mentions_collection"
     return downgraded, "candidate"
+
+
+def add_investigation_query(project: dict[str, Any], query: str) -> None:
+    normalized_query = str(query or "").strip()
+    if not normalized_query:
+        return
+    project["investigation_queries"] = project_record.add_unique(project.get("investigation_queries", []), normalized_query)
+
+
+def add_investigation_log(project: dict[str, Any], kind: str, **payload: Any) -> None:
+    project.setdefault("investigation_log", [])
+    entry = {"kind": kind, **payload}
+    project["investigation_log"].append(entry)
+
+
+def note_failure(project: dict[str, Any], message: str) -> None:
+    errors = project.setdefault("_run_errors", [])
+    if message not in errors:
+        errors.append(message)
+
+
+def reset_investigation_state(project: dict[str, Any]) -> None:
+    project["investigation_queries"] = []
+    project["investigation_log"] = []
