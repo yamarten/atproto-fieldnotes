@@ -227,7 +227,7 @@ def split_identifier(
     note_line = f"split out {identifier_type}:{identifier_value} -> {target['project_key']}"
     if note:
         note_line = f"{note_line} ({note.strip()})"
-    core.append_system_note(source, note_line)
+    project_record.append_system_note(source, note_line)
     source = core.finalize_project_shape(source)
     for item in (source, target):
         item["duplicate_candidates"] = core.compute_duplicate_candidates(conn, item)

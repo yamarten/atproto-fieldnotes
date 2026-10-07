@@ -2,6 +2,23 @@
 
 from __future__ import annotations
 
+from project_registry_core import (
+    project_record,
+    EvidenceBundle,
+    investigation as investigation_core,
+    tangled as tangled_core,
+    tangled_identity,
+    domain_policy as domain_policy_core,
+    http_transport,
+    identifiers as identifier_core,
+    identifier_storage,
+    introduced_review,
+    relations as relation_core,
+    repo_urls as repo_url_core,
+    repository_material as repository_material_core,
+    repository_sources as repository_source_core,
+)
+
 import copy
 import contextlib
 import datetime as dt
@@ -14,23 +31,20 @@ import subprocess
 import urllib.error
 import urllib.parse
 from pathlib import Path
+from html.parser import HTMLParser
+
 from typing import Any, Callable, Sequence
 
-from project_registry_core import EvidenceBundle
-from project_registry_core import investigation as investigation_core
-from project_registry_core import tangled as tangled_core
-from project_registry_core import tangled_identity
-from project_registry_core import domain_policy as domain_policy_core
-from project_registry_core import http_transport
-from project_registry_core import identifiers as identifier_core
-from project_registry_core import identifier_storage
-from project_registry_core import introduced_review
-from project_registry_core import relations as relation_core
-from project_registry_core import repo_urls as repo_url_core
-from project_registry_core import repository_material as repository_material_core
-from project_registry_core import repository_sources as repository_source_core
-
 from project_registry_core.registry import (
+    extract_urls,
+    pdsls_collection_reference_nsid,
+    is_bsky_post_url,
+    detect_seed_type,
+    resolve_project_key_for_seed_value,
+    fetch_bsky_profile,
+    fetch_bsky_author_feed,
+    fetch_bsky_post_by_web_url,
+    bsky_record_urls,
     GITHUB_API,
     SEMBLE_API,
     SEMBLE_TRACKED_COLLECTIONS,
@@ -43,7 +57,6 @@ from project_registry_core.registry import (
     apply_tangled_evidence,
     apply_candidate_repo_trust_evidence,
     build_collection_project_matchers,
-    classify_text_seed_value,
     clean_string_list,
     collect_applog_entries,
     compute_duplicate_candidates,
@@ -64,6 +77,22 @@ from project_registry_core.registry import (
     upsert_collection_observation,
     write_sync_state,
 )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 from project_registry_core.project_record import (
     add_candidate_text,
     DID_RE,
@@ -84,11 +113,6 @@ from project_registry_core.project_record import (
     project_repository_url_values,
     unique_list,
 )
-from project_registry_core.registry import import_text_seed_list as _import_text_seed_list
-
-
-def import_seed_list(conn: sqlite3.Connection, path: str, *, execute: bool = False) -> dict[str, Any]:
-    return _import_text_seed_list(conn, path, execute=execute)
 
 
 def sync_bluesky_lexicons(
@@ -2153,4 +2177,451 @@ def sync_tangled_repos(
         "snapshot_error": dict(snapshot.get("error") or {}) if isinstance(snapshot.get("error"), dict) else {},
         "state_updated": state_updated,
         "results": results[:100],
+    }
+
+
+class HrefHTMLParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.hrefs: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "a":
+            return
+        href = dict(attrs).get("href")
+        if href:
+            self.hrefs.append(str(href))
+
+
+def parse_text_seed_line_values(line: str) -> list[str]:
+    text = str(line or "").strip()
+    if not text:
+        return []
+    if text.startswith("at://") or project_record.extract_collection_nsid(text):
+        return [text]
+    if "http://" in text or "https://" in text:
+        return extract_urls(text)
+    return []
+
+
+def line_looks_like_seed_section_header(line: str) -> bool:
+    text = str(line or "").strip()
+    if not text:
+        return False
+    if text.startswith("(") and text.endswith(")"):
+        return False
+    if ":" in text or "：" in text:
+        return False
+    return not parse_text_seed_line_values(text)
+
+
+def seed_note_groups_multiple_seed_lines(line: str) -> bool:
+    text = str(line or "").strip()
+    return ":" in text or "：" in text
+
+
+def text_seed_label_tokens(label: str) -> set[str]:
+    text = str(label or "").strip()
+    if not text:
+        return set()
+    head = re.split(r"[:：]", text, maxsplit=1)[0].strip()
+    tokens = {identifier_core.normalize_alias_token(head)}
+    tokens.update(identifier_core.normalize_alias_token(part) for part in re.split(r"[\s./_-]+", head) if part.strip())
+    return {token for token in tokens if token}
+
+
+def seed_values_match_group(raw_values: list[str], label: str, existing_values: list[str]) -> bool:
+    label_tokens = text_seed_label_tokens(label)
+    candidate_tokens: set[str] = set()
+    for value in raw_values:
+        candidate_tokens.update(project_record.seed_value_identity_tokens(value))
+    if not candidate_tokens:
+        return False
+    if label_tokens and candidate_tokens & label_tokens:
+        return True
+    existing_tokens: set[str] = set()
+    for value in existing_values:
+        existing_tokens.update(project_record.seed_value_identity_tokens(value))
+    return bool(existing_tokens and candidate_tokens & existing_tokens)
+
+
+def classify_text_seed_value(raw_value: str) -> dict[str, Any]:
+    raw = str(raw_value or "").strip()
+    if not raw:
+        return {"status": "skip", "reason": "empty"}
+    normalized_url = identifier_core.normalize_url(raw)
+    if normalized_url:
+        parsed = urllib.parse.urlparse(normalized_url)
+        pdsls_reference_nsid = pdsls_collection_reference_nsid(normalized_url)
+        if pdsls_reference_nsid:
+            return {
+                "status": "skip",
+                "reason": "pdsls_collection_reference_url",
+                "normalized": normalized_url,
+                "derived_nsid": pdsls_reference_nsid,
+            }
+        if is_bsky_post_url(normalized_url):
+            return {"status": "skip", "reason": "bsky_post_url", "normalized": normalized_url}
+        if project_record.is_bluesky_profile_url(normalized_url):
+            return {"status": "skip", "reason": "bsky_profile_url", "normalized": normalized_url}
+        if parsed.netloc.lower() == "lexicon.garden":
+            return {"status": "skip", "reason": "lexicon_garden_non_seed_url", "normalized": normalized_url}
+        if parsed.netloc.lower() in project_record.PDSLS_VIEWER_HOSTS:
+            return {"status": "skip", "reason": "pdsls_non_collection_url", "normalized": normalized_url}
+    nsid = project_record.extract_collection_nsid(raw)
+    if nsid:
+        return {"status": "seed", "seed_type": "nsid", "seed_value": nsid}
+    try:
+        seed_type = detect_seed_type(raw)
+    except ValueError:
+        return {"status": "skip", "reason": "unsupported_line"}
+    seed_value = project_record.canonical_seed_value(seed_type, raw)
+    if seed_type == "service_url" and project_record.is_explicitly_non_project_service_url(seed_value):
+        return {"status": "skip", "reason": "non_project_service_url", "normalized": seed_value}
+    return {"status": "seed", "seed_type": seed_type, "seed_value": seed_value}
+
+
+def classify_derived_seed_values(raw_values: list[str]) -> list[dict[str, Any]]:
+    seeds: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for raw_value in raw_values:
+        classified = classify_text_seed_value(raw_value)
+        if classified.get("status") != "seed":
+            continue
+        seed_type = str(classified.get("seed_type") or "")
+        seed_value = str(classified.get("seed_value") or "")
+        key = (seed_type, seed_value)
+        if not seed_type or not seed_value or key in seen:
+            continue
+        seen.add(key)
+        seeds.append({"raw_value": raw_value, "seed_type": seed_type, "seed_value": seed_value})
+    return seeds
+
+
+def resolve_bsky_profile_url_seed_candidates(url: str) -> list[dict[str, Any]]:
+    subject = project_record.extract_bluesky_profile_subject(url)
+    actor = subject.get("handle") or subject.get("did") or ""
+    if not actor:
+        return []
+    try:
+        profile = fetch_bsky_profile(actor)
+    except Exception:
+        return []
+    derived_urls = extract_urls(str(profile.get("description") or ""))
+    try:
+        for item in fetch_bsky_author_feed(str(profile.get("did") or str(profile.get("handle") or actor)), limit=5):
+            derived_urls.extend([str(value or "") for value in item.get("urls", [])])
+    except Exception:
+        pass
+    return classify_derived_seed_values(project_record.unique_list([value for value in derived_urls if value]))
+
+
+def resolve_bsky_post_url_seed_candidates(url: str) -> list[dict[str, Any]]:
+    try:
+        post = fetch_bsky_post_by_web_url(url)
+    except Exception:
+        return []
+    if not post:
+        return []
+    derived_urls = bsky_record_urls(post.get("record", {}) if isinstance(post.get("record", {}), dict) else {})
+    embed = post.get("embed", {}) if isinstance(post.get("embed"), dict) else {}
+    external = embed.get("external", {}) if isinstance(embed.get("external"), dict) else {}
+    external_uri = str(external.get("uri") or "").strip()
+    if external_uri:
+        derived_urls.append(external_uri)
+    return classify_derived_seed_values(project_record.unique_list([value for value in derived_urls if value]))
+
+
+def resolve_lexicon_garden_identity_seed_candidates(url: str) -> list[dict[str, Any]]:
+    normalized = identifier_core.normalize_url(url)
+    parsed = urllib.parse.urlparse(normalized)
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    if parsed.netloc.lower() != "lexicon.garden" or len(segments) < 2 or segments[0] != "identity":
+        return []
+    try:
+        _, body, _ = http_transport.request_bytes(normalized, headers={"Accept": "text/html"})
+    except Exception:
+        return []
+    parser = HrefHTMLParser()
+    parser.feed(body.decode("utf-8", errors="replace"))
+    candidates: list[str] = []
+    for href in parser.hrefs:
+        if "/lexicon/" not in href:
+            continue
+        absolute = urllib.parse.urljoin(normalized, href)
+        nsid = project_record.extract_collection_nsid(absolute)
+        if nsid:
+            candidates.append(nsid)
+    return classify_derived_seed_values(project_record.unique_list(candidates))
+
+
+def resolve_text_seed_reference_candidates(raw_value: str, reason: str) -> list[dict[str, Any]]:
+    if reason == "bsky_profile_url":
+        return resolve_bsky_profile_url_seed_candidates(raw_value)
+    if reason == "bsky_post_url":
+        return resolve_bsky_post_url_seed_candidates(raw_value)
+    if reason == "lexicon_garden_non_seed_url":
+        return resolve_lexicon_garden_identity_seed_candidates(raw_value)
+    if reason == "pdsls_collection_reference_url":
+        nsid = pdsls_collection_reference_nsid(raw_value)
+        if nsid:
+            return classify_derived_seed_values([nsid])
+    return []
+
+
+def parse_text_seed_bundles(path: str) -> list[dict[str, Any]]:
+    lines = Path(path).read_text().splitlines()
+    bundles: list[dict[str, Any]] = []
+    current_section = ""
+    pending_label = ""
+    active_group: dict[str, Any] | None = None
+    for index, raw_line in enumerate(lines, start=1):
+        line = raw_line.strip()
+        if not line:
+            pending_label = ""
+            active_group = None
+            continue
+        values = parse_text_seed_line_values(line)
+        if values:
+            if pending_label:
+                should_group = active_group is None or seed_values_match_group(values, pending_label, list(active_group.get("raw_values", [])))
+                if not should_group:
+                    pending_label = ""
+                    active_group = None
+                    for value in values:
+                        bundles.append(
+                            {
+                                "section": current_section,
+                                "label": "",
+                                "line_numbers": [index],
+                                "raw_values": [value],
+                            }
+                        )
+                    continue
+                if active_group is None:
+                    active_group = {
+                        "section": current_section,
+                        "label": pending_label,
+                        "line_numbers": [],
+                        "raw_values": [],
+                    }
+                    bundles.append(active_group)
+                active_group["line_numbers"].append(index)
+                active_group["raw_values"].extend(values)
+                if not seed_note_groups_multiple_seed_lines(pending_label):
+                    pending_label = ""
+                    active_group = None
+            else:
+                for value in values:
+                    bundles.append(
+                        {
+                            "section": current_section,
+                            "label": "",
+                            "line_numbers": [index],
+                            "raw_values": [value],
+                        }
+                    )
+            continue
+        if line_looks_like_seed_section_header(line):
+            current_section = line
+            pending_label = ""
+            active_group = None
+            continue
+        pending_label = line
+        active_group = None
+    return bundles
+
+
+def import_seed_list(conn: sqlite3.Connection, path: str, *, execute: bool = False) -> dict[str, Any]:
+    bundles = parse_text_seed_bundles(path)
+    summary_bundles: list[dict[str, Any]] = []
+    imported_projects = 0
+    imported_seeds = 0
+    skipped_seeds = 0
+    conflict_bundles = 0
+
+    for bundle in bundles:
+        raw_values = list(bundle.get("raw_values", []))
+        section = str(bundle.get("section") or "").strip()
+        label = str(bundle.get("label") or "").strip()
+        line_numbers = list(bundle.get("line_numbers", []))
+        actionable: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+        seen_bundle_seeds: set[tuple[str, str]] = set()
+        for raw_value in raw_values:
+            classified = classify_text_seed_value(str(raw_value or ""))
+            if classified.get("status") != "seed":
+                derived = resolve_text_seed_reference_candidates(str(raw_value or ""), str(classified.get("reason") or ""))
+                if derived:
+                    for item in derived:
+                        seed_type = str(item.get("seed_type") or "")
+                        seed_value = str(item.get("seed_value") or "")
+                        key = (seed_type, seed_value)
+                        if not seed_type or not seed_value or key in seen_bundle_seeds:
+                            continue
+                        seen_bundle_seeds.add(key)
+                        project_key, match_kind = resolve_project_key_for_seed_value(conn, seed_type, seed_value)
+                        actionable.append(
+                            {
+                                "raw_value": raw_value,
+                                "derived_from_reference": True,
+                                "reference_reason": str(classified.get("reason") or ""),
+                                "seed_type": seed_type,
+                                "seed_value": seed_value,
+                                "resolved_project_key": project_key,
+                                "match_kind": match_kind,
+                            }
+                        )
+                    continue
+                skipped.append({"raw_value": raw_value, **classified})
+                skipped_seeds += 1
+                continue
+            seed_type = str(classified.get("seed_type") or "")
+            seed_value = str(classified.get("seed_value") or "")
+            key = (seed_type, seed_value)
+            if not seed_type or not seed_value or key in seen_bundle_seeds:
+                continue
+            seen_bundle_seeds.add(key)
+            project_key, match_kind = resolve_project_key_for_seed_value(conn, seed_type, seed_value)
+            actionable.append(
+                {
+                    "raw_value": raw_value,
+                    "seed_type": seed_type,
+                    "seed_value": seed_value,
+                    "resolved_project_key": project_key,
+                    "match_kind": match_kind,
+                }
+            )
+
+        service_roots_by_host: dict[str, str] = {}
+        for item in actionable:
+            if str(item.get("seed_type") or "") != "service_url":
+                continue
+            seed_value = str(item.get("seed_value") or "")
+            parsed = urllib.parse.urlparse(seed_value)
+            if parsed.path in {"", "/"}:
+                service_roots_by_host[parsed.netloc.lower()] = seed_value
+        if service_roots_by_host:
+            filtered_actionable: list[dict[str, Any]] = []
+            for item in actionable:
+                if str(item.get("seed_type") or "") != "service_url":
+                    filtered_actionable.append(item)
+                    continue
+                seed_value = str(item.get("seed_value") or "")
+                parsed = urllib.parse.urlparse(seed_value)
+                root_value = service_roots_by_host.get(parsed.netloc.lower())
+                if root_value and root_value != seed_value:
+                    skipped.append(
+                        {
+                            "raw_value": item.get("raw_value", ""),
+                            "status": "skip",
+                            "reason": "service_subpage_with_same_host",
+                            "normalized": seed_value,
+                        }
+                    )
+                    skipped_seeds += 1
+                    continue
+                filtered_actionable.append(item)
+            actionable = filtered_actionable
+
+        if any(str(item.get("reference_reason") or "") == "pdsls_collection_reference_url" for item in actionable):
+            filtered_actionable = []
+            for item in actionable:
+                seed_type = str(item.get("seed_type") or "")
+                seed_value = str(item.get("seed_value") or "")
+                parsed = urllib.parse.urlparse(seed_value) if seed_value.startswith("http") else None
+                if seed_type == "service_url" and parsed and parsed.netloc.lower() in project_record.PDSLS_VIEWER_HOSTS:
+                    skipped.append(
+                        {
+                            "raw_value": item.get("raw_value", ""),
+                            "status": "skip",
+                            "reason": "pdsls_viewer_bundle_context",
+                            "normalized": seed_value,
+                        }
+                    )
+                    skipped_seeds += 1
+                    continue
+                if seed_type == "service_url" and parsed and parsed.netloc.lower() in project_record.PDSLS_HOSTS:
+                    skipped.append(
+                        {
+                            "raw_value": item.get("raw_value", ""),
+                            "status": "skip",
+                            "reason": "pdsls_service_bundle_context",
+                            "normalized": seed_value,
+                        }
+                    )
+                    skipped_seeds += 1
+                    continue
+                if seed_type == "repo_url" and repo_url_core.canonical_repo_url(seed_value) == "https://github.com/notjuliet/pdsls":
+                    skipped.append(
+                        {
+                            "raw_value": item.get("raw_value", ""),
+                            "status": "skip",
+                            "reason": "pdsls_repo_bundle_context",
+                            "normalized": seed_value,
+                        }
+                    )
+                    skipped_seeds += 1
+                    continue
+                filtered_actionable.append(item)
+            actionable = filtered_actionable
+
+        resolved_keys = sorted({str(item.get("resolved_project_key") or "") for item in actionable if item.get("resolved_project_key")})
+        conflict = len(resolved_keys) > 1
+        if conflict:
+            conflict_bundles += 1
+        target_project_key = resolved_keys[0] if len(resolved_keys) == 1 else None
+        created_project_key = ""
+        if execute and actionable and not conflict:
+            first = actionable[0]
+            project = ensure_project_for_seed(
+                conn,
+                str(first["seed_type"]),
+                str(first["seed_value"]),
+                project_key=target_project_key,
+            )
+            for item in actionable[1:]:
+                project = ensure_project_for_seed(
+                    conn,
+                    str(item["seed_type"]),
+                    str(item["seed_value"]),
+                    project_key=project["project_key"],
+                )
+            project = project_record.ensure_project_shape(project)
+            project["discovery_sources"] = project_record.add_unique(project.get("discovery_sources", []), "text_seed_list_import")
+            source_note = f"imported from text seed list: {Path(path).name}"
+            project_record.append_system_note(project, source_note)
+            if section:
+                project_record.append_system_note(project, f"seed-list section: {section}")
+            if label:
+                project_record.append_system_note(project, f"seed-list note: {label}")
+            project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+            created_project_key = project["project_key"]
+            imported_projects += 1
+            imported_seeds += len(actionable)
+
+        summary_bundles.append(
+            {
+                "section": section,
+                "label": label,
+                "line_numbers": line_numbers,
+                "actionable_seeds": actionable,
+                "skipped_items": skipped,
+                "resolved_project_keys": resolved_keys,
+                "conflict_existing_projects": conflict,
+                "imported_project_key": created_project_key or target_project_key or "",
+            }
+        )
+
+    if execute:
+        conn.commit()
+    return {
+        "mode": "execute" if execute else "dry_run",
+        "path": str(path),
+        "bundle_count": len(summary_bundles),
+        "imported_projects": imported_projects,
+        "imported_seeds": imported_seeds,
+        "skipped_seeds": skipped_seeds,
+        "conflict_bundles": conflict_bundles,
+        "bundles": summary_bundles,
     }

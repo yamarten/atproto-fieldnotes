@@ -119,7 +119,7 @@ class ProjectRegistryIdentifierHelperTest(unittest.TestCase):
     def test_text_seed_and_lexicon_detection_accept_case_sensitive_nsid(self) -> None:
         nsid = "com.bartenderSky.preferences.profileMusic"
 
-        self.assertEqual(registry.parse_text_seed_line_values(nsid), [nsid])
+        self.assertEqual(source_sync.parse_text_seed_line_values(nsid), [nsid])
         self.assertTrue(
             repository_material.repo_json_looks_like_lexicon(
                 "lexicons/com/bartenderSky/preferences/profileMusic.json",

@@ -69,7 +69,7 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 | `commands/` | CLI引数・出力。queueの対話は`queue_interaction.py`、stalled/ignore/out-of-scopeは`review.py` |
 | `application/` | CLI/Web共通service。`argparse.Namespace`やstdoutへ依存しない |
 | `jobs.py` / `worker.py` | request/event/resultと協調的中断。workerはstdinの`OperationRequest`を実行しJSON Linesを返す |
-| `application/sync.py` / `source_sync.py` | source別取得、watermark、既存projectへの接続 |
+| `application/sync.py` / `source_sync.py` | source別取得、watermark、既存projectへの接続。テキストシードの解析・参照先解決・取り込みも`source_sync.py`が担当 |
 | `application/publications.py` / `publication_registry.py` | [Lexicon公開情報](specs/lexicon-publication-catalog.md)の取得・検証、保存、project候補への照合 |
 | `publication_verification.py` | syncとenrichの検証結果保存。公開本文・観測時刻の照合と調査保存への接続 |
 | `introduced_review.py` | 紹介投稿のURL別要確認・手動解消。判断はqueryの`sync_state`、紹介URLはproject本体へ保存 |

@@ -2788,3 +2788,10 @@ def seed_value_identity_tokens(raw_value: str) -> set[str]:
         tokens.add(identifier_core.normalize_alias_token(repo_segments[-1]))
         tokens.add(identifier_core.normalize_alias_token(repo_segments[0]))
     return {token for token in tokens if token}
+
+
+def append_system_note(project: dict[str, Any], note_line: str) -> None:
+    line = str(note_line or "").strip()
+    if not line:
+        return
+    project["system_notes"] = unique_list(list(project.get("system_notes", [])) + [line])
