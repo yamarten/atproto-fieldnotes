@@ -2653,3 +2653,138 @@ def manual_seed_values(project: dict[str, Any], seed_type: str) -> list[str]:
         else:
             values.append(raw)
     return unique_list(values)
+
+
+def project_identity_anchor_tokens(project: dict[str, Any]) -> set[str]:
+    tokens: set[str] = set()
+    seed_type = str(project.get("seed_type") or "").strip()
+    seed_value = str(project.get("seed_value") or "").strip()
+    if seed_type == "nsid":
+        normalized = identifier_core.normalize_nsid(seed_value)
+        if normalized:
+            combined = identifier_core.normalize_alias_token(normalized)
+            if combined:
+                tokens.add(combined)
+            authority = identifier_core.derive_authority_domain(normalized)
+            if authority:
+                authority_token = identifier_core.normalize_alias_token(authority)
+                if authority_token:
+                    tokens.add(authority_token)
+                root_token = identifier_core.normalize_alias_token(domain_policy_core.root_domain(authority))
+                if root_token:
+                    tokens.add(root_token)
+    elif seed_type in {"service_url", "repo_url"}:
+        seed_url = identifier_core.normalize_url(seed_value) or repo_url_core.canonical_repo_url(seed_value)
+        if seed_url:
+            host = urllib.parse.urlparse(seed_url).netloc.lower()
+            if host:
+                host_token = identifier_core.normalize_alias_token(host)
+                if host_token:
+                    tokens.add(host_token)
+                root_token = identifier_core.normalize_alias_token(domain_policy_core.root_domain(host))
+                if root_token:
+                    tokens.add(root_token)
+            path = urllib.parse.urlparse(seed_url).path.strip("/")
+            for segment in path.split("/"):
+                token = identifier_core.normalize_alias_token(segment)
+                if token:
+                    tokens.add(token)
+    for url in manual_seed_values(project, "repo_url") + project.get("project_repository_urls", []):
+        repo_url = repo_url_core.canonical_repo_url(str(url or ""))
+        if not repo_url:
+            continue
+        parsed = urllib.parse.urlparse(repo_url)
+        path_segments = [segment for segment in parsed.path.strip("/").split("/") if segment]
+        for segment in path_segments[:2]:
+            token = identifier_core.normalize_alias_token(segment)
+            if token:
+                tokens.add(token)
+    for host in ownership_anchor_service_hosts(project):
+        host_token = identifier_core.normalize_alias_token(host)
+        if host_token:
+            tokens.add(host_token)
+        root_token = identifier_core.normalize_alias_token(domain_policy_core.root_domain(host))
+        if root_token:
+            tokens.add(root_token)
+        for segment in host.split("."):
+            token = identifier_core.normalize_alias_token(segment)
+            if token:
+                tokens.add(token)
+    for value in [project.get("name"), project.get("website_url"), project.get("brand_did")]:
+        token = identifier_core.normalize_alias_token(str(value or ""))
+        if token:
+            tokens.add(token)
+    return tokens
+
+
+def project_trusted_identity_tokens(project: dict[str, Any]) -> set[str]:
+    tokens: set[str] = set()
+    raw_values = [
+        str(project.get("seed_value") or ""),
+        *[str(item.get("value") or "") for item in project.get("manual_seeds", []) if isinstance(item, dict)],
+        *[str(item or "") for item in project.get("input_nsids", [])],
+        *[str(item or "") for item in project.get("resolved_nsids", [])],
+        *[str(item or "") for item in project.get("authority_domains", [])],
+        *[str(item or "") for item in project.get("project_repository_urls", [])],
+    ]
+    for raw_value in raw_values:
+        lowered = str(raw_value or "").strip().lower()
+        if not lowered:
+            continue
+        tokens.update(seed_value_identity_tokens(lowered))
+        if lowered.startswith("http"):
+            parsed = urllib.parse.urlparse(identifier_core.normalize_url(lowered))
+            host = parsed.netloc.lower()
+            if host:
+                tokens.add(identifier_core.normalize_alias_token(host.split(".", 1)[0]))
+                segments = [segment for segment in parsed.path.split("/") if segment]
+                if segments:
+                    tokens.add(identifier_core.normalize_alias_token(segments[-1]))
+    return {token for token in tokens if token}
+
+
+def add_candidate_text(project: dict[str, Any], field_name: str, value: str, source: str) -> None:
+    value = value.strip()
+    if not value:
+        return
+    key = f"{field_name}_candidates"
+    candidates = project.get(key, [])
+    if any(item.get("value") == value and item.get("source") == source for item in candidates):
+        return
+    candidates.append({
+        "value": value,
+        "source": source,
+        "status": "candidate",
+        "added_at": iso_now(),
+    })
+    project[key] = candidates
+
+
+def seed_value_identity_tokens(raw_value: str) -> set[str]:
+    value = str(raw_value or "").strip()
+    if not value:
+        return set()
+    nsid = extract_collection_nsid(value)
+    if nsid:
+        parts = [part for part in nsid.split(".") if part]
+        tokens = {identifier_core.normalize_alias_token(nsid), identifier_core.normalize_alias_token(parts[-1])}
+        if len(parts) >= 2:
+            tokens.add(identifier_core.normalize_alias_token(parts[-2]))
+        return {token for token in tokens if token}
+    parsed = urllib.parse.urlparse(identifier_core.normalize_url(value))
+    host = parsed.netloc.lower()
+    tokens: set[str] = set()
+    if host:
+        tokens.add(identifier_core.normalize_alias_token(host))
+        host_parts = [part for part in host.split(".") if part]
+        if host_parts:
+            tokens.add(identifier_core.normalize_alias_token(host_parts[0]))
+            if len(host_parts) >= 2:
+                tokens.add(identifier_core.normalize_alias_token("".join(host_parts[:-1])))
+    repo_url = repo_url_core.canonical_repo_url(value)
+    repo_parsed = urllib.parse.urlparse(repo_url)
+    repo_segments = [segment for segment in repo_parsed.path.split("/") if segment]
+    if len(repo_segments) >= 2:
+        tokens.add(identifier_core.normalize_alias_token(repo_segments[-1]))
+        tokens.add(identifier_core.normalize_alias_token(repo_segments[0]))
+    return {token for token in tokens if token}

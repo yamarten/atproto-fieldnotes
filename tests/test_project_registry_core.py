@@ -583,10 +583,10 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
             name="Error",
         )
 
-        values = [item["value"] for item in registry.current_name_candidates(project)]
+        values = [item["value"] for item in naming_core.current_name_candidates(project)]
 
         self.assertEqual(values, ["Example"])
-        self.assertEqual(registry.choose_best_project_name(project), "Example")
+        self.assertEqual(naming_core.choose_best_project_name(project), "Example")
 
     def test_bluesky_title_is_kept_when_source_host_supports_it(self) -> None:
         project = self.project_with_candidates(
@@ -596,10 +596,10 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
             ]
         )
 
-        values = [item["value"] for item in registry.current_name_candidates(project)]
+        values = [item["value"] for item in naming_core.current_name_candidates(project)]
 
         self.assertEqual(values, ["Bluesky", "Bluesky"])
-        self.assertEqual(registry.choose_best_project_name(project), "Bluesky")
+        self.assertEqual(naming_core.choose_best_project_name(project), "Bluesky")
 
     def test_generic_platform_names_without_source_identity_are_filtered(self) -> None:
         project = self.project_with_candidates(
@@ -611,7 +611,7 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
             ]
         )
 
-        values = [item["value"] for item in registry.current_name_candidates(project)]
+        values = [item["value"] for item in naming_core.current_name_candidates(project)]
 
         self.assertEqual(values, ["Specific Tool"])
 
@@ -623,7 +623,7 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(registry.choose_best_project_name(project), "atproto-visualizers")
+        self.assertEqual(naming_core.choose_best_project_name(project), "atproto-visualizers")
 
     def test_operator_edited_name_outranks_generated_candidates(self) -> None:
         project = self.project_with_candidates(
@@ -634,7 +634,7 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(registry.choose_best_project_name(project), "mastrojs/atproto")
+        self.assertEqual(naming_core.choose_best_project_name(project), "mastrojs/atproto")
 
     def test_successful_llm_review_replaces_previous_llm_name_candidate(self) -> None:
         project = self.project_with_candidates(
@@ -693,10 +693,10 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
         )
         project["authority_domains"] = ["relay.app"]
 
-        values = [item["value"] for item in registry.current_name_candidates(project)]
+        values = [item["value"] for item in naming_core.current_name_candidates(project)]
 
         self.assertEqual(values, ["relay.app", "relay.app", "relay.app"])
-        self.assertEqual(registry.choose_best_project_name(project), "relay.app")
+        self.assertEqual(naming_core.choose_best_project_name(project), "relay.app")
 
     def test_nsid_authority_title_unrelated_to_seed_is_filtered(self) -> None:
         project = self.project_with_candidates(
@@ -712,10 +712,10 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
         project["input_nsids"] = ["com.hectorsector.book.status"]
         project["authority_domains"] = ["book.hectorsector.com"]
 
-        values = [item["value"] for item in registry.current_name_candidates(project)]
+        values = [item["value"] for item in naming_core.current_name_candidates(project)]
 
         self.assertEqual(values, ["status"])
-        self.assertEqual(registry.choose_best_project_name(project), "status")
+        self.assertEqual(naming_core.choose_best_project_name(project), "status")
 
     def test_nsid_authority_title_filters_copied_llm_output(self) -> None:
         project = self.project_with_candidates(
@@ -731,10 +731,10 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
         project["input_nsids"] = ["zip.meowing.isfox"]
         project["authority_domains"] = ["meowing.zip"]
 
-        values = [item["value"] for item in registry.current_name_candidates(project)]
+        values = [item["value"] for item in naming_core.current_name_candidates(project)]
 
         self.assertEqual(values, ["meowing.zip"])
-        self.assertEqual(registry.choose_best_project_name(project), "meowing.zip")
+        self.assertEqual(naming_core.choose_best_project_name(project), "meowing.zip")
 
     def test_nsid_authority_title_matching_seed_token_is_kept(self) -> None:
         project = self.project_with_candidates(
@@ -747,7 +747,7 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
         project["input_nsids"] = ["com.hectorsector.book.status"]
         project["authority_domains"] = ["book.hectorsector.com"]
 
-        self.assertEqual(registry.choose_best_project_name(project), "Book Status")
+        self.assertEqual(naming_core.choose_best_project_name(project), "Book Status")
 
     def test_confirmed_service_title_is_not_filtered_as_nsid_authority_guess(self) -> None:
         project = self.project_with_candidates(
@@ -762,7 +762,7 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
         project["input_nsids"] = ["press.sepia.app.prefs"]
         project["supported_service_urls"] = ["https://sepia.press"]
 
-        self.assertEqual(registry.choose_best_project_name(project), "Sepia")
+        self.assertEqual(naming_core.choose_best_project_name(project), "Sepia")
 
     def test_generic_navigation_titles_from_pages_are_filtered(self) -> None:
         project = self.project_with_candidates(
@@ -778,10 +778,10 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
         project["input_nsids"] = ["zip.meowing.isfox"]
         project["authority_domains"] = ["meowing.zip"]
 
-        values = [item["value"] for item in registry.current_name_candidates(project)]
+        values = [item["value"] for item in naming_core.current_name_candidates(project)]
 
         self.assertEqual(values, ["meowing.zip"])
-        self.assertEqual(registry.choose_best_project_name(project), "meowing.zip")
+        self.assertEqual(naming_core.choose_best_project_name(project), "meowing.zip")
 
     def test_generic_navigation_title_from_repo_source_is_kept(self) -> None:
         project = self.project_with_candidates(
@@ -790,7 +790,7 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(registry.choose_best_project_name(project), "home")
+        self.assertEqual(naming_core.choose_best_project_name(project), "home")
 
     def test_weak_service_page_title_is_filtered_by_identity_ratio(self) -> None:
         project = self.project_with_candidates(
@@ -808,10 +808,10 @@ class ProjectRegistryNameCandidateTest(unittest.TestCase):
         project["authority_domains"] = ["marketplace.atprotomkt.app", "marketplace.openmkt.app"]
         project["project_repository_urls"] = ["https://github.com/openmkt-app/marketplace"]
 
-        values = [item["value"] for item in registry.current_name_candidates(project)]
+        values = [item["value"] for item in naming_core.current_name_candidates(project)]
 
         self.assertEqual(values, ["marketplace", "Open Market"])
-        self.assertEqual(registry.choose_best_project_name(project), "Open Market")
+        self.assertEqual(naming_core.choose_best_project_name(project), "Open Market")
 
 
 class ProjectRegistryServiceStatusTest(unittest.TestCase):
@@ -2221,7 +2221,7 @@ class ProjectRegistryResourceUrlRecordTest(unittest.TestCase):
         project["name"] = "Example"
         project["candidate_project_repository_urls"] = ["https://github.com/candidate-owner/untrusted-repo-name"]
 
-        tokens = registry.project_identity_anchor_tokens(project)
+        tokens = project_record.project_identity_anchor_tokens(project)
 
         self.assertNotIn("candidateowner", tokens)
         self.assertNotIn("untrustedreponame", tokens)

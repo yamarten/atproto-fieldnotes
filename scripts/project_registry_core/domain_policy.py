@@ -233,3 +233,14 @@ def is_same_site_family(
     root_a = root_domain(host_a)
     root_b = root_domain(host_b)
     return bool(root_a and root_b and root_a == root_b)
+
+
+def candidate_service_origins_for_authority_domain(authority_domain: str) -> list[str]:
+    lowered = str(authority_domain or "").strip().lower().rstrip(".")
+    if not lowered:
+        return []
+    candidates = [f"https://{lowered}"]
+    registrable = root_domain(lowered)
+    if registrable and "." in registrable and registrable != lowered:
+        candidates.append(f"https://{registrable}")
+    return candidates

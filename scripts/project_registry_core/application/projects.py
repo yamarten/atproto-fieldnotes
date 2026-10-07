@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from project_registry_core import naming
+
 from .. import editorial
 
 import sqlite3
@@ -287,7 +289,7 @@ def apply_profile_edit(
             for item in project.get("name_candidates", [])
             if isinstance(item, dict) and str(item.get("source") or "") != "operator_edit"
         ]
-        core.add_name_candidate(project, preview["after"]["name"], "operator_edit")
+        naming.add_name_candidate(project, preview["after"]["name"], "operator_edit")
     project["name"] = preview["after"]["name"]
     project["notes"] = preview["after"]["notes"]
     project["introduced_url"] = preview["after"]["introduced_url"]

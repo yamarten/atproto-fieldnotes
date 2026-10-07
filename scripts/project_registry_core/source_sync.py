@@ -35,7 +35,6 @@ from project_registry_core.registry import (
     SEMBLE_API,
     SEMBLE_TRACKED_COLLECTIONS,
     activity_is_recent,
-    add_candidate_text,
     add_candidate_project_repository_url,
     add_candidate_url,
     add_collection_owned_nsid,
@@ -66,6 +65,7 @@ from project_registry_core.registry import (
     write_sync_state,
 )
 from project_registry_core.project_record import (
+    add_candidate_text,
     DID_RE,
     add_unique,
     default_project_record,

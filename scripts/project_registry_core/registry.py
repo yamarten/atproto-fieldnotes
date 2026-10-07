@@ -112,61 +112,6 @@ def load_config() -> dict[str, Any]:
     return json.loads(CONFIG_PATH.read_text())
 
 
-GENERIC_NSID_NAME_TOKENS = {
-    "app",
-    "client",
-    "collection",
-    "comment",
-    "entry",
-    "feed",
-    "item",
-    "object",
-    "page",
-    "post",
-    "profile",
-    "record",
-    "test",
-}
-
-GENERIC_PLATFORM_NAME_VALUES = {
-    "atproto",
-    "bluesky",
-    "bsky",
-}
-
-GENERIC_PLATFORM_NAME_ALIASES = {
-    "atproto": {"atproto"},
-    "bluesky": {"bluesky", "bsky"},
-    "bsky": {"bluesky", "bsky"},
-}
-
-GENERIC_ERROR_PAGE_TITLE_VALUES = {
-    "access denied",
-    "bad gateway",
-    "error",
-    "forbidden",
-    "gateway timeout",
-    "not found",
-    "service unavailable",
-    "unauthorized",
-}
-
-GENERIC_NAVIGATION_PAGE_TITLE_VALUES = {
-    "about",
-    "blog",
-    "contact",
-    "docs",
-    "documentation",
-    "home",
-    "index",
-    "login",
-    "privacy",
-    "sign in",
-    "signin",
-    "terms",
-}
-
-
 URL_FIELD_INVENTORY: tuple[dict[str, str], ...] = (
     {"field": "website_url", "layer": "canonical", "role": "primary public website"},
     {"field": "introduced_url", "layer": "canonical", "role": "editorial introduction reference"},
@@ -199,17 +144,6 @@ def is_bsky_post_url(url: str) -> bool:
     return bool(re.match(r"^/profile/[^/]+/post/[^/]+$", parsed.path))
 
 
-def candidate_service_origins_for_authority_domain(authority_domain: str) -> list[str]:
-    lowered = str(authority_domain or "").strip().lower().rstrip(".")
-    if not lowered:
-        return []
-    candidates = [f"https://{lowered}"]
-    registrable = domain_policy_core.root_domain(lowered)
-    if registrable and "." in registrable and registrable != lowered:
-        candidates.append(f"https://{registrable}")
-    return project_record.unique_list(candidates)
-
-
 def exact_service_origin_for_authority_domain(authority_domain: str) -> str:
     lowered = str(authority_domain or "").strip().lower().rstrip(".")
     return f"https://{lowered}" if lowered else ""
@@ -239,7 +173,7 @@ def authority_probe_url_chains(project: dict[str, Any]) -> list[list[str]]:
         authority_domain = identifier_core.derive_authority_domain(nsid)
         chain = [
             identifier_core.normalize_url(url)
-            for url in candidate_service_origins_for_authority_domain(authority_domain)
+            for url in domain_policy_core.candidate_service_origins_for_authority_domain(authority_domain)
             if identifier_core.normalize_url(url)
         ]
         chain = [url for url in chain if url not in seen_urls]
@@ -349,7 +283,7 @@ def unverified_authority_service_guesses(project: dict[str, Any]) -> set[str]:
             continue
         guesses.update(
             candidate_url
-            for candidate_url in candidate_service_origins_for_authority_domain(authority_domain)
+            for candidate_url in domain_policy_core.candidate_service_origins_for_authority_domain(authority_domain)
             if identifier_core.normalize_url(candidate_url) not in supported_urls
             and not authority_service_candidate_has_record_url(project, candidate_url)
             and not authority_service_candidate_has_saved_probe_support(project, candidate_url)
@@ -413,18 +347,18 @@ def authority_service_candidate_has_saved_probe_support(project: dict[str, Any],
 
 
 def prunable_nsid_authority_service_guesses(project: dict[str, Any]) -> set[str]:
-    guesses = nsid_authority_service_origins(project)
+    guesses = naming_core.nsid_authority_service_origins(project)
     has_nsid_evidence = bool(
         any(identifier_core.normalize_nsid(str(item or "")) for item in project.get("input_nsids", []))
         or any(identifier_core.normalize_nsid(str(item or "")) for item in project.get("resolved_nsids", []))
     )
     if has_nsid_evidence:
         for authority_domain in project.get("authority_domains", []):
-            guesses.update(candidate_service_origins_for_authority_domain(str(authority_domain or "")))
+            guesses.update(domain_policy_core.candidate_service_origins_for_authority_domain(str(authority_domain or "")))
     for entry in project.get("lexicon_resolution_entries", []):
         if not isinstance(entry, dict):
             continue
-        guesses.update(candidate_service_origins_for_authority_domain(str(entry.get("authority_domain") or "")))
+        guesses.update(domain_policy_core.candidate_service_origins_for_authority_domain(str(entry.get("authority_domain") or "")))
     if not guesses:
         return set()
     manual_service_seed_urls = [
@@ -734,68 +668,6 @@ def nsid_is_builtin_reference(nsid: str) -> bool:
     if not normalized:
         return False
     return any(normalized.startswith(prefix) for prefix in project_record.builtin_lexicon_prefixes())
-
-
-def project_identity_anchor_tokens(project: dict[str, Any]) -> set[str]:
-    tokens: set[str] = set()
-    seed_type = str(project.get("seed_type") or "").strip()
-    seed_value = str(project.get("seed_value") or "").strip()
-    if seed_type == "nsid":
-        normalized = identifier_core.normalize_nsid(seed_value)
-        if normalized:
-            combined = identifier_core.normalize_alias_token(normalized)
-            if combined:
-                tokens.add(combined)
-            authority = identifier_core.derive_authority_domain(normalized)
-            if authority:
-                authority_token = identifier_core.normalize_alias_token(authority)
-                if authority_token:
-                    tokens.add(authority_token)
-                root_token = identifier_core.normalize_alias_token(domain_policy_core.root_domain(authority))
-                if root_token:
-                    tokens.add(root_token)
-    elif seed_type in {"service_url", "repo_url"}:
-        seed_url = identifier_core.normalize_url(seed_value) or repo_url_core.canonical_repo_url(seed_value)
-        if seed_url:
-            host = urllib.parse.urlparse(seed_url).netloc.lower()
-            if host:
-                host_token = identifier_core.normalize_alias_token(host)
-                if host_token:
-                    tokens.add(host_token)
-                root_token = identifier_core.normalize_alias_token(domain_policy_core.root_domain(host))
-                if root_token:
-                    tokens.add(root_token)
-            path = urllib.parse.urlparse(seed_url).path.strip("/")
-            for segment in path.split("/"):
-                token = identifier_core.normalize_alias_token(segment)
-                if token:
-                    tokens.add(token)
-    for url in project_record.manual_seed_values(project, "repo_url") + project.get("project_repository_urls", []):
-        repo_url = repo_url_core.canonical_repo_url(str(url or ""))
-        if not repo_url:
-            continue
-        parsed = urllib.parse.urlparse(repo_url)
-        path_segments = [segment for segment in parsed.path.strip("/").split("/") if segment]
-        for segment in path_segments[:2]:
-            token = identifier_core.normalize_alias_token(segment)
-            if token:
-                tokens.add(token)
-    for host in project_record.ownership_anchor_service_hosts(project):
-        host_token = identifier_core.normalize_alias_token(host)
-        if host_token:
-            tokens.add(host_token)
-        root_token = identifier_core.normalize_alias_token(domain_policy_core.root_domain(host))
-        if root_token:
-            tokens.add(root_token)
-        for segment in host.split("."):
-            token = identifier_core.normalize_alias_token(segment)
-            if token:
-                tokens.add(token)
-    for value in [project.get("name"), project.get("website_url"), project.get("brand_did")]:
-        token = identifier_core.normalize_alias_token(str(value or ""))
-        if token:
-            tokens.add(token)
-    return tokens
 
 
 def confirmed_developer_handles(project: dict[str, Any]) -> set[str]:
@@ -1116,27 +988,6 @@ def project_normalized_child_projection(project: dict[str, Any]) -> dict[str, An
 def current_confirmed_nsids(project: dict[str, Any]) -> list[str]:
     return project_record.unique_list([identifier_core.normalize_nsid(str(item or "")) for item in project.get("resolved_nsids", []) if identifier_core.normalize_nsid(str(item or ""))])
 
-def name_is_safe_for_record(project: dict[str, Any]) -> bool:
-    name = str(project.get("name") or "").strip()
-    if not name:
-        return False
-    normalized_name = identifier_core.normalize_alias_token(name)
-    if not normalized_name:
-        return False
-    llm_output = project.get("llm_output") if isinstance(project.get("llm_output"), dict) else {}
-    if isinstance(llm_output, dict) and str(llm_output.get("name") or "").strip() == name:
-        return True
-    if project.get("website_url") or project.get("project_repository_urls"):
-        nsid_tails = {
-            identifier_core.normalize_alias_token(str(item or "").split(".")[-1])
-            for item in list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", []))
-            if str(item or "").strip()
-        }
-        if normalized_name in GENERIC_NSID_NAME_TOKENS and normalized_name in nsid_tails:
-            return False
-        return True
-    return False
-
 
 def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     shaped: dict[str, Any] = {
@@ -1433,14 +1284,14 @@ def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: s
             normalized = identifier_core.normalize_url(seed_value)
             add_candidate_url(project, "service_url", normalized)
             project["evidence_urls"] = project_record.add_unique(project.get("evidence_urls", []), normalized)
-            add_name_candidate(project, naming_core.service_seed_name_hint(normalized), f"seed:service_url:{normalized}")
+            naming_core.add_name_candidate(project, naming_core.service_seed_name_hint(normalized), f"seed:service_url:{normalized}")
             return
         project["project_repository_urls"] = project_record.add_unique(project.get("project_repository_urls", []), normalized)
         project["evidence_urls"] = project_record.add_unique(project.get("evidence_urls", []), normalized)
         parsed = urllib.parse.urlparse(normalized)
         segments = [segment for segment in parsed.path.split("/") if segment]
         if segments:
-            add_name_candidate(project, segments[-1], f"seed:repo_url:{normalized}")
+            naming_core.add_name_candidate(project, segments[-1], f"seed:repo_url:{normalized}")
     elif seed_type == "service_url":
         normalized = project_record.normalize_confirmed_service_url(seed_value)
         if normalized:
@@ -1454,7 +1305,7 @@ def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: s
                 ],
             )
             project["evidence_urls"] = project_record.add_unique(project.get("evidence_urls", []), normalized)
-            add_name_candidate(project, naming_core.service_seed_name_hint(normalized), f"seed:service_url:{normalized}")
+            naming_core.add_name_candidate(project, naming_core.service_seed_name_hint(normalized), f"seed:service_url:{normalized}")
     elif seed_type == "did":
         normalized = str(seed_value or "").strip()
         if normalized:
@@ -1474,7 +1325,7 @@ def apply_seed_to_project(project: dict[str, Any], seed_type: str, seed_value: s
         normalized = identifier_core.normalize_url(seed_value)
         add_candidate_url(project, "service_url", normalized)
         project["evidence_urls"] = project_record.add_unique(project.get("evidence_urls", []), normalized)
-        add_name_candidate(project, naming_core.service_seed_name_hint(normalized), f"seed:service_url:{normalized}")
+        naming_core.add_name_candidate(project, naming_core.service_seed_name_hint(normalized), f"seed:service_url:{normalized}")
 
 def project_collision_identifiers(project: dict[str, Any]) -> set[tuple[str, str]]:
     identifiers: set[tuple[str, str]] = set()
@@ -2602,387 +2453,8 @@ class HrefHTMLParser(HTMLParser):
             self.hrefs.append(str(href))
 
 
-def add_name_candidate(project: dict[str, Any], value: str, source: str) -> None:
-    normalized = naming_core.normalize_name_candidate(value)
-    if not normalized:
-        return
-    add_candidate_text(project, "name", normalized, source)
-
-
-def sync_current_llm_name_candidate(project: dict[str, Any]) -> None:
-    llm_output = project.get("llm_output") if isinstance(project.get("llm_output"), dict) else {}
-    current_name = naming_core.normalize_name_candidate(str(llm_output.get("name") or ""))
-    retained = [
-        dict(item)
-        for item in project.get("name_candidates", [])
-        if isinstance(item, dict) and str(item.get("source") or "") != "llm_output"
-    ]
-    current_candidate = next(
-        (
-            dict(item)
-            for item in project.get("name_candidates", [])
-            if isinstance(item, dict)
-            and str(item.get("source") or "") == "llm_output"
-            and naming_core.normalize_name_candidate(str(item.get("value") or "")) == current_name
-        ),
-        None,
-    )
-    project["name_candidates"] = retained
-    if not current_name:
-        return
-    if current_candidate is not None:
-        current_candidate["value"] = current_name
-        project["name_candidates"].append(current_candidate)
-        return
-    add_name_candidate(project, current_name, "llm_output")
-
-
-def nsid_authority_service_origins(project: dict[str, Any]) -> set[str]:
-    origins: set[str] = set()
-    nsids = project_record.unique_list(
-        [str(item or "") for item in project.get("input_nsids", [])]
-        + [str(item or "") for item in project.get("resolved_nsids", [])]
-    )
-    for raw_nsid in nsids:
-        nsid = identifier_core.normalize_nsid(raw_nsid)
-        authority_domain = identifier_core.derive_authority_domain(nsid)
-        if not authority_domain:
-            continue
-        origins.update(candidate_service_origins_for_authority_domain(authority_domain))
-    return {identifier_core.normalize_url(url) for url in origins if identifier_core.normalize_url(url)}
-
-
-def nsid_seed_name_tokens(project: dict[str, Any]) -> set[str]:
-    tokens: set[str] = set()
-    nsids = project_record.unique_list(
-        [str(item or "") for item in project.get("input_nsids", [])]
-        + [str(item or "") for item in project.get("resolved_nsids", [])]
-    )
-    for raw_nsid in nsids:
-        nsid = identifier_core.normalize_nsid(raw_nsid)
-        if not nsid:
-            continue
-        tokens.update(seed_value_identity_tokens(nsid))
-    return {token for token in tokens if token and len(token) >= 4 and token not in GENERIC_NSID_NAME_TOKENS}
-
-
-def name_value_matches_nsid_seed(project: dict[str, Any], value: str) -> bool:
-    compact = identifier_core.normalize_alias_token(naming_core.clean_title(value))
-    if not compact:
-        return False
-    return any(token in compact for token in nsid_seed_name_tokens(project))
-
-
-def unsupported_nsid_authority_title_candidate(project: dict[str, Any], value: str, source: str) -> bool:
-    source_url = naming_core.source_url(source)
-    if not source_url or source_url not in nsid_authority_service_origins(project):
-        return False
-    supported_service_urls = {
-        identifier_core.normalize_url(str(url or ""))
-        for url in project.get("supported_service_urls", [])
-        if identifier_core.normalize_url(str(url or ""))
-    }
-    if identifier_core.normalize_url(source_url) in supported_service_urls:
-        return False
-    return not name_value_matches_nsid_seed(project, value)
-
-
-def value_matches_unsupported_nsid_authority_title(project: dict[str, Any], value: str) -> bool:
-    normalized_value = naming_core.normalize_name_candidate(value)
-    if not normalized_value:
-        return False
-    for item in project.get("name_candidates", []):
-        if not isinstance(item, dict):
-            continue
-        source = str(item.get("source") or "").strip()
-        raw_value = str(item.get("value") or "")
-        if not unsupported_nsid_authority_title_candidate(project, raw_value, source):
-            continue
-        if naming_core.normalize_name_candidate(raw_value) == normalized_value:
-            return True
-    return False
-
-
-def generic_error_page_title_candidate(value: str, source: str) -> bool:
-    lowered = naming_core.normalize_name_candidate(value).lower()
-    if lowered in GENERIC_ERROR_PAGE_TITLE_VALUES:
-        return source == "existing_name" or source.startswith("service_title:") or source.startswith("resource_title:")
-    return bool(re.fullmatch(r"(?:[45]\d\d\s+)?(?:error|not found|forbidden|unauthorized)", lowered))
-
-
-def generic_navigation_page_title_candidate(value: str, source: str) -> bool:
-    lowered = naming_core.normalize_name_candidate(value).lower()
-    if lowered not in GENERIC_NAVIGATION_PAGE_TITLE_VALUES:
-        return False
-    return source == "existing_name" or source.startswith("service_title:") or source.startswith("resource_title:")
-
-
-def value_matches_generic_navigation_title(project: dict[str, Any], value: str) -> bool:
-    normalized_value = naming_core.normalize_name_candidate(value)
-    if not normalized_value:
-        return False
-    for item in project.get("name_candidates", []):
-        if not isinstance(item, dict):
-            continue
-        source = str(item.get("source") or "").strip()
-        raw_value = str(item.get("value") or "")
-        if not generic_navigation_page_title_candidate(raw_value, source):
-            continue
-        if naming_core.normalize_name_candidate(raw_value) == normalized_value:
-            return True
-    return False
-
-
-def title_identity_parts(value: str) -> set[str]:
-    parts = {
-        identifier_core.normalize_alias_token(part)
-        for part in re.split(r"[\s./:_-]+", naming_core.clean_title(value))
-        if part.strip()
-    }
-    return {token for token in parts if token and len(token) >= 4}
-
-
-def service_title_matches_project_identity(project: dict[str, Any], value: str, source: str) -> bool:
-    if generic_platform_name_supported_by_source(value, source):
-        return True
-    title_parts = title_identity_parts(value)
-    if not title_parts:
-        return False
-    identity_tokens = set(project_trusted_identity_tokens(project))
-    expanded_identity: set[str] = set()
-    for token in identity_tokens:
-        if not token:
-            continue
-        expanded_identity.add(token)
-        if len(token) > 4 and token.endswith("s"):
-            expanded_identity.add(token[:-1])
-    identity_tokens = {token for token in expanded_identity if token and len(token) >= 4}
-    if not identity_tokens:
-        return False
-    if identifier_core.normalize_alias_token(value) in identity_tokens:
-        return True
-    matched = {
-        token
-        for token in title_parts
-        if token in identity_tokens or (len(token) > 4 and token.endswith("s") and token[:-1] in identity_tokens)
-    }
-    if not matched:
-        return False
-    return len(matched) / len(title_parts) >= 0.66
-
-
-def weak_service_page_title_candidate(project: dict[str, Any], value: str, source: str) -> bool:
-    if not (source.startswith("service_title:") or source.startswith("resource_title:")):
-        return False
-    return not service_title_matches_project_identity(project, value, source)
-
-
-def value_matches_weak_service_page_title(project: dict[str, Any], value: str) -> bool:
-    normalized_value = naming_core.normalize_name_candidate(value)
-    if not normalized_value:
-        return False
-    for item in project.get("name_candidates", []):
-        if not isinstance(item, dict):
-            continue
-        source = str(item.get("source") or "").strip()
-        raw_value = str(item.get("value") or "")
-        if not weak_service_page_title_candidate(project, raw_value, source):
-            continue
-        if naming_core.normalize_name_candidate(raw_value) == normalized_value:
-            return True
-    return False
-
-
-def generic_platform_name_supported_by_source(value: str, source: str) -> bool:
-    normalized = naming_core.normalize_name_candidate(value).lower()
-    aliases = GENERIC_PLATFORM_NAME_ALIASES.get(normalized, {normalized})
-    source_url = naming_core.source_url(source)
-    if not source_url:
-        return False
-    parsed = urllib.parse.urlparse(source_url)
-    host = parsed.netloc.lower()
-    host_labels = {part for part in host.split(".") if part}
-    host_tokens = {identifier_core.normalize_alias_token(host)}
-    host_tokens.update(identifier_core.normalize_alias_token(part) for part in host_labels)
-    return bool(aliases & {token for token in host_tokens if token})
-
-
-def generic_platform_name_candidate(project: dict[str, Any], value: str, source: str) -> bool:
-    normalized = naming_core.normalize_name_candidate(value).lower()
-    if normalized not in GENERIC_PLATFORM_NAME_VALUES:
-        return False
-    if not naming_core.source_is_service_or_discovery(source):
-        return False
-    if generic_platform_name_supported_by_source(value, source):
-        return False
-    repo_names = {
-        naming_core.normalize_name_candidate(urllib.parse.urlparse(url).path.rstrip("/").rsplit("/", 1)[-1]).lower()
-        for url in project_record.project_repository_url_values(project)
-        if urllib.parse.urlparse(identifier_core.normalize_url(str(url or ""))).path.rstrip("/")
-    }
-    return normalized not in repo_names
-
-
-def current_name_candidates(project: dict[str, Any]) -> list[dict[str, str]]:
-    candidates: list[dict[str, str]] = []
-    seen: set[tuple[str, str]] = set()
-    current_name = naming_core.normalize_name_candidate(naming_core.clean_title(str(project.get("name") or "")))
-    if (
-        current_name
-        and not weak_nsid_derived_name(project, current_name)
-        and not generic_error_page_title_candidate(current_name, "existing_name")
-        and not generic_navigation_page_title_candidate(current_name, "existing_name")
-        and not value_matches_unsupported_nsid_authority_title(project, current_name)
-        and not value_matches_weak_service_page_title(project, current_name)
-    ):
-        candidates.append({"value": current_name, "source": "existing_name"})
-        seen.add((current_name, "existing_name"))
-    for item in project.get("name_candidates", []):
-        if not isinstance(item, dict):
-            continue
-        source = str(item.get("source") or "").strip()
-        raw_value = str(item.get("value") or "")
-        if source.startswith("service_title:") or source.startswith("resource_title:"):
-            raw_value = naming_core.clean_title(raw_value)
-        value = naming_core.normalize_name_candidate(raw_value)
-        if not value or not source:
-            continue
-        if not source.startswith("lexicon_name:") and weak_nsid_derived_name(project, value):
-            continue
-        if generic_error_page_title_candidate(value, source):
-            continue
-        if generic_navigation_page_title_candidate(value, source):
-            continue
-        if weak_service_page_title_candidate(project, value, source):
-            continue
-        if unsupported_nsid_authority_title_candidate(project, value, source):
-            continue
-        if source == "llm_output" and value_matches_unsupported_nsid_authority_title(project, value):
-            continue
-        if source == "llm_output" and value_matches_generic_navigation_title(project, value):
-            continue
-        if source == "llm_output" and value_matches_weak_service_page_title(project, value):
-            continue
-        if generic_platform_name_candidate(project, value, source):
-            continue
-        key = (value, source)
-        if key in seen:
-            continue
-        seen.add(key)
-        candidates.append({"value": value, "source": source})
-    return candidates
-
-
-def weak_nsid_derived_name(project: dict[str, Any], value: str) -> bool:
-    text = naming_core.normalize_name_candidate(value)
-    if not text:
-        return False
-    lowered = text.lower()
-    normalized_token = identifier_core.normalize_alias_token(text)
-    nsids = [
-        identifier_core.normalize_nsid(str(item or ""))
-        for item in list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", []))
-        if str(item or "").strip()
-    ]
-    if lowered in nsids:
-        return True
-    nsid_tails = {identifier_core.normalize_alias_token(item.split(".")[-1]) for item in nsids if item}
-    if normalized_token and normalized_token in nsid_tails and not name_is_safe_for_record(project):
-        return True
-    if normalized_token and normalized_token in nsid_tails and normalized_token in GENERIC_NSID_NAME_TOKENS:
-        return True
-    return False
-
-
-def name_candidate_score(project: dict[str, Any], candidate: dict[str, str]) -> tuple[int, int, int, int, str]:
-    value = naming_core.normalize_name_candidate(str(candidate.get("value") or ""))
-    source = str(candidate.get("source") or "")
-    lowered = value.lower()
-    normalized_token = identifier_core.normalize_alias_token(value)
-    source_rank = 10
-    if source == "operator_edit":
-        source_rank = 100
-    elif source.startswith("service_title:"):
-        source_rank = 90
-    elif source == "llm_output":
-        source_rank = 80
-    elif source.startswith("resource_title:"):
-        source_rank = 70
-    elif naming_core.source_is_repo(source):
-        source_rank = 60
-    elif source == "existing_name":
-        source_rank = 50
-    elif source.startswith("lexicon_name:"):
-        source_rank = 30
-    elif source.startswith("seed:"):
-        source_rank = 20
-
-    quality = 0
-    if " " in value:
-        quality += 6
-    if len(value) >= 4:
-        quality += 3
-    if len(value) > 40:
-        quality -= 4
-    if "." in lowered and " " not in value:
-        quality -= 8
-    if normalized_token in GENERIC_NSID_NAME_TOKENS:
-        quality -= 12
-    if lowered in GENERIC_PLATFORM_NAME_VALUES and not naming_core.source_is_repo(source):
-        quality -= 30
-    if naming_core.source_is_repo(source) and ("-" in value or "_" in value):
-        quality += 8
-
-    identity_bonus = 0
-    identity_tokens = project_identity_anchor_tokens(project)
-    if normalized_token and normalized_token in identity_tokens:
-        identity_bonus += 8
-    host_bonus = 0
-    for host in project_record.ownership_anchor_service_hosts(project):
-        host_token = identifier_core.normalize_alias_token(host)
-        if host_token and normalized_token and host_token == normalized_token:
-            host_bonus = 6
-            break
-
-    return (source_rank, identity_bonus, host_bonus, quality, value.lower())
-
-
-def choose_best_project_name(project: dict[str, Any]) -> str:
-    candidates = current_name_candidates(project)
-    if not candidates:
-        return ""
-    best = max(candidates, key=lambda item: name_candidate_score(project, item))
-    return naming_core.normalize_name_candidate(str(best.get("value") or ""))
-
-
-def project_trusted_identity_tokens(project: dict[str, Any]) -> set[str]:
-    tokens: set[str] = set()
-    raw_values = [
-        str(project.get("seed_value") or ""),
-        *[str(item.get("value") or "") for item in project.get("manual_seeds", []) if isinstance(item, dict)],
-        *[str(item or "") for item in project.get("input_nsids", [])],
-        *[str(item or "") for item in project.get("resolved_nsids", [])],
-        *[str(item or "") for item in project.get("authority_domains", [])],
-        *[str(item or "") for item in project.get("project_repository_urls", [])],
-    ]
-    for raw_value in raw_values:
-        lowered = str(raw_value or "").strip().lower()
-        if not lowered:
-            continue
-        tokens.update(seed_value_identity_tokens(lowered))
-        if lowered.startswith("http"):
-            parsed = urllib.parse.urlparse(identifier_core.normalize_url(lowered))
-            host = parsed.netloc.lower()
-            if host:
-                tokens.add(identifier_core.normalize_alias_token(host.split(".", 1)[0]))
-                segments = [segment for segment in parsed.path.split("/") if segment]
-                if segments:
-                    tokens.add(identifier_core.normalize_alias_token(segments[-1]))
-    return {token for token in tokens if token}
-
-
 def project_explicitly_targets_pdsls(project: dict[str, Any]) -> bool:
-    tokens = project_trusted_identity_tokens(project)
+    tokens = project_record.project_trusted_identity_tokens(project)
     return "pdsls" in tokens
 
 
@@ -3468,23 +2940,6 @@ def classify_official_link(base_url: str, url: str, text: str) -> str:
     if domain_policy_core.is_same_site_family(base_url, normalized):
         return "same_site"
     return "other"
-
-
-def add_candidate_text(project: dict[str, Any], field_name: str, value: str, source: str) -> None:
-    value = value.strip()
-    if not value:
-        return
-    key = f"{field_name}_candidates"
-    candidates = project.get(key, [])
-    if any(item.get("value") == value and item.get("source") == source for item in candidates):
-        return
-    candidates.append({
-        "value": value,
-        "source": source,
-        "status": "candidate",
-        "added_at": project_record.iso_now(),
-    })
-    project[key] = candidates
 
 
 def add_candidate_url(project: dict[str, Any], field_name: str, url: str) -> None:
@@ -6317,8 +5772,8 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
         ]
         project["input_nsids"] = project_record.add_unique(project.get("input_nsids", []), resolved_nsid)
     description = str(schema.get("description") or "")
-    add_candidate_text(project, "summary", description, f"lexicon:{resolved_nsid}")
-    add_candidate_text(project, "tagline", description, f"lexicon:{resolved_nsid}")
+    project_record.add_candidate_text(project, "summary", description, f"lexicon:{resolved_nsid}")
+    project_record.add_candidate_text(project, "tagline", description, f"lexicon:{resolved_nsid}")
     upsert_lexicon_schema_sample(project, resolved_nsid, schema if isinstance(schema, dict) else {})
     # All current candidates can now use the newly observed anchor. This also
     # makes the result independent of A/B collector application order.
@@ -6445,8 +5900,6 @@ def apply_github_repo_evidence(
             normalize_service_candidate_url=project_record.normalize_service_candidate_url,
             confirm_project_repository_url=confirm_project_repository_url,
             add_investigation_log=add_investigation_log,
-            add_name_candidate=add_name_candidate,
-            add_candidate_text=add_candidate_text,
             add_candidate_url=add_candidate_url,
             project_owned_lexicon_nsid=project_owned_lexicon_nsid,
             derive_authority_domain=identifier_core.derive_authority_domain,
@@ -6487,9 +5940,9 @@ def apply_service_probe_result(
     host = urllib.parse.urlparse(identifier_core.normalize_url(service_url)).netloc.lower()
     if supported:
         if title and host not in naming_core.GENERIC_PLATFORM_HOSTS:
-            add_name_candidate(project, title, f"service_title:{identifier_core.normalize_url(service_url)}")
-        add_candidate_text(project, "summary", description, f"service_meta:{identifier_core.normalize_url(service_url)}")
-        add_candidate_text(project, "tagline", description, f"service_meta:{identifier_core.normalize_url(service_url)}")
+            naming_core.add_name_candidate(project, title, f"service_title:{identifier_core.normalize_url(service_url)}")
+        project_record.add_candidate_text(project, "summary", description, f"service_meta:{identifier_core.normalize_url(service_url)}")
+        project_record.add_candidate_text(project, "tagline", description, f"service_meta:{identifier_core.normalize_url(service_url)}")
         observed_service_status = project_record.normalize_service_status(result.get("service_status"))
         observed_service_confidence = str(result.get("service_status_confidence") or "none")
         observed_service_evidence = list(result.get("service_status_evidence", []))
@@ -6843,11 +6296,11 @@ def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -
         title = naming_core.clean_title(result["title"])
         description = str(result.get("description") or "").strip()
         if title:
-            add_name_candidate(project, title, f"resource_title:{normalized_resource_url}")
-            add_candidate_text(project, "tagline", title, f"resource_meta:{normalized_resource_url}")
+            naming_core.add_name_candidate(project, title, f"resource_title:{normalized_resource_url}")
+            project_record.add_candidate_text(project, "tagline", title, f"resource_meta:{normalized_resource_url}")
         if description:
-            add_candidate_text(project, "summary", description, f"resource_meta:{normalized_resource_url}")
-            add_candidate_text(project, "tagline", description, f"resource_meta:{normalized_resource_url}")
+            project_record.add_candidate_text(project, "summary", description, f"resource_meta:{normalized_resource_url}")
+            project_record.add_candidate_text(project, "tagline", description, f"resource_meta:{normalized_resource_url}")
         add_investigation_log(
             project,
             "resource_probe",
@@ -6874,11 +6327,11 @@ def enrich_from_resource_pages(project: dict[str, Any], *, max_pages: int = 6) -
             nested_title = naming_core.clean_title(nested["title"])
             nested_description = str(nested.get("description") or "").strip()
             if nested_title:
-                add_name_candidate(project, nested_title, f"resource_title:{normalized_follow_url}")
-                add_candidate_text(project, "tagline", nested_title, f"resource_follow_up:{normalized_follow_url}")
+                naming_core.add_name_candidate(project, nested_title, f"resource_title:{normalized_follow_url}")
+                project_record.add_candidate_text(project, "tagline", nested_title, f"resource_follow_up:{normalized_follow_url}")
             if nested_description:
-                add_candidate_text(project, "summary", nested_description, f"resource_follow_up:{normalized_follow_url}")
-                add_candidate_text(project, "tagline", nested_description, f"resource_follow_up:{normalized_follow_url}")
+                project_record.add_candidate_text(project, "summary", nested_description, f"resource_follow_up:{normalized_follow_url}")
+                project_record.add_candidate_text(project, "tagline", nested_description, f"resource_follow_up:{normalized_follow_url}")
             collect_first_party_links(project, normalized_follow_url, nested.get("links", []), f"resource_follow_up:{normalized_follow_url}")
             add_investigation_log(
                 project,
@@ -7795,8 +7248,6 @@ def apply_tangled_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> N
             confirm_project_repository_url=confirm_project_repository_url,
             add_candidate_project_repository_url=add_candidate_project_repository_url,
             add_developer_account=lambda target, handle, source, did: project_record.add_developer_account(target, handle, source, did=did),
-            add_name_candidate=add_name_candidate,
-            add_candidate_text=add_candidate_text,
             add_candidate_url=add_candidate_url,
             normalize_service_candidate_url=project_record.normalize_service_candidate_url,
             record_trust_edge=project_record.record_trust_edge,
@@ -7890,14 +7341,14 @@ def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dic
     }
     project["last_llm_review_at"] = str(meta.get("generated_at") or project_record.iso_now())
     apply_repository_link_assessments(project, payload, evidence)
-    sync_current_llm_name_candidate(project)
+    naming_core.sync_current_llm_name_candidate(project)
     if payload.get("tagline"):
         explicit_provisional = payload.get("tagline_is_provisional")
         resolved_provisional = True if explicit_provisional is None else bool(explicit_provisional)
         add_tagline_candidate(project, str(payload.get("tagline") or ""), "llm_output", provisional=resolved_provisional)
     llm_summary = project_record.normalize_ja_en_mixed_spacing(str(payload.get("summary") or "").strip())
     if llm_summary:
-        add_candidate_text(project, "summary", llm_summary, "llm_output")
+        project_record.add_candidate_text(project, "summary", llm_summary, "llm_output")
     proposed = {}
     if payload.get("tagline"):
         proposed["tagline"] = normalize_tagline(str(payload["tagline"]))
@@ -10443,8 +9894,8 @@ def finalize_project_shape(project: dict[str, Any], *, restore_manual_repositori
     normalize_schema_definition_relations(project)
     apply_deferred_identifier_guards(project)
     url_alias_core.apply_url_aliases(project)
-    sync_current_llm_name_candidate(project)
-    chosen_name = choose_best_project_name(project)
+    naming_core.sync_current_llm_name_candidate(project)
+    chosen_name = naming_core.choose_best_project_name(project)
     if chosen_name:
         project["name"] = chosen_name
     if not project.get("name"):
@@ -11492,48 +10943,18 @@ def text_seed_label_tokens(label: str) -> set[str]:
     return {token for token in tokens if token}
 
 
-def seed_value_identity_tokens(raw_value: str) -> set[str]:
-    value = str(raw_value or "").strip()
-    if not value:
-        return set()
-    nsid = project_record.extract_collection_nsid(value)
-    if nsid:
-        parts = [part for part in nsid.split(".") if part]
-        tokens = {identifier_core.normalize_alias_token(nsid), identifier_core.normalize_alias_token(parts[-1])}
-        if len(parts) >= 2:
-            tokens.add(identifier_core.normalize_alias_token(parts[-2]))
-        return {token for token in tokens if token}
-    parsed = urllib.parse.urlparse(identifier_core.normalize_url(value))
-    host = parsed.netloc.lower()
-    tokens: set[str] = set()
-    if host:
-        tokens.add(identifier_core.normalize_alias_token(host))
-        host_parts = [part for part in host.split(".") if part]
-        if host_parts:
-            tokens.add(identifier_core.normalize_alias_token(host_parts[0]))
-            if len(host_parts) >= 2:
-                tokens.add(identifier_core.normalize_alias_token("".join(host_parts[:-1])))
-    repo_url = repo_url_core.canonical_repo_url(value)
-    repo_parsed = urllib.parse.urlparse(repo_url)
-    repo_segments = [segment for segment in repo_parsed.path.split("/") if segment]
-    if len(repo_segments) >= 2:
-        tokens.add(identifier_core.normalize_alias_token(repo_segments[-1]))
-        tokens.add(identifier_core.normalize_alias_token(repo_segments[0]))
-    return {token for token in tokens if token}
-
-
 def seed_values_match_group(raw_values: list[str], label: str, existing_values: list[str]) -> bool:
     label_tokens = text_seed_label_tokens(label)
     candidate_tokens: set[str] = set()
     for value in raw_values:
-        candidate_tokens.update(seed_value_identity_tokens(value))
+        candidate_tokens.update(project_record.seed_value_identity_tokens(value))
     if not candidate_tokens:
         return False
     if label_tokens and candidate_tokens & label_tokens:
         return True
     existing_tokens: set[str] = set()
     for value in existing_values:
-        existing_tokens.update(seed_value_identity_tokens(value))
+        existing_tokens.update(project_record.seed_value_identity_tokens(value))
     return bool(existing_tokens and candidate_tokens & existing_tokens)
 
 

@@ -113,7 +113,7 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 | `domain_policy.py` | 同梱PSLとhosting suffix設定によるdomain・tenant境界。依存・PSL欠落はエラー |
 | `http_transport.py` | outbound URL検証、内部host遮断、redirect先再検証、HTTP呼出し |
 | `identifiers.py` / `repo_urls.py` | URL・NSID・aliasの正規化、repo provider・owner判定 |
-| `naming.py` | title短縮・name candidate・source labelのpure helper。採否は`registry.py` |
+| `naming.py` | title短縮、名前候補の保持・除外・採点・選定。識別情報は`project_record.py`から読み、取得・DB保存・registryへの依存を持たない |
 | `llm_transport.py` | command/互換endpoint呼出し、応答解析、timeout・error・metrics。prompt構築と適用は外側 |
 
 ### 依存境界の制約
@@ -123,5 +123,6 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 - `database.py`のopen/saveは`registry.py`や`project_record.py`をimportしない。
 - 比較・migration用コピーの生成は`database.materialized_database_copy`がread-onlyの取得元接続、新規コピー先の排他作成、backup、commit・失敗時の削除を担当する。各materializationは必要なschema世代と変換・検証規則を持ち、既存コピーや正本を上書きしない。
 - 分離したmoduleを旧symbol互換のため`registry.py`からre-exportしない。collectorのtestはHTTP transport、LLMのtestはcommand/endpointをfakeへ差し替える。
+- 名前と取り込みの照合に使うproject・seedの識別token、および候補textの追加は`project_record.py`が担当する。`integration.py`は名前候補を`naming.py`へ直接渡し、名前処理をregistryのcallbackで受け取らない。
 
 resource pageの統合は既存更新関数をprojectのcopyへ適用し、許可fieldの差分を返す暫定実装です。cacheと連続失敗を抑止するcircuit breakerはprocess・情報源単位で、process終了時に状態を失います。
