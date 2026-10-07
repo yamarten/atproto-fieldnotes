@@ -94,14 +94,14 @@ tailscale serve status
 
 `--bg`で設定したServeは終了操作まで保持され、Tailscaleの再起動後も再開します。利用にはMacの稼働・Tailscale接続・転送先Webの起動が必要です。WebのLaunchAgentは利用者のログイン時に起動するため、Mac再起動直後のログイン前の利用は前提にしません。ServeはWebの起動・再起動を担当しません。Webを停止した場合はHTTPSからも利用できなくなります。
 
-HTTPS入口だけを解除する場合は次を実行します。既存の`8443`・`8444`を維持するため、Serve設定全体を消す`tailscale serve reset`は使いません。
+HTTPS入口だけを解除する場合は次を実行します。他のServe入口を維持するため、対象ポートだけを解除し、Serve設定全体を消す`tailscale serve reset`は使いません。
 
 ```bash
 tailscale serve --bg --https=8445 off
 tailscale serve status
 ```
 
-現在は直接HTTPの`0.0.0.0:8888`も維持しています。HTTPS追加はHTTPの閉鎖や自動転送を行いません。LANからの直接HTTPを閉じる場合は、LaunchAgentのbindをloopbackへ変更する別の運用切替が必要です。Serveの設定・永続化については[Tailscale公式CLIガイド](https://tailscale.com/docs/reference/tailscale-cli/serve)、tailnet内の公開範囲については[Serveガイド](https://tailscale.com/docs/features/tailscale-serve)を参照してください。
+HTTPS追加は直接HTTPの閉鎖や自動転送を行いません。LANからの直接HTTPを閉じる場合は、LaunchAgentのbindをloopbackへ変更する別の運用切替が必要です。Serveの設定・永続化については[Tailscale公式CLIガイド](https://tailscale.com/docs/reference/tailscale-cli/serve)、tailnet内の公開範囲については[Serveガイド](https://tailscale.com/docs/features/tailscale-serve)を参照してください。
 
 ## 画面構成
 
