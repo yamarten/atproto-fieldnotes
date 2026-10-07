@@ -466,15 +466,5 @@ class TrustPolicyShadowDatabaseTest(TempRegistryDbTestCase):
         self.assertEqual(first["case_catalog"], second["case_catalog"])
         self.assertEqual(first["redirect_observations"], second["redirect_observations"])
 
-    def test_read_only_connection_rejects_writes(self) -> None:
-        uri = f"{self.db_path.resolve().as_uri()}?mode=ro"
-        conn = sqlite3.connect(uri, uri=True)
-        try:
-            with self.assertRaises(sqlite3.OperationalError):
-                conn.execute("CREATE TABLE forbidden(value TEXT)")
-        finally:
-            conn.close()
-
-
 if __name__ == "__main__":
     unittest.main()

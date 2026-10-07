@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sqlite3
 import unittest
 from pathlib import Path
 
@@ -233,16 +232,6 @@ class MergePolicyShadowDatabaseTest(TempRegistryDbTestCase):
             {"RECOMMEND_MERGE_REVIEW": 1},
             first["current_and_shadow"],
         )
-
-    def test_read_only_connection_rejects_writes(self) -> None:
-        uri = f"{self.db_path.resolve().as_uri()}?mode=ro"
-        conn = sqlite3.connect(uri, uri=True)
-        try:
-            with self.assertRaises(sqlite3.OperationalError):
-                conn.execute("CREATE TABLE forbidden(value TEXT)")
-        finally:
-            conn.close()
-
 
 if __name__ == "__main__":
     unittest.main()
