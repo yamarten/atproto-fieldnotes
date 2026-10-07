@@ -12,7 +12,7 @@ from unittest import mock
 from http import HTTPStatus
 from io import BytesIO
 
-from helpers import ProjectRecordTestCase, SCRIPTS, TempRegistryDbTestCase, registry
+from helpers import ROOT, ProjectRecordTestCase, SCRIPTS, TempRegistryDbTestCase, registry
 from project_registry_core import domain_policy, introduced_review, storage
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle
 from project_registry_web.server import (
@@ -363,24 +363,7 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
 
         status, script, content_type = self.request_text("/app.js")
         self.assertEqual(status, 200)
-        self.assertIn("最新の調査実行記録", script)
-        self.assertIn("調査履歴の変換・SQL保存", script)
-        self.assertIn("プロジェクトの変換・SQL保存", script)
-        self.assertIn("調査を開始", script)
-        self.assertIn("サーバーを再起動", script)
-
-        self.assertIn("startProjectEnrich", script)
-        self.assertIn("openJobDetails", script)
-        self.assertIn("取り込みを開始", script)
-        self.assertIn("変更候補を確認", script)
-        self.assertIn("マージ候補を比較", script)
-        self.assertNotIn("Merge Recommendations", script)
-        self.assertNotIn("/api/merge-policy-review", script)
-        self.assertNotIn("Apply merge recommendation", script)
-        self.assertIn("<dt>採用済みサービス</dt>", script)
-        self.assertIn('new URL("https://pds.ls/")', script)
-        self.assertIn('target.pathname = `at://${normalized}`', script)
-        self.assertNotIn("https://pdsls.dev/${encodeURIComponent(normalized)}", script)
+        self.assertEqual(script, (ROOT / "scripts/project_registry_web/static/app.js").read_text())
         self.assertIn("javascript", content_type)
 
         status, payload, _ = self.request("/api/projects", token="wrong")
@@ -412,11 +395,6 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         self.assertIn("review_kind", settings["filter_options"]["decision_target_types"])
         self.assertNotIn("read_only", settings)
         self.assertNotIn("--read-only", build_parser().format_help())
-
-        self.assertIn("filterOptionFallbacks", script)
-        self.assertIn('id="filter-tracking" multiple', script)
-        self.assertIn('id="filter-identifier-kind">${enumOptions', script)
-        self.assertIn('id="filter-relation-source" list=', script)
 
     def test_authorization_uses_constant_time_comparison(self) -> None:
         with mock.patch("project_registry_web.server.hmac.compare_digest", return_value=True) as compare:
@@ -1861,22 +1839,6 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
             self.server.open_db = original
         self.assertEqual(status, 503)
         self.assertEqual(payload["error"]["code"], "database_busy")
-
-    def test_merge_continuation_is_skippable_without_a_visible_list_card(self) -> None:
-        script = (SCRIPTS / "project_registry_web" / "static" / "app.js").read_text()
-
-        self.assertIn('marker.dataset.reviewContinuation = "true"', script)
-        self.assertIn('const isContinuation = current.dataset.reviewContinuation === "true"', script)
-        self.assertIn("card.dataset.projectKey === targetKey && card.dataset.mergeTarget === sourceKey", script)
-        self.assertIn("skipReviewItem(source, target)", script)
-
-
-    def test_html_template_boundary_escapes_dynamic_result_count(self) -> None:
-        script = (SCRIPTS / "project_registry_web" / "static" / "app.js").read_text()
-        self.assertIn("every external string must pass through", script)
-        self.assertIn("<strong>${esc(count)}</strong> 件", script)
-        self.assertNotIn("read_only", script)
-
 
 
 if __name__ == "__main__":

@@ -5,9 +5,9 @@ import subprocess
 import unittest
 
 
+@unittest.skipUnless(shutil.which("node"), "Node.js is required for Web display checks")
 class WebDisplayTest(unittest.TestCase):
-    @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web display checks")
-    def test_labels_preserve_machine_values_raw_data_and_escaping(self):
+    def run_javascript(self, checks):
         path = Path(__file__).resolve().parents[1] / "scripts/project_registry_web/static/app.js"
         # Run the real render helpers; omit only page startup and supply browser storage.
         source = path.read_text().rsplit('\ndocument.querySelectorAll(".primary-nav', 1)[0]
@@ -18,7 +18,160 @@ const localStorage = {getItem: () => null};
 const prompt = () => "";
 const document = {};
 '''
-        checks = r'''
+        result = subprocess.run([shutil.which("node"), "-"], input=harness + source + checks,
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_list_count_escapes_external_text(self):
+        self.run_javascript(r'''
+const container = {innerHTML: ""};
+document.getElementById = (id) => {
+  assert.equal(id, "list");
+  return container;
+};
+document.querySelectorAll = () => [];
+state.screen = "projects";
+renderList({items: [], count: '<img src=x onerror=alert(1)>'});
+assert.ok(!container.innerHTML.includes('<img'));
+assert.ok(container.innerHTML.includes('&lt;img src=x onerror=alert(1)&gt;'));
+renderList({items: [], count: 12});
+assert.match(container.innerHTML, /<strong>12<\/strong> 件/);
+''')
+
+    def test_search_controls_render_server_options_fallbacks_and_selection(self):
+        self.run_javascript(r'''
+state.screen = "projects";
+state.projectSearch.tracking = "active,stalled";
+state.projectSearch.identifierKind = "nsid";
+state.projectSearch.relationSource = 'external"<source>';
+state.server = {filter_options: {tracking_states: ["future_state"], relation_sources: ['external"<source>']}};
+const html = listControls();
+const tracking = html.match(/<select id="filter-tracking"([^>]*)>([\s\S]*?)<\/select>/);
+assert.match(tracking[1], /\bmultiple\b/);
+assert.match(tracking[2], /value="active" selected>通常追跡/);
+assert.match(tracking[2], /value="stalled" selected>活動停滞/);
+assert.match(tracking[2], /value="future_state"/);
+const identifiers = html.match(/<select id="filter-identifier-kind"[^>]*>([\s\S]*?)<\/select>/)[1];
+assert.match(identifiers, /value="nsid" selected>NSID/);
+assert.match(html, /id="filter-relation-source" list="filter-relation-sources" value="external&quot;&lt;source&gt;"/);
+assert.match(html, /<datalist id="filter-relation-sources"><option value="external&quot;&lt;source&gt;"><\/option><\/datalist>/);
+''')
+
+    def test_operation_and_settings_controls_render_and_bind_actions(self):
+        self.run_javascript(r'''
+const nodes = new Map();
+document.getElementById = id => {
+  if (!nodes.has(id)) nodes.set(id, {innerHTML:"", value:"", listeners:{},
+    addEventListener(type, fn) { this.listeners[type] = fn; }});
+  return nodes.get(id);
+};
+loadJobs = () => {};
+renderOperations();
+const html = nodes.get("single-pane").innerHTML;
+for (const [id, label, handler] of [
+  ["start-enrich", "調査を開始", startEnrichJob],
+  ["start-sync", "取り込みを開始", startSyncJob],
+  ["start-review", "変更候補を確認", startReviewJob],
+]) {
+  assert.match(html, new RegExp(`<button id="${id}"[^>]*>${label}</button>`));
+  assert.equal(nodes.get(id).onclick, handler);
+}
+state.server = {operations_connected:true};
+renderSettings().then(() => {
+  assert.match(nodes.get("single-pane").innerHTML, /id="reload-server"[^>]*>サーバーを再起動<\/button>/);
+  assert.equal(nodes.get("reload-server").listeners.click, confirmServerReload);
+}).catch(error => { console.error(error); process.exitCode = 1; });
+''')
+
+    def test_detail_and_metrics_render_data_and_bind_project_enrichment(self):
+        self.run_javascript(r'''
+const nodes = new Map();
+document.getElementById = id => {
+  if (!nodes.has(id)) nodes.set(id, {innerHTML:"", listeners:{},
+    addEventListener(type, fn) { this.listeners[type] = fn; }});
+  return nodes.get(id);
+};
+document.querySelectorAll = () => [];
+syncUrl = () => {};
+loadMergeAnalysis = () => {};
+const starts = [];
+startEnrich = payload => starts.push(payload);
+renderDetail({project:{project_key:"proj:display", name:"Example"},
+  overview:{confirmed_services:["https://example.com/app"]}});
+const html = nodes.get("detail").innerHTML;
+assert.match(html, /最新の調査実行記録/);
+assert.match(html, /<dt>採用済みサービス<\/dt><dd><a[^>]*href="https:\/\/example.com\/app"/);
+assert.match(html, /id="enrich-project"/);
+nodes.get("enrich-project").listeners.click();
+assert.deepEqual(starts, [{project_key:"proj:display", all_projects:false}]);
+const metrics = renderRunMetrics({version:3, total_ms:42, phases:{run_history_save_ms:12, project_save_ms:30}});
+assert.match(metrics, /<dt>調査履歴の変換・SQL保存<\/dt><dd>12ミリ秒<\/dd>/);
+assert.match(metrics, /<dt>プロジェクトの変換・SQL保存<\/dt><dd>30ミリ秒<\/dd>/);
+''')
+
+    def test_identity_links_use_pdsls_and_preserve_at_uri(self):
+        self.run_javascript(r'''
+for (const value of ['alice.example', 'did:plc:abc123', 'did:web:example.com']) {
+  const href = `https://pds.ls/at://${value}`;
+  assert.equal(pdslsIdentityUrl(` ${value} `), href);
+  assert.ok(identifierValueLink({kinds: ['did'], value}).includes(`href="${href}"`));
+}
+for (const value of ['', 'not an identity', '<img src=x onerror=alert(1)>']) {
+  assert.equal(pdslsIdentityUrl(value), '');
+  const rendered = identifierValueLink({kinds: ['account'], value});
+  assert.ok(!rendered.includes('<a'));
+  assert.ok(!rendered.includes('<img'));
+}
+''')
+
+    def test_merge_continuation_skip_keeps_visible_count_and_opens_next(self):
+        self.run_javascript(r'''
+let cards = [];
+const window = {scrollTo() {}};
+const nodes = new Map();
+const opened = [];
+function node(id) {
+  return {innerHTML: "", textContent: "", style: {}, dataset: {}, listeners: {},
+    classList: {contains: () => id === "unrelated", add() {}, remove() {}},
+    addEventListener(type, fn) { this.listeners[type] = fn; },
+    remove() { cards.splice(cards.indexOf(this), 1); },
+    before(other) { cards.splice(cards.indexOf(this), 0, other); },
+  };
+}
+document.getElementById = id => {
+  if (!nodes.has(id)) nodes.set(id, node(id));
+  return nodes.get(id);
+};
+document.createElement = () => node("continuation");
+document.querySelectorAll = selector => selector === "#list [data-project-key]" ? [...cards] : [];
+document.body = node("body");
+const meta = {textContent: "2"};
+document.getElementById("list").querySelector = () => meta;
+for (const key of ["unrelated", "next"]) {
+  const card = node(key); card.dataset.projectKey = key; cards.push(card);
+}
+state.screen = "review";
+syncUrl = () => {};
+api = async () => ({source: {project_key:"target"}, target: {project_key:"source"}});
+loadDetail = key => opened.push(key);
+insertMergeReviewContinuation("source", "target", 1);
+assert.equal(cards[1].hidden, true);
+// Reversing the displayed merge direction must still find its continuation.
+loadMergeDetail("target", "source").then(() => {
+  assert.match(document.getElementById("detail").innerHTML, /id="skip-review-item"/);
+  document.getElementById("skip-review-item").listeners.click();
+  assert.deepEqual(cards.map(card => card.dataset.projectKey), ["unrelated", "next"]);
+  assert.deepEqual(opened, ["next"]);
+  assert.equal(meta.textContent, "2");
+  assert.match(document.getElementById("status").textContent, /今回は先送り.*次の項目/);
+  // A visible card, unlike the hidden continuation, does reduce the count.
+  skipReviewItem("unrelated");
+  assert.equal(meta.textContent, "1");
+}).catch(error => { console.error(error); process.exitCode = 1; });
+''')
+
+    def test_labels_preserve_machine_values_raw_data_and_escaping(self):
+        self.run_javascript(r'''
 for (const [group, values] of Object.entries(filterOptionFallbacks)) {
   for (const value of values) assert.notEqual(displayLabel(value), value, `${group}: ${value}`);
 }
@@ -75,7 +228,4 @@ assert.match(technical, /技術評価 高い · 80/);
 assert.match(technical, /独自の連携方式/);
 assert.ok(!renderServiceObservations([]).includes("取得失敗"));
 assert.match(renderServiceObservations([{fetch_error:"timeout"}]), /取得失敗は提供終了を示しません/);
-'''
-        result = subprocess.run([shutil.which("node"), "-"], input=harness + source + checks,
-                                text=True, capture_output=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
+''')
