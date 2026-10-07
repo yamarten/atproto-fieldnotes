@@ -7,7 +7,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Iterable
 
-from . import identifiers as identifier_core
+from ..identity import identifiers as identifier_core
 from .lexicon_publication_comparison import inspect_schema, normalize_event
 
 
@@ -223,7 +223,7 @@ def ingest_segment(
     if maximum != last_event_seq:
         raise ValueError(f"summary last_event_seq {last_event_seq} does not match event maximum {maximum}")
     now = observed_at or iso_now()
-    from .concurrency import write_transaction
+    from ..persistence.concurrency import write_transaction
     with write_transaction(conn):
         if catalog_state(conn) != state:
             raise ValueError("publication catalog changed during fetch; retry")
@@ -319,7 +319,7 @@ def verify_due_publications(
     revision = int(state["catalog_revision"]) + 1
     verified = 0
     targets: list[dict[str, Any]] = []
-    from .concurrency import write_transaction
+    from ..persistence.concurrency import write_transaction
     with write_transaction(conn):
         if catalog_state(conn) != state:
             raise ValueError("publication catalog changed during verification; retry")

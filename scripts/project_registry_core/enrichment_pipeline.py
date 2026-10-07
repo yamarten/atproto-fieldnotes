@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import lexicon_types
+from .publications import lexicon_types
 
 import copy
 import sqlite3
@@ -14,14 +14,14 @@ from typing import Any
 
 from project_registry_core import CollectorResult, EvidenceBundle
 from .evidence import EvidenceRecord
-from project_registry_core import storage as investigation_storage
+from project_registry_core.persistence import storage as investigation_storage
 from project_registry_core import relations as relation_core
-from project_registry_core import runtime_view
-from project_registry_core import llm_transport
+from project_registry_core.persistence import runtime_view
+from project_registry_core.transport import llm_transport
 from project_registry_core import triage_reuse, enrich_observations
-from project_registry_core import identifiers as identifier_core
-from project_registry_core import repo_urls as repo_url_core
-from project_registry_core import repository_analysis as repository_analysis_core
+from project_registry_core.identity import identifiers as identifier_core
+from project_registry_core.repositories import repo_urls as repo_url_core
+from project_registry_core.repositories import repository_analysis as repository_analysis_core
 
 from project_registry_core.registry import (
     ENRICH_IO_MAX_WORKERS,

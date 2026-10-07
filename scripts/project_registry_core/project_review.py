@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from project_registry_core import atproto_usage
-from project_registry_core import identifiers as identifier_core
+from project_registry_core.identity import identifiers as identifier_core
 from project_registry_core import promotion_attention
-from project_registry_core import repo_urls as repo_url_core
+from project_registry_core.repositories import repo_urls as repo_url_core
 from project_registry_core import service as service_core
 import datetime as dt
 from typing import Any

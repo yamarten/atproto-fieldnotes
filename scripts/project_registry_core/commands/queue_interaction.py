@@ -7,7 +7,7 @@ import sqlite3
 import sys
 from typing import Any, Callable
 
-from project_registry_core import runtime_view
+from project_registry_core.persistence import runtime_view
 from project_registry_core.enrichment_pipeline import enrich_project
 from project_registry_core.registry import (
     add_confirmed_identifier_decision,

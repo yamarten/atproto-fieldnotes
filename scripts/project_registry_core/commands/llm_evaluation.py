@@ -5,11 +5,11 @@ import json
 import os
 from pathlib import Path
 
-from .. import llm_model_evaluation as evaluation
-from .. import llm_transport
-from .. import repository_analysis
-from .. import repository_analysis_evaluation
-from .. import relation_assessment
+from ..model_evaluation import llm_model_evaluation as evaluation
+from ..transport import llm_transport
+from ..repositories import repository_analysis
+from ..model_evaluation import repository_analysis_evaluation
+from ..model_evaluation import relation_assessment
 from .. import registry as core
 
 

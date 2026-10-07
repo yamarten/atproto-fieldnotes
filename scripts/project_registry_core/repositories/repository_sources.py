@@ -10,9 +10,9 @@ from html import unescape
 from html.parser import HTMLParser
 from typing import Any
 
-from . import http_transport
-from . import github_api
-from . import reliability as reliability_core
+from ..transport import http_transport
+from ..transport import github_api
+from ..transport import reliability as reliability_core
 from . import repo_urls as repo_url_core
 
 

@@ -6,13 +6,14 @@ import sqlite3
 import urllib.parse
 from typing import Any
 
-from project_registry_core import database as registry_database
-from project_registry_core import http_transport
-from project_registry_core import identifiers as identifier_core
+from project_registry_core.persistence import database as registry_database
+from project_registry_core.transport import http_transport
+from project_registry_core.identity import identifiers as identifier_core
 from project_registry_core import project_merge
-from .. import identifier_storage, registry as core
-from .. import concurrency
-from .. import runtime_view
+from ..persistence import identifier_storage
+from .. import registry as core
+from ..persistence import concurrency
+from ..persistence import runtime_view
 from project_registry_core import project_record
 
 

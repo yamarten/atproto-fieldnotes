@@ -8,11 +8,11 @@ import unittest
 from pathlib import Path
 
 from helpers import ROOT  # noqa: F401 - initializes the repository import path
-from project_registry_core import llm_model_evaluation as evaluation
-from project_registry_core import llm_transport
-from project_registry_core import repository_analysis
-from project_registry_core import repository_analysis_evaluation
-from project_registry_core import storage
+from project_registry_core.model_evaluation import llm_model_evaluation as evaluation
+from project_registry_core.transport import llm_transport
+from project_registry_core.repositories import repository_analysis
+from project_registry_core.model_evaluation import repository_analysis_evaluation
+from project_registry_core.persistence import storage
 
 
 def build_prompt(evidence: dict) -> str:

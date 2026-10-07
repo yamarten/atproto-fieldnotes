@@ -8,7 +8,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-from . import identifiers
+from ..identity import identifiers
 
 
 DEFAULT_HEADERS = {

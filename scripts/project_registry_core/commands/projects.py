@@ -6,7 +6,7 @@ import argparse
 import json
 
 from .. import registry as core
-from .. import runtime_view
+from ..persistence import runtime_view
 from ..application import projects as services
 from project_registry_core import project_record
 

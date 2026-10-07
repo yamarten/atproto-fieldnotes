@@ -14,13 +14,10 @@ from project_registry_core import project_review
 from project_registry_core.application import review as application_review
 
 from project_registry_core import project_merge
-from project_registry_core import (
-    cli,
-    database,
-    domain_policy,
-    relations,
-    source_sync,
-)
+from project_registry_core import cli
+from project_registry_core.persistence import database
+from project_registry_core.identity import domain_policy
+from project_registry_core import relations, source_sync
 from project_registry_core.commands import review as review_commands
 from project_registry_core.commands import queue_interaction
 from project_registry_core.application import maintenance as maintenance_services

@@ -5,8 +5,8 @@ import sqlite3
 from pathlib import Path
 
 from helpers import TempRegistryDbTestCase, registry
-from project_registry_core import database
-from project_registry_core import identifier_storage
+from project_registry_core.persistence import database
+from project_registry_core.persistence import identifier_storage
 from project_registry_core.maintenance import identifier_storage_materialization
 from project_registry_core import project_record
 from project_registry_core import source_sync

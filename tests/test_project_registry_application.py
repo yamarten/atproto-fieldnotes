@@ -10,7 +10,8 @@ from project_registry_core import project_review
 
 from project_registry_core import project_merge
 from project_registry_core import cli
-from project_registry_core import service, storage
+from project_registry_core import service
+from project_registry_core.persistence import storage
 from project_registry_core.commands import projects as project_commands
 from project_registry_core.evidence import CollectorResult, EvidenceBundle, EvidenceRecord
 from project_registry_core.application import (

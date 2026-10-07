@@ -22,7 +22,8 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 from enrich_overlap_support import KEYS, Responses, seed, semantic
-from project_registry_core import registry, project_record, storage, runtime_view
+from project_registry_core import registry, project_record
+from project_registry_core.persistence import storage, runtime_view
 from project_registry_core.application import enrichment
 from project_registry_core.jobs import OperationRequest
 

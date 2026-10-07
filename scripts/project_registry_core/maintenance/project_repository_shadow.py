@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlparse
 
-from project_registry_core import identifiers, repo_urls
+from project_registry_core.identity import identifiers
+from project_registry_core.repositories import repo_urls
 
 
 REPORT_SCHEMA_VERSION = 1

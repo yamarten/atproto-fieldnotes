@@ -7,8 +7,10 @@ from collections import Counter
 from collections.abc import Callable
 from typing import Any
 
-from . import identifiers, investigation, llm_evidence, service, storage
-from .evidence import EvidenceBundle
+from ..identity import identifiers
+from .. import investigation, llm_evidence, service
+from ..persistence import storage
+from ..evidence import EvidenceBundle
 
 
 GITHUB_RECORD_ROOTS = {"github_repo", "github_repo_metadata", "github_readme", "github_source"}

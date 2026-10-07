@@ -12,20 +12,20 @@ import urllib.parse
 import uuid
 from typing import Any, Callable
 
-from project_registry_core import database as registry_database
-from project_registry_core import domain_policy as domain_policy_core
+from project_registry_core.persistence import database as registry_database
+from project_registry_core.identity import domain_policy as domain_policy_core
 from project_registry_core import evaluation as evaluation_core
-from project_registry_core import identifiers as identifier_core
-from project_registry_core import identifier_storage
+from project_registry_core.identity import identifiers as identifier_core
+from project_registry_core.persistence import identifier_storage
 from project_registry_core import relations as relation_core
-from project_registry_core import repo_urls as repo_url_core
-from project_registry_core import repository_analysis as repository_analysis_core
-from project_registry_core import runtime_view
-from project_registry_core import storage as investigation_storage
-from project_registry_core import concurrency
+from project_registry_core.repositories import repo_urls as repo_url_core
+from project_registry_core.repositories import repository_analysis as repository_analysis_core
+from project_registry_core.persistence import runtime_view
+from project_registry_core.persistence import storage as investigation_storage
+from project_registry_core.persistence import concurrency
 from project_registry_core import atproto_usage
 from project_registry_core import oauth_metadata
-from project_registry_core.concurrency import StaleProjectWriteError
+from project_registry_core.persistence.concurrency import StaleProjectWriteError
 from project_registry_core import trust_graph as trust_graph_core
 
 BUILTIN_LEXICON_PREFIXES = ("app.bsky.", "chat.bsky.", "com.atproto.")
@@ -1669,7 +1669,7 @@ def save_project(
         pending = project.get(runtime_view.RUNTIME_PENDING_RUN)
         if pending:
             investigation_storage.save_investigation_run(conn, **pending)
-            from .publication_verification import share_investigation
+            from .publications.publication_verification import share_investigation
             share_investigation(conn, pending)
         _save_project(conn, project, enriched, preserve_timestamps=preserve_timestamps, commit=False)
         project[runtime_view.RUNTIME_PROJECT_REVISION] = concurrency.revision(conn, str(project["project_key"]))

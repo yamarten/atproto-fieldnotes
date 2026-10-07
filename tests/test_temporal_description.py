@@ -5,7 +5,8 @@ from unittest import mock
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 
 from project_registry_core.application import review as application_review
-from project_registry_core import editorial, project_record, service, storage
+from project_registry_core import editorial, project_record, service
+from project_registry_core.persistence import storage
 from project_registry_core.application import investigation, presentation, projects
 from project_registry_core import worker
 from project_registry_core.jobs import CancellationToken, OperationRequest

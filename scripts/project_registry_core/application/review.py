@@ -13,7 +13,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from project_registry_core import project_record, runtime_view
+from project_registry_core import project_record
+from project_registry_core.persistence import runtime_view
 
 
 @dataclass

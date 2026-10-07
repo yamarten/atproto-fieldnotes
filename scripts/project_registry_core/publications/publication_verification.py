@@ -5,8 +5,9 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
-from . import collection_trust, lexicon_publication_catalog as catalog
-from .concurrency import write_transaction
+from .. import collection_trust
+from . import lexicon_publication_catalog as catalog
+from ..persistence.concurrency import write_transaction
 
 
 def witnesses(conn: sqlite3.Connection, nsid: str) -> dict[str, str]:

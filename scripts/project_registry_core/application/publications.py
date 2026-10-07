@@ -9,8 +9,10 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timedelta
 from typing import Any, Callable
 
-from .. import lexicon_publication_catalog as catalog, publication_registry as storage, identifiers, publication_verification
-from ..lexicon_publication_comparison import fetch_snapshot
+from ..publications import lexicon_publication_catalog as catalog, publication_registry as storage
+from ..identity import identifiers
+from ..publications import publication_verification
+from ..publications.lexicon_publication_comparison import fetch_snapshot
 
 
 def _preview_catalog(conn: sqlite3.Connection) -> sqlite3.Connection:
@@ -154,7 +156,7 @@ def run(conn: sqlite3.Connection, *, execute: bool = False, create_unmatched: bo
         verification = verify(working, limit=verify_limit, max_seconds=verification_seconds, fetcher=verifier, cancel_requested=cancel_requested, progress=progress)
         if cancel_requested and cancel_requested():
             return {"cancelled": True, "ingestion": ingestion, "verification": verification}
-        from ..concurrency import write_transaction, read_snapshot
+        from ..persistence.concurrency import write_transaction, read_snapshot
         with (write_transaction(conn) if execute else read_snapshot(conn)):
             projection = storage.schemas(working, now=catalog.iso_now())
             imported = storage.import_projects(conn, projection, execute=execute, create_unmatched=create_unmatched)

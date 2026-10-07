@@ -6,7 +6,10 @@ import unittest
 from pathlib import Path
 
 from helpers import TempRegistryDbTestCase, registry
-from project_registry_core import identifiers, investigation, project_record, relations, repository_material, storage
+from project_registry_core.identity import identifiers
+from project_registry_core import investigation, project_record, relations
+from project_registry_core.repositories import repository_material
+from project_registry_core.persistence import storage
 from project_registry_core.evidence import CollectorResult, EvidenceBundle
 
 

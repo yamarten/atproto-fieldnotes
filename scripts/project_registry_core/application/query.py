@@ -4,7 +4,8 @@ import datetime as dt
 import sqlite3
 from typing import Any
 
-from project_registry_core import concurrency, project_record, promotion_attention
+from project_registry_core.persistence import concurrency
+from project_registry_core import project_record, promotion_attention
 
 
 def _like(value: str) -> str:

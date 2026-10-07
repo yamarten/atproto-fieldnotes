@@ -12,14 +12,10 @@ from helpers import TempRegistryDbTestCase
 
 from project_registry_core import project_review
 from enrichment_io import EnrichmentIO
-from project_registry_core import (
-    concurrency,
-    database,
-    project_record,
-    registry,
-    storage,
-    source_sync,
-)
+from project_registry_core.persistence import concurrency, database
+from project_registry_core import project_record, registry
+from project_registry_core.persistence import storage
+from project_registry_core import source_sync
 from project_registry_core.application import (
     decisions,
     enrichment,

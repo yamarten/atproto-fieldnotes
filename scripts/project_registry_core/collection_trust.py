@@ -6,14 +6,18 @@ publication facts, not inferred ownership between two collections.
 """
 from __future__ import annotations
 
-from . import lexicon_types
+from .publications import lexicon_types
 
 import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
-from . import identifier_storage, identifiers, relations, runtime_view, trust_graph
+from .persistence import identifier_storage
+from .identity import identifiers
+from . import relations
+from .persistence import runtime_view
+from . import trust_graph
 
 
 POLICY_VERSION = "accepted-lexicon-publisher-v1"

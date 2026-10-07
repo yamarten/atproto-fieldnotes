@@ -7,10 +7,10 @@ import re
 import urllib.parse
 from typing import Any
 
-from . import domain_policy
-from . import identifiers as identifier_core
+from ..identity import domain_policy
+from ..identity import identifiers as identifier_core
 from . import repo_urls as repo_url_core
-from .evidence import EvidenceBundle, EvidenceRecord
+from ..evidence import EvidenceBundle, EvidenceRecord
 
 
 ANALYSIS_VERSION = 6

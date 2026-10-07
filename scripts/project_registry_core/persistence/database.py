@@ -269,7 +269,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (str(SCHEMA_VERSION),),
     )
-    from .publication_registry import install_schema
+    from ..publications.publication_registry import install_schema
     install_schema(conn)
     conn.commit()
 

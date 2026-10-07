@@ -8,7 +8,7 @@ from typing import Any
 
 from .. import registry as core
 from .. import replay as replay_core
-from .. import storage as investigation_storage
+from ..persistence import storage as investigation_storage
 from project_registry_core import project_record
 from .. import service
 

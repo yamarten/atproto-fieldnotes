@@ -18,7 +18,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Sequence
 
-from project_registry_core import database
+from project_registry_core.persistence import database
 
 
 SERVICE_LABEL = "local.atproto-survey.project-registry-web"

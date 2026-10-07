@@ -15,7 +15,9 @@ from io import BytesIO
 from helpers import ROOT, ProjectRecordTestCase, TempRegistryDbTestCase, registry
 
 from project_registry_core import project_merge
-from project_registry_core import domain_policy, introduced_review, storage
+from project_registry_core.identity import domain_policy
+from project_registry_core import introduced_review
+from project_registry_core.persistence import storage
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle
 from project_registry_web.server import (
     RegistryWebHandler,

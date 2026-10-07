@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import urllib.parse
 
-from . import identifiers
+from ..identity import identifiers
 
 
 STRICT_REPO_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")

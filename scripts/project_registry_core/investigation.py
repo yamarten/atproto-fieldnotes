@@ -10,16 +10,16 @@ from html import unescape
 from typing import Any, Callable
 
 from . import collector_relation_policy
-from . import identifiers as identifier_core
+from .identity import identifiers as identifier_core
 from .evidence import (
     CollectorFailure,
     EvidenceBundle,
     EvidenceRecord,
     add_collector_result_summary,
 )
-from .github_api import GitHubRequestMetrics
+from .transport.github_api import GitHubRequestMetrics
 from .relations import classify_lexicon_path, relation_record
-from .reliability import RequestBudget, RetryPolicy, run_with_retry
+from .transport.reliability import RequestBudget, RetryPolicy, run_with_retry
 
 
 def unique_strings(values: list[str]) -> list[str]:
@@ -253,7 +253,7 @@ def plan_investigation_queries(
         return plan
     except Exception as exc:
         dependencies.note_failure(project, f"investigation planning failed: {exc}")
-        from .llm_transport import classify_llm_request_error
+        from .transport.llm_transport import classify_llm_request_error
         plan = {**seed_plan, "reason": "fallback deterministic plan", "llm_source": {}}
         observation.update(status="fallback", error_category=classify_llm_request_error(exc),
                            plan={key: value for key, value in plan.items() if key != "llm_source"})

@@ -12,7 +12,7 @@ import sqlite3
 from typing import Any, Callable, Iterable
 
 from .. import registry as core
-from .. import identifiers
+from ..identity import identifiers
 from project_registry_core import project_record
 
 

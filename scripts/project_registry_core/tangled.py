@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 from .evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
 from .relations import relation_record
-from .reliability import RetryPolicy, run_with_retry
+from .transport.reliability import RetryPolicy, run_with_retry
 
 
 TANGLED_COLLECTION = "sh.tangled.repo"

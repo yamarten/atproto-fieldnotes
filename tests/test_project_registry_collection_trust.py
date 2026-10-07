@@ -10,7 +10,10 @@ from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from project_registry_core import project_merge
 
 from project_registry_core import enrichment_pipeline
-from project_registry_core import collection_trust, identifiers, project_record, replay, runtime_view, storage
+from project_registry_core import collection_trust
+from project_registry_core.identity import identifiers
+from project_registry_core import project_record, replay
+from project_registry_core.persistence import runtime_view, storage
 from project_registry_core.evidence import EvidenceBundle
 
 

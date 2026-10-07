@@ -5,7 +5,7 @@ import copy
 import hashlib
 import json
 
-from . import repository_trust
+from .repositories import repository_trust
 from typing import Any, Iterable, Mapping
 
 
@@ -432,7 +432,7 @@ def confirmed_by_trust_policy(project: Mapping[str, Any], kind: str, value: str)
             if kind in URL_NODE_KINDS and item.get("inputs_digest") != evaluation_inputs_digest(project):
                 return False
             if kind in URL_NODE_KINDS:
-                from . import runtime_view
+                from .persistence import runtime_view
                 anchor = item.get("anchor") or {}
                 if not any(identifier.kind == anchor.get("kind") and identifier.value == anchor.get("value")
                            and identifier.classification == "confirmed"

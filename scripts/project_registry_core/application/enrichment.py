@@ -10,8 +10,9 @@ from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Any
 
-from .. import database as registry_database
-from .. import enrichment_pipeline, registry as core, storage, concurrency
+from ..persistence import database as registry_database
+from .. import enrichment_pipeline, registry as core
+from ..persistence import storage, concurrency
 from ..jobs import (
     CancellationToken,
     EventKind,

@@ -7,7 +7,8 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import registry, project_record, TempRegistryDbTestCase
-from project_registry_core import repository_trust, trust_graph
+from project_registry_core.repositories import repository_trust
+from project_registry_core import trust_graph
 from project_registry_core.maintenance import repository_trust_migration
 
 
@@ -249,7 +250,7 @@ class RepositoryTrustMigrationTest(TempRegistryDbTestCase):
             conn.close()
 
     def test_history_restores_omitted_pair_without_rerunning_llm(self):
-        from project_registry_core import storage
+        from project_registry_core.persistence import storage
         project = self.make_project("proj:history", "service_url", SERVICE)
         llm = edge(source="llm", method="llm_same_project")
         homepage = edge(source="github", reverse=True, method="github_homepage")

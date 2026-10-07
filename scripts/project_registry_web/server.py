@@ -22,9 +22,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
 
-from project_registry_core import database
-from project_registry_core import domain_policy
-from project_registry_core import identifiers as identifier_core
+from project_registry_core.persistence import database
+from project_registry_core.identity import domain_policy
+from project_registry_core.identity import identifiers as identifier_core
 from project_registry_core import introduced_review
 from project_registry_core import registry as core
 from project_registry_core.application import (

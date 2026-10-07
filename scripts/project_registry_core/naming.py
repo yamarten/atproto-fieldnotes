@@ -3,7 +3,10 @@ from __future__ import annotations
 import re
 import urllib.parse
 
-from . import identifiers, project_record, domain_policy, repo_urls
+from .identity import identifiers
+from . import project_record
+from .identity import domain_policy
+from .repositories import repo_urls
 from typing import Any
 
 

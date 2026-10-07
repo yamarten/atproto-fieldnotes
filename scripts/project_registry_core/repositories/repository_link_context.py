@@ -7,7 +7,8 @@ from html import unescape
 from html.parser import HTMLParser
 from typing import Any
 
-from . import identifiers, repo_urls
+from ..identity import identifiers
+from . import repo_urls
 
 
 TEXT_LIMIT = 1000

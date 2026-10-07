@@ -8,12 +8,13 @@ from project_registry_core import (
     investigation as investigation_core,
     tangled as tangled_core,
     tangled_identity,
-    domain_policy as domain_policy_core,
-    http_transport,
-    identifiers as identifier_core,
-    identifier_storage,
-    introduced_review,
-    relations as relation_core,
+)
+from project_registry_core.identity import domain_policy as domain_policy_core
+from project_registry_core.transport import http_transport
+from project_registry_core.identity import identifiers as identifier_core
+from project_registry_core.persistence import identifier_storage
+from project_registry_core import introduced_review, relations as relation_core
+from project_registry_core.repositories import (
     repo_urls as repo_url_core,
     repository_material as repository_material_core,
     repository_sources as repository_source_core,
@@ -396,7 +397,7 @@ def sync_collection_inventory(
             raise ValueError("empty collection inventory cannot establish absence")
     except Exception:
         if execute:
-            from .concurrency import write_transaction
+            from .persistence.concurrency import write_transaction
             with write_transaction(conn):
                 conn.execute("INSERT OR REPLACE INTO registry_meta VALUES('collection_inventory_status','failed')")
         raise
@@ -418,8 +419,8 @@ def sync_collection_inventory(
         save_path.parent.mkdir(parents=True, exist_ok=True)
         save_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     if execute and not truncated:
-        from .publication_registry import save_inventory
-        from .concurrency import write_transaction
+        from .publications.publication_registry import save_inventory
+        from .persistence.concurrency import write_transaction
         from .project_record import iso_now
         with write_transaction(conn):
             save_inventory(conn, payload, observed_at=iso_now())

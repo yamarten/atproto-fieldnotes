@@ -5,7 +5,7 @@ import unittest
 
 from helpers import ROOT
 from project_registry_core import cli
-from project_registry_core import relation_assessment
+from project_registry_core.model_evaluation import relation_assessment
 
 
 CORPUS_PATH = ROOT / "tests/fixtures/project_registry/relation-assessor-cases-v1.json"

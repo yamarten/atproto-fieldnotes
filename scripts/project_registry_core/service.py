@@ -8,7 +8,8 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from . import domain_policy, identifiers, project_repository_policy
+from .identity import domain_policy, identifiers
+from .repositories import project_repository_policy
 from .evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
 from .relations import relation_record
 from . import usage_material

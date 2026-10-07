@@ -10,7 +10,8 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
-from .. import registry as core, runtime_view
+from .. import registry as core
+from ..persistence import runtime_view
 from ..application import review as services
 from . import queue_interaction
 from project_registry_core import project_record

@@ -13,7 +13,8 @@ from contextlib import ExitStack, contextmanager
 from unittest import mock
 
 from project_registry_core import enrichment_pipeline as pipeline
-from project_registry_core import http_transport, llm_transport, project_record, registry
+from project_registry_core.transport import http_transport, llm_transport
+from project_registry_core import project_record, registry
 from project_registry_core.evidence import EvidenceBundle, EvidenceRecord, CollectorResult
 
 NOW = "2026-09-26T00:00:00+00:00"

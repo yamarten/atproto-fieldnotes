@@ -6,7 +6,8 @@ import sqlite3
 from collections import defaultdict
 from typing import Any
 
-from . import identifiers, lexicon_types
+from ..identity import identifiers
+from . import lexicon_types
 
 SOURCE = "lexicon_publication"
 
@@ -108,7 +109,7 @@ def schemas(conn: sqlite3.Connection, *, now: str, schema_ids: set[str] | None =
 
 def import_projects(conn: sqlite3.Connection, observed: dict[str, dict[str, Any]], *, execute: bool,
                     create_unmatched: bool = True) -> dict[str, Any]:
-    from .concurrency import write_transaction, read_snapshot
+    from ..persistence.concurrency import write_transaction, read_snapshot
     # Matching and inserts share a transaction, including the no-existing-match case.
     with (write_transaction(conn) if execute else read_snapshot(conn)):
         return _import_projects(conn, observed, execute=execute, create_unmatched=create_unmatched)
@@ -116,9 +117,12 @@ def import_projects(conn: sqlite3.Connection, observed: dict[str, dict[str, Any]
 
 def _import_projects(conn: sqlite3.Connection, observed: dict[str, dict[str, Any]], *, execute: bool,
                      create_unmatched: bool) -> dict[str, Any]:
-    from . import project_record as records, runtime_view, identifier_storage, domain_policy, relations
-    from .concurrency import write_transaction
-    from .relations import identifier_is_guarded
+    from .. import project_record as records
+    from ..persistence import runtime_view, identifier_storage
+    from ..identity import domain_policy
+    from .. import relations
+    from ..persistence.concurrency import write_transaction
+    from ..relations import identifier_is_guarded
 
     projects = records.list_projects(conn)
     exact: dict[str, set[str]] = defaultdict(set)
@@ -201,7 +205,7 @@ def _import_projects(conn: sqlite3.Connection, observed: dict[str, dict[str, Any
             if old and old != item and (item["status"] in {"deleted", "invalid"} or old.get("schema_type") != item.get("schema_type") or
                     old.get("status") == "verified" and (item["status"] != "verified" or old.get("publisher_did") != item.get("publisher_did") or old.get("record_hash") != item.get("record_hash"))):
                 reasons.append(f"発行根拠の変化: {item['schema_id']}")
-                from . import trust_graph
+                from .. import trust_graph
                 trust_graph.remove_edges(p, source=f"lexicon_resolution:{item['schema_id']}")
             previous[item["schema_id"]] = item
         p["publication_schemas"] = [previous[n] for n in sorted(previous)]

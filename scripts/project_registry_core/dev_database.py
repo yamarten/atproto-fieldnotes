@@ -6,7 +6,9 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from . import database, project_record, registry, storage
+from .persistence import database
+from . import project_record, registry
+from .persistence import storage
 from .evidence import EVIDENCE_SCHEMA_VERSION, EvidenceBundle
 
 
@@ -74,7 +76,7 @@ def _reset_database(path: Path) -> dict[str, int]:
             for table in tables:
                 quoted = '"' + table.replace('"', '""') + '"'
                 conn.execute(f"DELETE FROM {quoted}" + (" WHERE key != 'schema_version'" if table == "registry_meta" else ""))
-            from .publication_registry import install_schema
+            from .publications.publication_registry import install_schema
             install_schema(conn)
             counts = seed_database(conn)
             conn.commit()

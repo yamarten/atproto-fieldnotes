@@ -5,8 +5,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
-from .. import enrichment_pipeline as pipeline, enrich_observations, llm_transport
-from .. import concurrency, project_record, runtime_view, storage
+from .. import enrichment_pipeline as pipeline, enrich_observations
+from ..transport import llm_transport
+from ..persistence import concurrency
+from .. import project_record
+from ..persistence import runtime_view, storage
 from ..jobs import CancellationToken
 
 

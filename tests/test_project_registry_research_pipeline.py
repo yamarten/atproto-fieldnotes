@@ -19,17 +19,17 @@ from enrichment_io import EnrichmentIO
 from project_registry_core import enrichment_pipeline, source_sync
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
 from project_registry_core import evaluation as evaluation_core
-from project_registry_core import github_api
+from project_registry_core.transport import github_api
 from project_registry_core import investigation as investigation_core
-from project_registry_core import llm_transport as llm_transport_core
+from project_registry_core.transport import llm_transport as llm_transport_core
 from project_registry_core import relations as relation_core
-from project_registry_core import repository_analysis
-from project_registry_core import repository_material
-from project_registry_core import repository_sources
-from project_registry_core import reliability
-from project_registry_core import runtime_view
+from project_registry_core.repositories import repository_analysis
+from project_registry_core.repositories import repository_material
+from project_registry_core.repositories import repository_sources
+from project_registry_core.transport import reliability
+from project_registry_core.persistence import runtime_view
 from project_registry_core import service as service_core
-from project_registry_core import storage as storage_core
+from project_registry_core.persistence import storage as storage_core
 from project_registry_core import tangled as tangled_core
 from project_registry_core import project_record
 

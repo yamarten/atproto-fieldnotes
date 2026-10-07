@@ -15,7 +15,8 @@ import urllib.parse
 import uuid
 from typing import Any
 
-from . import identifiers, project_record
+from .identity import identifiers
+from . import project_record
 from .registry import applog_seed_from_url, bsky_post_web_url, extract_post_link_entries
 
 

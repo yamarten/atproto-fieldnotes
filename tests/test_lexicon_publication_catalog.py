@@ -8,8 +8,8 @@ from pathlib import Path
 from unittest import mock
 
 import helpers  # noqa: F401
-from project_registry_core import lexicon_publication_catalog as catalog
-from project_registry_core.lexicon_publication_comparison import LEXICON_COLLECTION
+from project_registry_core.publications import lexicon_publication_catalog as catalog
+from project_registry_core.publications.lexicon_publication_comparison import LEXICON_COLLECTION
 
 
 def event(seq: int, did: str, nsid: str, operation: str = "create", *, main_type: str = "record", collections: list[str] | None = None) -> dict:

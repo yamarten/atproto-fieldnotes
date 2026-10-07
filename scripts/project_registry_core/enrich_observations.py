@@ -9,7 +9,7 @@ import threading
 import time
 from typing import Any, Callable
 
-from . import repo_urls
+from .repositories import repo_urls
 from .private_data import redact
 
 VERSION = 1
@@ -21,8 +21,9 @@ SECTION_LIMITS = {"planning": 96 * 1024, "search_outcomes": 48 * 1024,
 @functools.lru_cache(maxsize=1)
 def planning_policy() -> dict[str, str]:
     root = Path(__file__).parent
-    return {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in (
-        "investigation.py", "registry.py", "llm_evidence.py", "llm_transport.py")}
+    return {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in (
+        root / "investigation.py", root / "registry.py", root / "llm_evidence.py",
+        root / "transport" / "llm_transport.py")}
 
 
 def json_bytes(value: Any) -> bytes:
@@ -128,7 +129,8 @@ def triage_changes(project: dict, evidence: dict) -> dict:
 
 
 def triage_components(prompt: str, evidence: dict, options: dict, collection_state: dict) -> dict:
-    from . import llm_transport, triage_reuse, llm_evidence
+    from .transport import llm_transport
+    from . import triage_reuse, llm_evidence
     serialized = llm_evidence.evidence_json(evidence)
     template = prompt.replace(serialized, "<evidence>", 1) if prompt.count(serialized) == 1 else prompt
     values = {"template": template, "policy": triage_reuse.policy_digest(),

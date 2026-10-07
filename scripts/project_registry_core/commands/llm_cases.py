@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from .. import llm_case_store
+from ..model_evaluation import llm_case_store
 
 
 def cmd_register(args: argparse.Namespace) -> int:

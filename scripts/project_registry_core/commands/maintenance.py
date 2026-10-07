@@ -9,8 +9,8 @@ from pathlib import Path
 
 from .. import registry as core
 from project_registry_core.maintenance import collector_relation_shadow
-from .. import database
-from .. import domain_policy
+from ..persistence import database
+from ..identity import domain_policy
 from project_registry_core.maintenance import identifier_storage_shadow
 from project_registry_core.maintenance import identifier_storage_materialization
 from project_registry_core.maintenance import merge_policy_shadow

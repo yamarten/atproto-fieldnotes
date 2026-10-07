@@ -12,9 +12,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .private_data import redact as _redact
+from ..private_data import redact as _redact
 
-from . import registry
+from .. import registry
 
 SCHEMA_VERSION = 1
 CASE_ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}\Z")

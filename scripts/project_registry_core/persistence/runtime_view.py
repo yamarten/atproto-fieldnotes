@@ -6,8 +6,8 @@ import datetime as dt
 import re
 from typing import Any, Iterable, Mapping
 
-from . import identifiers
-from . import repo_urls
+from ..identity import identifiers
+from ..repositories import repo_urls
 
 
 RUNTIME_VIEW_MARKER = "_registry_runtime_view_v2"
@@ -182,7 +182,7 @@ def normalized_children_unchanged(project: Mapping[str, Any]) -> bool:
         return False
     identifiers = [asdict(item) for item in _derive_project_identifiers(project)]
     decisions = [asdict(item) for item in _derive_project_decisions(project)]
-    from .relations import normalize_relation_records
+    from ..relations import normalize_relation_records
     relations = normalize_relation_records(project.get("relation_evidence", []))
     return identifiers == identifier_baseline and relations == relation_baseline and decisions == decision_baseline
 
@@ -501,7 +501,7 @@ def project_decisions(project: Mapping[str, Any]) -> list[ProjectDecision]:
 
 
 def relation_rows(project: Mapping[str, Any]) -> list[dict[str, Any]]:
-    from .relations import normalize_relation_records
+    from ..relations import normalize_relation_records
 
     original = project.get(RUNTIME_RELATION_ROWS)
     baseline = project.get(RUNTIME_RELATION_BASELINE)

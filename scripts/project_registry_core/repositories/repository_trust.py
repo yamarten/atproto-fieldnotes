@@ -3,7 +3,10 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from . import collector_relation_policy, identifiers, relations, repo_urls
+from .. import collector_relation_policy
+from ..identity import identifiers
+from .. import relations
+from . import repo_urls
 
 
 PREDICATES = {"service_links_repo", "repo_links_service"}

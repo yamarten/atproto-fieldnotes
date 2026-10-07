@@ -9,7 +9,8 @@ from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 
 from project_registry_core.application import review as application_review
 from project_registry_core import project_review
-from project_registry_core import project_record, promotion_attention, runtime_view
+from project_registry_core import project_record, promotion_attention
+from project_registry_core.persistence import runtime_view
 from project_registry_core.application import decisions, merge, presentation
 
 

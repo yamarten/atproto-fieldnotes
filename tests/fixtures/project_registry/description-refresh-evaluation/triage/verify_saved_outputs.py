@@ -3,7 +3,8 @@ import copy
 import json
 import tempfile
 from pathlib import Path
-from project_registry_core import database, editorial, project_record, registry
+from project_registry_core.persistence import database
+from project_registry_core import editorial, project_record, registry
 
 OUT = Path(__file__).resolve().parent
 cases = {c['id']: c for name in ('tuning-inputs.json', 'holdout-inputs.json')

@@ -6,11 +6,15 @@ from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from project_registry_core import enrich_observations as obs
-from project_registry_core import investigation, llm_transport, storage, replay
+from project_registry_core import investigation
+from project_registry_core.transport import llm_transport
+from project_registry_core.persistence import storage
+from project_registry_core import replay
 from project_registry_core.evidence import EvidenceBundle, EvidenceRecord
-from project_registry_core.reliability import RetryPolicy
+from project_registry_core.transport.reliability import RetryPolicy
 from project_registry_core.application import investigation as investigation_service
-from project_registry_core import storage_cleanup, project_record
+from project_registry_core.maintenance import storage_cleanup
+from project_registry_core import project_record
 import enrich_observation_report as report
 
 

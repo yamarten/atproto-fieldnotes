@@ -15,14 +15,10 @@ from unittest import mock
 from helpers import ROOT, SCRIPTS
 
 from project_registry_core.application import review as application_review
-from project_registry_core import (
-    cli,
-    database,
-    dev_database,
-    project_record,
-    registry,
-    storage,
-)
+from project_registry_core import cli
+from project_registry_core.persistence import database
+from project_registry_core import dev_database, project_record, registry
+from project_registry_core.persistence import storage
 from project_registry_core.application import presentation
 
 

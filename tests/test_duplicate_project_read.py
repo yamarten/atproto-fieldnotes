@@ -7,7 +7,9 @@ from unittest import mock
 from helpers import TempRegistryDbTestCase, registry
 
 from project_registry_core import project_merge
-from project_registry_core import project_record, runtime_view, trust_graph
+from project_registry_core import project_record
+from project_registry_core.persistence import runtime_view
+from project_registry_core import trust_graph
 from project_registry_core.application import presentation
 
 

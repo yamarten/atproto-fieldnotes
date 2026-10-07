@@ -6,7 +6,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from project_registry_core import database, repo_urls
+from project_registry_core.persistence import database
+from project_registry_core.repositories import repo_urls
 
 
 MATERIALIZATION_VERSION = 1

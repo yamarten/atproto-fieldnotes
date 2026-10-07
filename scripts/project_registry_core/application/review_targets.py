@@ -5,7 +5,7 @@ import json
 import sqlite3
 from typing import Any
 
-from .. import storage
+from ..persistence import storage
 
 
 def fingerprint(target_type: str, payload: dict[str, Any]) -> str:

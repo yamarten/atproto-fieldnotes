@@ -6,20 +6,15 @@ from project_registry_core import project_merge
 
 from .. import editorial, service, usage_material
 
-from .. import concurrency
+from ..persistence import concurrency
 
 import datetime as dt
 import json
 import sqlite3
 from typing import Any, Callable
 
-from .. import (
-    evaluation,
-    relations,
-    registry as core,
-    runtime_view,
-    storage,
-)
+from .. import evaluation, relations, registry as core
+from ..persistence import runtime_view, storage
 from . import (
     decisions,
     explain,
@@ -669,7 +664,7 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
     if row is None:
         raise KeyError(project_key)
     if project.get("publication_schemas"):
-        from .. import publication_registry
+        from ..publications import publication_registry
         current = publication_registry.schemas(conn, now=project_record.iso_now(),
                     schema_ids={item["schema_id"] for item in project["publication_schemas"]})
         project["publication_schemas"] = [{**item, **current.get(item["schema_id"], {})} for item in project["publication_schemas"]]

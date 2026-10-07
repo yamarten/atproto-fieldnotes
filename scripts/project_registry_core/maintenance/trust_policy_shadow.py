@@ -10,7 +10,9 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Iterable
 
-from project_registry_core import domain_policy, storage, repository_trust
+from project_registry_core.identity import domain_policy
+from project_registry_core.persistence import storage
+from project_registry_core.repositories import repository_trust
 
 
 REPORT_SCHEMA_VERSION = 1

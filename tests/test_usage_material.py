@@ -5,7 +5,9 @@ import copy
 from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
-from project_registry_core import oauth_metadata, project_record, repository_analysis, service, usage_material
+from project_registry_core import oauth_metadata, project_record
+from project_registry_core.repositories import repository_analysis
+from project_registry_core import service, usage_material
 from project_registry_core.application import presentation
 from project_registry_core.evidence import EvidenceBundle
 

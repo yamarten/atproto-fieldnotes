@@ -6,8 +6,8 @@ import argparse
 import json
 from pathlib import Path
 
-from project_registry_core import http_transport
-from project_registry_core.lexicon_publication_comparison import (
+from project_registry_core.transport import http_transport
+from project_registry_core.publications.lexicon_publication_comparison import (
     collection_inventory_nsids,
     compare,
     fetch_snapshot,

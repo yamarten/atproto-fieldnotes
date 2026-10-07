@@ -7,7 +7,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from . import database, project_record
+from .persistence import database
+from . import project_record
 from .application import enrichment, investigation, review, sync
 from .jobs import CancellationToken, OperationEvent, OperationRequest, OperationResult, utc_now
 

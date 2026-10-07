@@ -9,7 +9,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Iterable
 
-from . import identifiers as identifier_core
+from ..identity import identifiers as identifier_core
 
 
 LEXICON_COLLECTION = "com.atproto.lexicon.schema"
@@ -93,7 +93,7 @@ def _definition_types(record: dict[str, Any]) -> list[str]:
 
 
 def inspect_schema(event: dict[str, Any]) -> dict[str, Any]:
-    from .registry import registrable_namespace_from_namespace
+    from ..registry import registrable_namespace_from_namespace
     record = dict(event.get("record") or {})
     record_type = str(record.get("$type") or "")
     schema_id = identifier_core.normalize_nsid(str(record.get("id") or ""))
@@ -166,7 +166,7 @@ def open_read_only_database(path: Path) -> sqlite3.Connection:
 
 
 def load_database_index(conn: sqlite3.Connection) -> dict[str, Any]:
-    from .registry import registrable_namespace_from_namespace
+    from ..registry import registrable_namespace_from_namespace
     known_nsids: dict[str, set[str]] = defaultdict(set)
     authority_projects: dict[str, set[str]] = defaultdict(set)
     for row in conn.execute("SELECT project_key, value FROM project_identifiers WHERE kind='nsid'"):
@@ -213,7 +213,7 @@ def collection_inventory_nsids(payload: Any) -> set[str]:
 
 
 def compare(events: Iterable[Any], database_index: dict[str, Any], observed_collections: set[str], *, sample_limit: int = 20) -> dict[str, Any]:
-    from .registry import registrable_namespace_from_namespace
+    from ..registry import registrable_namespace_from_namespace
     folded = fold_events(events)
     schemas = [inspect_schema(event) for event in folded["current"]]
     known_schemas = database_index.get("known_schemas", {})
@@ -329,7 +329,7 @@ def fetch_snapshot(
     node = shutil.which("node")
     if not node:
         raise RuntimeError("Node.js 22.15 or newer is required")
-    bridge = Path(__file__).resolve().with_name("jetstream_snapshot.mjs")
+    bridge = Path(__file__).resolve().parents[1] / "jetstream_snapshot.mjs"
     completed = subprocess.run(
         [node, str(bridge)],
         input=json.dumps({
@@ -340,7 +340,7 @@ def fetch_snapshot(
         text=True,
         capture_output=True,
         check=False,
-        cwd=str(Path(__file__).resolve().parents[2]),
+        cwd=str(Path(__file__).resolve().parents[3]),
         env=os.environ.copy(),
         timeout=max_seconds + 15,
     )

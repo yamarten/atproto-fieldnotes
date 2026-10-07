@@ -5,7 +5,7 @@ import urllib.parse
 from typing import Any
 
 from . import collector_relation_policy
-from . import repo_urls
+from .repositories import repo_urls
 from .evidence import EVIDENCE_CLASSIFICATIONS, EvidenceEntity, EvidenceRecord, RelationEvidence
 
 

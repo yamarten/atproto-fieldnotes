@@ -9,7 +9,9 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Iterable
 
-from .. import database, identifiers, project_record
+from ..persistence import database
+from ..identity import identifiers
+from .. import project_record
 
 
 REPORT_SCHEMA_VERSION = 1

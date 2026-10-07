@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from . import llm_model_evaluation as llm_evaluation
-from . import llm_transport
-from . import repository_analysis
-from . import storage
+from ..transport import llm_transport
+from ..repositories import repository_analysis
+from ..persistence import storage
 
 
 CORPUS_SCHEMA_VERSION = 1

@@ -8,7 +8,8 @@ from urllib.parse import urlsplit
 from unittest import mock
 
 from helpers import registry
-from project_registry_core import http_transport, llm_transport, reliability, repository_sources
+from project_registry_core.transport import http_transport, llm_transport, reliability
+from project_registry_core.repositories import repository_sources
 
 
 class EnrichmentIO:

@@ -64,6 +64,23 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 
 以下は`scripts/project_registry_core/`配下です。WebのHTTP・静的UI・process管理は`scripts/project_registry_web/`にあります。
 
+### 配置の単位
+
+以下の機能別packageは、`__init__.py`で内部moduleを一括importせず、呼出元が担当moduleを直接参照します。
+
+| Package | 配置する処理と境界 |
+| --- | --- |
+| `identity/` | 汎用identifierの正規化、domain・tenant境界、観測済みURL alias。repository固有のURL規則は`repositories/` |
+| `repositories/` | repository URL、provider別取得、素材抽出・解析、リンク文脈、repository帰属とhomepageのrole判定。取得と判定は別moduleを維持 |
+| `publications/` | Lexicon公開情報のevent・schema解析、カタログ、検証保存、projectへの投影、型別consumer判定 |
+| `transport/` | HTTP送受信、GitHub rate limit、LLMのcommand/endpoint接続、retry・cache。取得対象の選択やprojectへの適用は外側 |
+| `model_evaluation/` | corpusによるLLM・repository解析・relation評価と非公開事例保存。明示的な評価commandから使い、通常enrichから呼ばない |
+| `persistence/` | SQLite schema・接続、transaction・競合検査、normalized row・runtime view、調査履歴保存。projectの形・手動判断・fetch/list/saveの組立ては直下の`project_record.py` |
+| `maintenance/` | 明示的な比較・移行と保存量の整理。通常のquery・調査・保存から呼ばない |
+| `application/` / `commands/` | 利用操作の組立てとCLI入出力。機能別の処理とは別の境界 |
+
+直下にはproject全体の状態・判断、共通の根拠・relation・信頼評価、調査の制御・観測、replay、実行入口を置きます。各moduleの責務と接続は以下の表に示します。
+
 ### 入口・処理の制御
 
 | Module | 担当 |
@@ -72,14 +89,14 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 | `application/` | CLI/Web共通service。`argparse.Namespace`やstdoutへ依存しない |
 | `jobs.py` / `worker.py` | request/event/resultと協調的中断。workerはstdinの`OperationRequest`を実行しJSON Linesを返す |
 | `application/sync.py` / `source_sync.py` | source別取得、watermark、既存projectへの接続。テキストシードの解析・参照先解決・取り込みも`source_sync.py`が担当 |
-| `application/publications.py` / `publication_registry.py` | [Lexicon公開情報](specs/lexicon-publication-catalog.md)の取得・検証、保存、project候補への照合 |
-| `publication_verification.py` | syncとenrichの検証結果保存。公開本文・観測時刻の照合と調査保存への接続 |
+| `application/publications.py` / `publications/publication_registry.py` | [Lexicon公開情報](specs/lexicon-publication-catalog.md)の取得・検証、保存、project候補への照合 |
+| `publications/publication_verification.py` | syncとenrichの検証結果保存。公開本文・観測時刻の照合と調査保存への接続 |
 | `introduced_review.py` | 紹介投稿のURL別要確認・手動解消。判断はqueryの`sync_state`、紹介URLはproject本体へ保存 |
 | `application/enrichment.py` | enrichの対象選択・transaction・保存・checkpoint |
 | `enrichment_pipeline.py` | 1 projectのcollector・LLM・保存前更新の実行順序。Lexicon・record sample・resource pageの収集結果をEvidenceBundleへ梱包する処理も保持 |
 | `application/enrich_prefetch.py` | LLM区間中の次の一件の先行取得。DBとLLMはcaller threadに保ち、使用前にsnapshotを照合 |
 | `registry.py` | collector適用・finalizeの補助処理 |
-| `maintenance/` | 明示的な比較・移行commandの実装。6つのshadow比較、4つのmaterialization、repo信頼移行を保持し、通常の調査・query・保存から呼ばない |
+| `maintenance/` | 明示的な比較・移行commandと保存量整理の実装。6つのshadow比較、4つのmaterialization、repo信頼移行、`storage_cleanup.py`を保持し、通常の調査・query・保存から呼ばない |
 | `dev_database.py` | 架空定義から開発DBを生成・リセット。通常CLIのDB選択は`cli.py` |
 
 ### 観測・統合・評価
@@ -88,9 +105,9 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 | --- | --- |
 | `evidence.py` | `EvidenceBundle` v2、観測・relation・collector結果と失敗の型 |
 | `investigation.py` | query planningとcollector。project dictを変更せずevidence bundleを返す |
-| `repository_sources.py` | provider別metadata・README・tree・file取得と短期cache |
-| `repository_material.py` | 取得済みfileからmanifest・configuration・Lexicon・source hintを抽出 |
-| `repository_analysis.py` | confirmed repoの解析素材縮約、revision・policy単位の再利用、成功結果と最新試行の管理 |
+| `repositories/repository_sources.py` | provider別metadata・README・tree・file取得と短期cache |
+| `repositories/repository_material.py` | 取得済みfileからmanifest・configuration・Lexicon・source hintを抽出 |
+| `repositories/repository_analysis.py` | confirmed repoの解析素材縮約、revision・policy単位の再利用、成功結果と最新試行の管理 |
 | `service.py` / `tangled.py` / `relations.py` | service観測、Tangled PDS/UFOs、typed relation |
 | `tangled_identity.py` | 同期用DID・handle双方向検証と取得失敗の分類。帰属・保留保存は`source_sync.py` |
 | `oauth_metadata.py` / `oauth_scope_parser.mjs` | 取得済みOAuth metadataを公式SDKで解析。Nodeで外部取得はしない |
@@ -109,23 +126,23 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 
 | Module | 担当 |
 | --- | --- |
-| `database.py` / `runtime_view.py` | schema・接続・normalized rowのsnapshotと処理用view |
+| `persistence/database.py` / `persistence/runtime_view.py` | schema・接続・normalized rowのsnapshotと処理用view |
 | `project_record.py` | project shape、正規化、保存payload、hydrate、fetch/list/save、exact lookup、key割当 |
-| `concurrency.py` | 更新番号trigger・短いtransaction・競合検査。外部取得・LLM中にwrite lockを保持しない |
-| `storage.py` / `replay.py` | 調査履歴保存、network-free replay、fixture benchmark |
+| `persistence/concurrency.py` | 更新番号trigger・短いtransaction・競合検査。外部取得・LLM中にwrite lockを保持しない |
+| `persistence/storage.py` / `replay.py` | 調査履歴保存、network-free replay、fixture benchmark |
 | `enrich_observations.py` | 比較用snapshotと処理時間。集計入口は`scripts/enrich_observation_report.py` |
-| `llm_case_store.py` / `private_data.py` | 非公開事例保存と共通の認証情報除去 |
-| `domain_policy.py` | 同梱PSLとhosting suffix設定によるdomain・tenant境界。依存・PSL欠落はエラー |
-| `http_transport.py` | outbound URL検証、内部host遮断、redirect先再検証、HTTP呼出し |
-| `identifiers.py` / `repo_urls.py` | URL・NSID・aliasの正規化、repo provider・owner判定 |
+| `model_evaluation/llm_case_store.py` / `private_data.py` | 非公開事例保存と共通の認証情報除去 |
+| `identity/domain_policy.py` | 同梱PSLとhosting suffix設定によるdomain・tenant境界。依存・PSL欠落はエラー |
+| `transport/http_transport.py` | outbound URL検証、内部host遮断、redirect先再検証、HTTP呼出し |
+| `identity/identifiers.py` / `repositories/repo_urls.py` | URL・NSID・aliasの正規化、repo provider・owner判定 |
 | `naming.py` | title短縮、名前候補の保持・除外・採点・選定。識別情報は`project_record.py`から読み、取得・DB保存・registryへの依存を持たない |
-| `llm_transport.py` | command/互換endpoint呼出し、応答解析、timeout・error・metrics。prompt構築と適用は外側 |
+| `transport/llm_transport.py` | command/互換endpoint呼出し、応答解析、timeout・error・metrics。prompt構築と適用は外側 |
 
 ### 依存境界の制約
 
 - `source_sync.py`と`enrichment_pipeline.py`は保存を重複実装せず`project_record.py`を使う。`project_record.py`は`registry.py`へ依存しない。
 - application・commands・pipelineにはdomain facadeとして`registry.py`への依存が残る。Web主要query/mutationはapplicationを通るが、bootstrap・検索・補助read pathには直接依存もある。
-- `database.py`のopen/saveは`registry.py`や`project_record.py`をimportしない。
+- `persistence/database.py`のopen/saveは`registry.py`や`project_record.py`をimportしない。
 - 比較・migration用コピーの生成は`database.materialized_database_copy`がread-onlyの取得元接続、新規コピー先の排他作成、backup、commit・失敗時の削除を担当する。`maintenance/`内の各materializationは必要なschema世代と変換・検証規則を持ち、既存コピーや正本を上書きしない。
 - 分離したmoduleを旧symbol互換のため`registry.py`からre-exportしない。collectorのtestはHTTP transport、LLMのtestはcommand/endpointをfakeへ差し替える。
 - 名前と取り込みの照合に使うproject・seedの識別token、および候補textの追加は`project_record.py`が担当する。`integration.py`は名前候補を`naming.py`へ直接渡し、名前処理をregistryのcallbackで受け取らない。

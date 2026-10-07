@@ -8,9 +8,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .. import domain_policy
+from ..identity import domain_policy
 from .. import registry as core
-from .. import storage, storage_cleanup
+from ..persistence import storage
+from ..maintenance import storage_cleanup
 from project_registry_core import project_record
 
 

@@ -8,9 +8,11 @@ from unittest import mock
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase
 
 from project_registry_core import enrichment_pipeline
-from project_registry_core import database, registry, project_record, publication_registry, lexicon_types
+from project_registry_core.persistence import database
+from project_registry_core import registry, project_record
+from project_registry_core.publications import publication_registry, lexicon_types
 from project_registry_core.application import publications
-from project_registry_core import lexicon_publication_catalog as catalog
+from project_registry_core.publications import lexicon_publication_catalog as catalog
 from test_lexicon_publication_catalog import event, summary
 
 
@@ -25,7 +27,7 @@ class _PublicationRegistryFixtures:
     @staticmethod
     def payload(item):
         sid, did = item['rkey'], item['did']
-        from project_registry_core import identifiers
+        from project_registry_core.identity import identifiers
         return {'did': did, 'did_doc': {'id': did}, 'authority_domain': identifiers.derive_authority_domain(sid),
                 'pds_url': 'https://pds.example',
                 'record': {'uri': f'at://{did}/com.atproto.lexicon.schema/{sid}', 'value': item['record']}}
@@ -99,7 +101,7 @@ class PublicationRegistryTest(_PublicationRegistryFixtures, TempRegistryDbTestCa
         self.assertEqual((result['verified'], result['remaining']), (2, 0))
 
     def test_investigation_save_shares_verification_atomically_and_preserves_time(self):
-        from project_registry_core import storage
+        from project_registry_core.persistence import storage
         item = event(1, 'did:plc:a', 'com.example.post')
         self.run_sync([item])
         project = project_record.list_projects(self.conn)[0]
@@ -119,7 +121,7 @@ class PublicationRegistryTest(_PublicationRegistryFixtures, TempRegistryDbTestCa
         self.assertEqual(publications.verification_targets(self.conn, limit=None, now=observed_at), [])
 
     def test_shared_result_does_not_overwrite_newer_verification_or_changed_catalog(self):
-        from project_registry_core import publication_verification as shared
+        from project_registry_core.publications import publication_verification as shared
         item = event(1, 'did:plc:a', 'com.example.post')
         self.run_sync([item])
         expected = shared.witnesses(self.conn, item['rkey'])
@@ -135,7 +137,7 @@ class PublicationRegistryTest(_PublicationRegistryFixtures, TempRegistryDbTestCa
         self.assertEqual(publications.verification_targets(self.conn, limit=None, now='2026-10-05T05:00:00Z'), [item['rkey']])
 
     def test_shared_investigation_failure_obeys_retry_deadline(self):
-        from project_registry_core import storage
+        from project_registry_core.persistence import storage
         from project_registry_core.evidence import EvidenceBundle, CollectorFailure, CollectorResult
         item = event(1, 'did:plc:a', 'com.example.post')
         self.run_sync([item])

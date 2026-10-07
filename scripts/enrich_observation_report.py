@@ -11,7 +11,8 @@ import sqlite3
 from typing import Any
 
 from project_registry_core import enrich_observations as obs
-from project_registry_core import storage, llm_transport
+from project_registry_core.persistence import storage
+from project_registry_core.transport import llm_transport
 
 
 def section(observations: dict, key: str) -> Any:

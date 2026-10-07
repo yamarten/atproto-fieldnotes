@@ -14,14 +14,14 @@ from typing import Any, Callable
 
 from project_registry_core import atproto_usage
 from project_registry_core import collection_trust
-from project_registry_core import domain_policy as domain_policy_core
+from project_registry_core.identity import domain_policy as domain_policy_core
 from project_registry_core import editorial
-from project_registry_core import identifier_storage
-from project_registry_core import identifiers as identifier_core
+from project_registry_core.persistence import identifier_storage
+from project_registry_core.identity import identifiers as identifier_core
 from project_registry_core import oauth_metadata
-from project_registry_core import repo_urls as repo_url_core
-from project_registry_core import repository_analysis as repository_analysis_core
-from project_registry_core import runtime_view
+from project_registry_core.repositories import repo_urls as repo_url_core
+from project_registry_core.repositories import repository_analysis as repository_analysis_core
+from project_registry_core.persistence import runtime_view
 from project_registry_core import project_record
 
 

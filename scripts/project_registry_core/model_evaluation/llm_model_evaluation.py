@@ -12,9 +12,9 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
 
-from . import llm_evidence as llm_evidence_core
-from . import llm_transport
-from . import storage
+from .. import llm_evidence as llm_evidence_core
+from ..transport import llm_transport
+from ..persistence import storage
 
 
 CORPUS_SCHEMA_VERSION = 1

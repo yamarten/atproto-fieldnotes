@@ -4,7 +4,7 @@ import sqlite3
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase
-from project_registry_core import database
+from project_registry_core.persistence import database
 
 
 class DatabaseCopyTest(TempRegistryDbTestCase):

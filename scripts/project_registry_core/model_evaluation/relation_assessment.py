@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import llm_model_evaluation as llm_evaluation
-from . import llm_transport
+from ..transport import llm_transport
 from project_registry_core.maintenance import collector_relation_shadow
 
 

@@ -6,7 +6,9 @@ import contextlib
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 
 from project_registry_core import project_merge
-from project_registry_core import identifier_storage, project_record, runtime_view
+from project_registry_core.persistence import identifier_storage
+from project_registry_core import project_record
+from project_registry_core.persistence import runtime_view
 from project_registry_core.application import merge
 
 

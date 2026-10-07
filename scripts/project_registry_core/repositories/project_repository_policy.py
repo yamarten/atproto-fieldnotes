@@ -4,7 +4,8 @@ import collections
 import re
 from typing import Any
 
-from . import identifiers, repository_link_context
+from ..identity import identifiers
+from . import repository_link_context
 
 
 POLICY_VERSION = "project-repository-link-v2"

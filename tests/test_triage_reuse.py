@@ -6,8 +6,11 @@ from contextlib import ExitStack
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
-from project_registry_core import enrichment_pipeline, llm_evidence, llm_transport
-from project_registry_core import project_record, storage, triage_reuse, editorial
+from project_registry_core import enrichment_pipeline, llm_evidence
+from project_registry_core.transport import llm_transport
+from project_registry_core import project_record
+from project_registry_core.persistence import storage
+from project_registry_core import triage_reuse, editorial
 from project_registry_core.evidence import EvidenceBundle, CollectorFailure, CollectorResult
 
 

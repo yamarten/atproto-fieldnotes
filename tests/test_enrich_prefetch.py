@@ -14,8 +14,11 @@ from unittest import mock
 
 from helpers import ROOT, TempRegistryDbTestCase, registry
 from enrich_overlap_support import KEYS, NOW, Responses, seed, semantic
-from project_registry_core import enrichment_pipeline as pipeline, project_record, storage, github_api, runtime_view
-from project_registry_core import llm_transport
+from project_registry_core import enrichment_pipeline as pipeline, project_record
+from project_registry_core.persistence import storage
+from project_registry_core.transport import github_api
+from project_registry_core.persistence import runtime_view
+from project_registry_core.transport import llm_transport
 from project_registry_core.evidence import EvidenceBundle, EvidenceRecord, CollectorResult
 from project_registry_core.application import enrichment, merge
 from project_registry_core.jobs import CancellationToken, OperationRequest

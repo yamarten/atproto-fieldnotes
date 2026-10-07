@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .evidence import EvidenceBundle
-from .storage import evaluation_snapshot
+from .persistence.storage import evaluation_snapshot
 
 
 @dataclass(frozen=True)

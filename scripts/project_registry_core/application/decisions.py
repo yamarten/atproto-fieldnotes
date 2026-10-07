@@ -9,7 +9,7 @@ import datetime as dt
 from typing import Any
 
 from .. import registry as core
-from .. import concurrency
+from ..persistence import concurrency
 from . import review_targets
 from project_registry_core import project_record
 from project_registry_core import promotion_attention

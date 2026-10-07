@@ -4,7 +4,8 @@ from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from enrichment_io import EnrichmentIO
-from project_registry_core import enrichment_pipeline, project_record, relations, runtime_view
+from project_registry_core import enrichment_pipeline, project_record, relations
+from project_registry_core.persistence import runtime_view
 from project_registry_core.evidence import EvidenceBundle
 
 

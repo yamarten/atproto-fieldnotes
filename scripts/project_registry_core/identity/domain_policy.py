@@ -11,7 +11,7 @@ import tldextract
 from . import identifiers
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 DOMAIN_OVERRIDES_PATH = ROOT / "config" / "domain-overrides.json"
 PUBLIC_SUFFIX_DATA_CANDIDATES = [ROOT / "vendor" / "public_suffix_list.dat"]
 TLDEXTRACT_CACHE_DIR = ROOT / "data" / "tldextract-cache"

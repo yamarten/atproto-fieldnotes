@@ -173,7 +173,7 @@ canonical fieldは`website_url`、`introduced_url`、confirmed/candidateのservi
 
 ## Runtime viewとexact lookup
 
-runtime codecの完全hydrate要件、無変更roundtrip、Websiteとidentifierの分離は[project_identifiers](#project_identifiers)を正本とします。実装は`runtime_view.py`が所有します。
+runtime codecの完全hydrate要件、無変更roundtrip、Websiteとidentifierの分離は[project_identifiers](#project_identifiers)を正本とします。実装は`persistence/runtime_view.py`が所有します。
 
 exact identifier lookupは`project_identifiers(kind, value, classification)` indexを使います。source syncで使うNSID、service URL、repository URL、domainとprovider別repositoryはproject payloadを全件hydrateしません。collection namespace、registrable namespace、service host familyなどのfuzzy候補はexact lookupの後段に分離し、安全判定を通らない一致はsuggestionに留めます。`handle`のexact lookupはnormalized indexだけを使います。`did`と`service_url_candidate`はindexで候補を絞った後、候補projectをhydrateしてcurrent payloadとの一致を確認します。
 

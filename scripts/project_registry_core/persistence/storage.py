@@ -7,8 +7,11 @@ import uuid
 import zlib
 from typing import Any
 
-from .evidence import CollectorResult, EvidenceBundle
-from . import database, llm_transport, runtime_view, concurrency, enrich_observations
+from ..evidence import CollectorResult, EvidenceBundle
+from . import database
+from ..transport import llm_transport
+from . import runtime_view, concurrency
+from .. import enrich_observations
 from .runtime_view import sanitize_runtime_snapshot
 
 

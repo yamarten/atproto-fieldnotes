@@ -18,16 +18,17 @@ from project_registry_core import project_review
 from project_registry_core import project_merge
 from project_registry_core.application import merge as application_merge
 from project_registry_core.cli import build_parser
-from project_registry_core import domain_policy, source_sync
-from project_registry_core import http_transport as http_transport_core
-from project_registry_core import identifiers as identifier_core
+from project_registry_core.identity import domain_policy
+from project_registry_core import source_sync
+from project_registry_core.transport import http_transport as http_transport_core
+from project_registry_core.identity import identifiers as identifier_core
 from project_registry_core import llm_evidence as llm_evidence_core
-from project_registry_core import llm_transport as llm_transport_core
-from project_registry_core import repo_urls as repo_url_core
+from project_registry_core.transport import llm_transport as llm_transport_core
+from project_registry_core.repositories import repo_urls as repo_url_core
 from project_registry_core import naming as naming_core
 from project_registry_core import project_record
-from project_registry_core import repository_material
-from project_registry_core import repository_sources
+from project_registry_core.repositories import repository_material
+from project_registry_core.repositories import repository_sources
 
 
 class ProjectRegistryCompletionTest(unittest.TestCase):

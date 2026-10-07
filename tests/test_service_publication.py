@@ -2,7 +2,7 @@ import json
 import unittest
 from pathlib import Path
 
-from project_registry_core import repository_analysis as analysis
+from project_registry_core.repositories import repository_analysis as analysis
 from project_registry_core.evidence import EvidenceBundle, EvidenceRecord
 
 

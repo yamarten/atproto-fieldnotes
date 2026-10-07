@@ -13,8 +13,8 @@ from project_registry_core import project_review
 
 from project_registry_core.application import merge as application_merge
 import promotion_evaluation
-from project_registry_core import database
-from project_registry_core import runtime_view
+from project_registry_core.persistence import database
+from project_registry_core.persistence import runtime_view
 from project_registry_core import project_record
 
 

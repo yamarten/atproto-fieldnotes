@@ -4,7 +4,9 @@ import json
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
-from project_registry_core import collection_trust, database, identifier_storage, project_record
+from project_registry_core import collection_trust
+from project_registry_core.persistence import database, identifier_storage
+from project_registry_core import project_record
 from project_registry_core.application import decisions, merge, presentation
 
 

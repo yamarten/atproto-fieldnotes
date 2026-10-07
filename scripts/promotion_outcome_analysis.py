@@ -13,7 +13,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable
 
-from project_registry_core import database, project_record
+from project_registry_core.persistence import database
+from project_registry_core import project_record
 
 
 ROOT = Path(__file__).resolve().parents[1]

@@ -5,7 +5,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from project_registry_core import cli, llm_case_store, registry
+from project_registry_core import cli
+from project_registry_core.model_evaluation import llm_case_store
+from project_registry_core import registry
 
 
 class LlmCaseStoreTests(unittest.TestCase):

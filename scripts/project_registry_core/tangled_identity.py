@@ -7,10 +7,10 @@ import urllib.error
 import urllib.parse
 from typing import Any, Callable
 
-from . import http_transport
+from .transport import http_transport
 from .project_record import ATPROTO_HANDLE_RE
 from .registry import BSKY_PUBLIC_API, resolve_did_document
-from .reliability import run_with_retry
+from .transport.reliability import run_with_retry
 
 
 class OwnerUnavailable(ValueError):

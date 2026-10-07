@@ -9,7 +9,9 @@ import os
 from pathlib import Path
 from typing import Any
 
-from . import editorial, llm_evidence, llm_transport, runtime_view
+from . import editorial, llm_evidence
+from .transport import llm_transport
+from .persistence import runtime_view
 from .project_record import PROJECT_CATEGORY_VALUES
 
 CACHE_KEY = "triage_reuse"
@@ -50,7 +52,7 @@ def policy_digest() -> str:
     root = Path(__file__).parent
     modules = {
         path.name: hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in (root / "triage_reuse.py", root / "llm_transport.py")
+        for path in (root / "triage_reuse.py", Path(llm_transport.__file__))
     }
     return digest([modules, sorted(PROJECT_CATEGORY_VALUES)])
 

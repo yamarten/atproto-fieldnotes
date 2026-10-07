@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import urllib.parse
 
-from . import identifiers
-from . import repo_urls
+from .identity import identifiers
+from .repositories import repo_urls
 
 
 FUNDING_HOSTS = {

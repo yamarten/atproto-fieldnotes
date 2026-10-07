@@ -5,11 +5,11 @@ import unittest
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
-from project_registry_core import identifiers
+from project_registry_core.identity import identifiers
 from project_registry_core import investigation
 from project_registry_core import project_record
-from project_registry_core import repository_analysis
-from project_registry_core import repository_material
+from project_registry_core.repositories import repository_analysis
+from project_registry_core.repositories import repository_material
 from project_registry_core.evidence import EvidenceBundle, EvidenceRecord
 
 

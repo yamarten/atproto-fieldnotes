@@ -6,7 +6,9 @@ import re
 from html.parser import HTMLParser
 from typing import Any
 
-from . import identifiers, oauth_metadata, repository_analysis
+from .identity import identifiers
+from . import oauth_metadata
+from .repositories import repository_analysis
 
 VERSION = "usage-passages-v2"
 MAX_COLLECTIONS = 64

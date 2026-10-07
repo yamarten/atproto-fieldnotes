@@ -6,9 +6,9 @@ from project_registry_core import project_review
 
 from project_registry_core import project_merge
 
-from . import lexicon_types
+from .publications import lexicon_types
 
-from . import concurrency
+from .persistence import concurrency
 
 import copy
 import datetime as dt
@@ -31,33 +31,33 @@ from project_registry_core import CollectorResult, EvidenceBundle
 from project_registry_core import collector_relation_policy
 from project_registry_core import collection_trust
 
-from project_registry_core import homepage_adoption
+from project_registry_core.repositories import homepage_adoption
 from project_registry_core import investigation as investigation_core
 from project_registry_core import integration as integration_core
 from project_registry_core import evaluation as evaluation_core
 from project_registry_core import replay as replay_core
-from project_registry_core import storage as investigation_storage
+from project_registry_core.persistence import storage as investigation_storage
 from project_registry_core.evidence import EvidenceRecord, add_collector_result_summary
 from project_registry_core import relations as relation_core
 from project_registry_core import service as service_core
 from project_registry_core import tangled as tangled_core
 from project_registry_core import trust_graph as trust_graph_core
-from project_registry_core import url_alias as url_alias_core
-from project_registry_core import reliability as reliability_core
-from project_registry_core import database as registry_database
-from project_registry_core import runtime_view
+from project_registry_core.identity import url_alias as url_alias_core
+from project_registry_core.transport import reliability as reliability_core
+from project_registry_core.persistence import database as registry_database
+from project_registry_core.persistence import runtime_view
 from project_registry_core import oauth_metadata
 from project_registry_core import llm_evidence as llm_evidence_core
-from project_registry_core import domain_policy as domain_policy_core
-from project_registry_core import http_transport
-from project_registry_core import github_api
-from project_registry_core import llm_transport
-from project_registry_core import identifiers as identifier_core
-from project_registry_core import identifier_storage
-from project_registry_core import repo_urls as repo_url_core
-from project_registry_core import repository_analysis as repository_analysis_core
-from project_registry_core import repository_material as repository_material_core
-from project_registry_core import repository_sources as repository_source_core
+from project_registry_core.identity import domain_policy as domain_policy_core
+from project_registry_core.transport import http_transport
+from project_registry_core.transport import github_api
+from project_registry_core.transport import llm_transport
+from project_registry_core.identity import identifiers as identifier_core
+from project_registry_core.persistence import identifier_storage
+from project_registry_core.repositories import repo_urls as repo_url_core
+from project_registry_core.repositories import repository_analysis as repository_analysis_core
+from project_registry_core.repositories import repository_material as repository_material_core
+from project_registry_core.repositories import repository_sources as repository_source_core
 from project_registry_core import project_record
 from project_registry_core import naming as naming_core
 from project_registry_core import editorial

@@ -10,7 +10,8 @@ from project_registry_core.application import enrichment, merge, projects
 from project_registry_core.commands import enrichment as enrichment_commands
 from project_registry_core.evidence import EvidenceBundle
 from project_registry_core.jobs import CancellationToken, OperationRequest
-from project_registry_core import project_record, storage
+from project_registry_core import project_record
+from project_registry_core.persistence import storage
 
 
 class _ProjectRegistryEnrichRunFixtures:

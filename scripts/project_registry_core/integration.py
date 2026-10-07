@@ -5,7 +5,10 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from . import service, naming, project_record
-from . import oauth_metadata, identifiers, repo_urls, trust_graph
+from . import oauth_metadata
+from .identity import identifiers
+from .repositories import repo_urls
+from . import trust_graph
 from .evidence import EvidenceBundle
 from .relations import normalize_relation_records
 

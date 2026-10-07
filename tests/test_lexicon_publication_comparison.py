@@ -8,7 +8,7 @@ from pathlib import Path
 
 import helpers  # noqa: F401
 import lexicon_publication_comparison as comparison_cli
-from project_registry_core import lexicon_publication_comparison as comparison
+from project_registry_core.publications import lexicon_publication_comparison as comparison
 
 
 def event(seq: int, did: str, rkey: str, operation: str, record: dict | None = None) -> dict:

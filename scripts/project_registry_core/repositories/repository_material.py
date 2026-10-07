@@ -5,9 +5,9 @@ import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
-from . import identifiers as identifier_core
-from . import github_api
-from . import project_record
+from ..identity import identifiers as identifier_core
+from ..transport import github_api
+from .. import project_record
 from .repository_sources import github_repo_file_text
 
 

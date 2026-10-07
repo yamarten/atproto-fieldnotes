@@ -12,12 +12,12 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-from project_registry_core import repository_trust
+from project_registry_core.repositories import repository_trust
 from project_registry_core import collector_relation_policy
-from project_registry_core import domain_policy
-from project_registry_core import identifiers
-from project_registry_core import repo_urls
-from project_registry_core import project_repository_policy
+from project_registry_core.identity import domain_policy
+from project_registry_core.identity import identifiers
+from project_registry_core.repositories import repo_urls
+from project_registry_core.repositories import project_repository_policy
 
 
 REPORT_SCHEMA_VERSION = 5

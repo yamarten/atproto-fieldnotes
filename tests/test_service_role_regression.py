@@ -4,7 +4,9 @@ from pathlib import Path
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from enrichment_io import EnrichmentIO
-from project_registry_core import enrichment_pipeline, project_record, repository_trust, trust_graph
+from project_registry_core import enrichment_pipeline, project_record
+from project_registry_core.repositories import repository_trust
+from project_registry_core import trust_graph
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures/project_registry/service-role-regression-v1.json").read_text())
 
