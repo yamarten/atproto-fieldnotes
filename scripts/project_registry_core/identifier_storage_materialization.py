@@ -710,24 +710,12 @@ def materialize_reviewed_copy(
     source_path = Path(source_path).expanduser().resolve()
     target_path = Path(target_path).expanduser().resolve()
     manifest_path = Path(manifest_path).expanduser().resolve()
-    if not source_path.exists():
-        raise FileNotFoundError(f"registry database not found: {source_path}")
-    if target_path.exists():
-        raise FileExistsError(f"shadow database already exists: {target_path}")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if int(manifest.get("schema_version", 0)) != 1:
         raise ValueError("unsupported identifier adoption review manifest")
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    source_uri = f"{source_path.as_uri()}?mode=ro"
-    source = sqlite3.connect(source_uri, uri=True)
-    source.row_factory = sqlite3.Row
-    target = sqlite3.connect(target_path)
-    target.row_factory = sqlite3.Row
-    try:
-        source.execute("PRAGMA query_only=ON")
-        source_schema_version = database.database_schema_version(source)
-        source.backup(target)
-        target.execute("PRAGMA foreign_keys=ON")
+    with database.materialized_database_copy(
+        source_path, target_path,
+    ) as (target, source_schema_version):
         before = {
             "project_count": int(target.execute("SELECT COUNT(*) FROM projects").fetchone()[0]),
             "identifier_count": int(target.execute("SELECT COUNT(*) FROM project_identifiers").fetchone()[0]),
@@ -738,7 +726,6 @@ def materialize_reviewed_copy(
                 ).fetchone()[0]
             ),
         }
-        target.execute("BEGIN")
         _create_shadow_schema(target)
         adoption_rows, decision_analysis = _projected_adoptions(target)
         reviewed_claims = [
@@ -768,16 +755,6 @@ def materialize_reviewed_copy(
             "noncurrent_identifier_count": int(target.execute("SELECT COUNT(*) FROM project_noncurrent_identifiers").fetchone()[0]),
             "adoption_count": int(target.execute("SELECT COUNT(*) FROM project_identifier_adoptions").fetchone()[0]),
         }
-        target.commit()
-    except Exception:
-        target.rollback()
-        target.close()
-        source.close()
-        target_path.unlink(missing_ok=True)
-        raise
-    else:
-        target.close()
-        source.close()
     return {
         "shadow_schema_version": SHADOW_SCHEMA_VERSION,
         "source": {

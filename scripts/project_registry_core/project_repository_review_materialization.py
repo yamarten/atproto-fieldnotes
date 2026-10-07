@@ -265,27 +265,12 @@ def materialize_reviewed_copy(
     source_path = source_path.expanduser().resolve()
     target_path = target_path.expanduser().resolve()
     manifest_path = manifest_path.expanduser().resolve()
-    if not source_path.is_file():
-        raise FileNotFoundError(f"registry database not found: {source_path}")
-    if target_path.exists():
-        raise FileExistsError(f"shadow database already exists: {target_path}")
     manifest = load_review_manifest(manifest_path)
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    source = sqlite3.connect(f"{source_path.as_uri()}?mode=ro", uri=True)
-    source.row_factory = sqlite3.Row
-    target = sqlite3.connect(target_path)
-    target.row_factory = sqlite3.Row
-    try:
-        source.execute("PRAGMA query_only=ON")
-        source_version = database.database_schema_version(source)
-        if source_version != database.SCHEMA_VERSION:
-            raise database.SchemaMismatchError(
-                f"project repository review requires schema {database.SCHEMA_VERSION}, got {source_version}"
-            )
-        source.backup(target)
-        target.execute("PRAGMA foreign_keys=ON")
+    with database.materialized_database_copy(
+        source_path, target_path,
+        required_schema_version=database.SCHEMA_VERSION, purpose='project repository review',
+    ) as (target, source_version):
         before = _counts(target)
-        target.execute("BEGIN")
         target.execute(
             "INSERT INTO registry_meta(key,value) VALUES('project_repository_review_shadow_version',?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -300,16 +285,6 @@ def materialize_reviewed_copy(
             and validation["reviewed_confirmed_relation_count"] == len(manifest["actions"])
             and validation["reviewed_confirmed_identifier_count"] == len(manifest["actions"])
         )
-        target.commit()
-    except Exception:
-        target.rollback()
-        target.close()
-        source.close()
-        target_path.unlink(missing_ok=True)
-        raise
-    else:
-        target.close()
-        source.close()
     manifest_hash = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
     return {
         "shadow_schema_version": SHADOW_SCHEMA_VERSION,

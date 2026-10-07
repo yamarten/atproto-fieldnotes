@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import sqlite3
 import datetime as dt
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
+from collections.abc import Iterator
 
 from . import runtime_view
 
@@ -45,6 +47,42 @@ def database_schema_version(conn: sqlite3.Connection) -> int | None:
         return None
     value = conn.execute("SELECT value FROM registry_meta WHERE key = 'schema_version'").fetchone()
     return int(value[0]) if value else None
+
+
+@contextmanager
+def materialized_database_copy(
+    source_path: Path,
+    target_path: Path,
+    *,
+    required_schema_version: int | None = None,
+    purpose: str = "materialization",
+) -> Iterator[tuple[sqlite3.Connection, int | None]]:
+    """Apply changes to a new backup; remove only our copy on any failure."""
+    if not source_path.is_file():
+        raise FileNotFoundError(f"registry database not found: {source_path}")
+    if target_path.exists():
+        raise FileExistsError(f"shadow database already exists: {target_path}")
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(f"{source_path.as_uri()}?mode=ro", uri=True)) as source:
+        source.row_factory = sqlite3.Row
+        source.execute("PRAGMA query_only=ON")
+        version = database_schema_version(source)
+        if required_schema_version is not None and version != required_schema_version:
+            raise SchemaMismatchError(f"{purpose} requires schema {required_schema_version}, got {version}")
+        # Reserve ownership atomically; a concurrent creator's file is never removed.
+        with target_path.open("xb"):
+            pass
+        try:
+            with closing(sqlite3.connect(target_path)) as target:
+                target.row_factory = sqlite3.Row
+                source.backup(target)
+                target.execute("PRAGMA foreign_keys=ON")
+                with target:
+                    target.execute("BEGIN")
+                    yield target, version
+        except BaseException:
+            target_path.unlink(missing_ok=True)
+            raise
 
 
 def configure_connection(conn: sqlite3.Connection) -> None:

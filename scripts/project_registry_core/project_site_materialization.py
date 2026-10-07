@@ -263,31 +263,16 @@ def materialize_reviewed_copy(
     source_path = source_path.expanduser().resolve()
     target_path = target_path.expanduser().resolve()
     manifest_path = manifest_path.expanduser().resolve()
-    if not source_path.is_file():
-        raise FileNotFoundError(f"registry database not found: {source_path}")
-    if target_path.exists():
-        raise FileExistsError(f"shadow database already exists: {target_path}")
     manifest = load_review_manifest(manifest_path)
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    source = sqlite3.connect(f"{source_path.as_uri()}?mode=ro", uri=True)
-    source.row_factory = sqlite3.Row
-    target = sqlite3.connect(target_path)
-    target.row_factory = sqlite3.Row
-    try:
-        source.execute("PRAGMA query_only=ON")
-        source_version = database.database_schema_version(source)
-        if source_version != database.SCHEMA_VERSION:
-            raise database.SchemaMismatchError(
-                f"project site shadow requires schema {database.SCHEMA_VERSION}, got {source_version}"
-            )
-        source.backup(target)
-        target.execute("PRAGMA foreign_keys=ON")
+    with database.materialized_database_copy(
+        source_path, target_path,
+        required_schema_version=database.SCHEMA_VERSION, purpose='project site shadow',
+    ) as (target, source_version):
         before = {
             "project_count": int(target.execute("SELECT COUNT(*) FROM projects").fetchone()[0]),
             "identifier_count": int(target.execute("SELECT COUNT(*) FROM project_identifiers").fetchone()[0]),
             "website_count": int(target.execute("SELECT COUNT(*) FROM projects WHERE website_url<>''").fetchone()[0]),
         }
-        target.execute("BEGIN")
         target.execute(
             "INSERT INTO registry_meta(key,value) VALUES('project_site_shadow_version',?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -310,16 +295,6 @@ def materialize_reviewed_copy(
             and validation["active_reviewed_project_site_adoption_count"] == expected_sites
             and validation["current_site_service_exact_overlap_count"] == 0
         )
-        target.commit()
-    except Exception:
-        target.rollback()
-        target.close()
-        source.close()
-        target_path.unlink(missing_ok=True)
-        raise
-    else:
-        target.close()
-        source.close()
     return {
         "shadow_schema_version": SHADOW_SCHEMA_VERSION,
         "source": {"db_path": str(source_path), "read_only": True, "schema_version": source_version},

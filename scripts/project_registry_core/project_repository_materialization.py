@@ -318,25 +318,10 @@ def validation(conn: sqlite3.Connection) -> dict[str, Any]:
 def materialize_copy(source_path: Path, target_path: Path) -> dict[str, Any]:
     source_path = source_path.expanduser().resolve()
     target_path = target_path.expanduser().resolve()
-    if not source_path.is_file():
-        raise FileNotFoundError(f"registry database not found: {source_path}")
-    if target_path.exists():
-        raise FileExistsError(f"shadow database already exists: {target_path}")
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    source = sqlite3.connect(f"{source_path.as_uri()}?mode=ro", uri=True)
-    source.row_factory = sqlite3.Row
-    target = sqlite3.connect(target_path)
-    target.row_factory = sqlite3.Row
-    try:
-        source.execute("PRAGMA query_only=ON")
-        source_version = database.database_schema_version(source)
-        if source_version != database.SCHEMA_VERSION:
-            raise database.SchemaMismatchError(
-                f"project repository materialization requires schema {database.SCHEMA_VERSION}, got {source_version}"
-            )
-        source.backup(target)
-        target.execute("PRAGMA foreign_keys=ON")
-        target.execute("BEGIN")
+    with database.materialized_database_copy(
+        source_path, target_path,
+        required_schema_version=database.SCHEMA_VERSION, purpose='project repository materialization',
+    ) as (target, source_version):
         changes = apply_migration(target)
         checks = validation(target)
         ready = (
@@ -354,16 +339,6 @@ def materialize_copy(source_path: Path, target_path: Path) -> dict[str, Any]:
         )
         if not ready:
             raise ValueError(f"project repository materialization validation failed: {checks}")
-        target.commit()
-    except Exception:
-        target.rollback()
-        target.close()
-        source.close()
-        target_path.unlink(missing_ok=True)
-        raise
-    else:
-        target.close()
-        source.close()
     return {
         "materialization_version": MATERIALIZATION_VERSION,
         "source": {"db_path": str(source_path), "read_only": True},
