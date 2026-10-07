@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Iterable
 
 from . import identifiers as identifier_core
-from .lexicon_publication_comparison import LEXICON_COLLECTION, inspect_schema, normalize_event
+from .lexicon_publication_comparison import inspect_schema, normalize_event
 
 
 CATALOG_SCHEMA_VERSION = 3

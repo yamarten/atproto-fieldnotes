@@ -32,7 +32,6 @@ from project_registry_core import repository_sources as repository_source_core
 
 from project_registry_core.registry import (
     GITHUB_API,
-    REQUEST_TIMEOUT_LEXICON_HTTP,
     SEMBLE_API,
     SEMBLE_TRACKED_COLLECTIONS,
     activity_is_recent,
@@ -51,7 +50,6 @@ from project_registry_core.registry import (
     compute_duplicate_candidates,
     compute_merge_recommendation,
     confirm_project_repository_url_with_trust,
-    confirmed_developer_dids,
     enrich_from_github_repo,
     ensure_project_for_seed,
     finalize_project_shape,
@@ -61,7 +59,6 @@ from project_registry_core.registry import (
     load_config,
     parse_iso_datetime,
     read_sync_state,
-    registrable_namespace_from_namespace,
     resolve_semble_project_key_for_seed_value,
     search_bsky_posts_payload,
     sync_watermark_datetime,
@@ -834,30 +831,6 @@ def fetch_github_search_query_sync_results(
         "scan_complete": reached_cutoff or exhausted,
         "newest_timestamp": newest_timestamp.isoformat() if newest_timestamp else "",
     }
-
-
-def fetch_github_search_sync_results(
-    queries: list[str],
-    *,
-    pages: int,
-    per_page: int,
-    lookback_days: int | None = None,
-) -> list[dict[str, Any]]:
-    cutoff = (
-        dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=max(0, int(lookback_days)))
-        if lookback_days is not None else None
-    )
-    deduped: dict[str, dict[str, Any]] = {}
-    for query in queries:
-        scan = fetch_github_search_query_sync_results(query, pages=pages, per_page=per_page, cutoff=cutoff)
-        for entry in scan["results"]:
-            repo_url = str(entry.get("url") or "")
-            existing = deduped.get(repo_url)
-            if existing is None or str(entry.get("updated_at") or "") > str(existing.get("updated_at") or ""):
-                deduped[repo_url] = entry
-    results = list(deduped.values())
-    results.sort(key=lambda item: (str(item.get("updated_at") or ""), int(item.get("stargazers_count") or 0)), reverse=True)
-    return results
 
 
 def fetch_semble_collection_source_sync_results(

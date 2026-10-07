@@ -16,7 +16,7 @@ import uuid
 from typing import Any
 
 from . import identifiers, project_record
-from .registry import applog_seed_from_url, bsky_post_web_url, extract_post_link_entries, read_sync_state
+from .registry import applog_seed_from_url, bsky_post_web_url, extract_post_link_entries
 
 
 TEXT_URL = re.compile(r"https?://[^\s<>\[\]{}\"']+", re.IGNORECASE)

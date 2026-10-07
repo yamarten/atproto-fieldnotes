@@ -10,7 +10,6 @@ import sqlite3
 import time
 import urllib.parse
 import uuid
-from dataclasses import asdict
 from typing import Any, Callable
 
 from project_registry_core import database as registry_database
@@ -251,11 +250,6 @@ APP_LINK_SERVICE_PATH_PREFIXES = (
     "/sign-up",
     "/dashboard",
 )
-
-RESOURCE_URL_ROLES = {
-    "unknown", "docs", "blog", "support", "status", "privacyPolicy", "termsOfService",
-    "webManifest", "changelog", "appStore", "playStore", "fdroid", "distribution",
-}
 
 RESOURCE_URL_CONFIDENCE_VALUES = {"candidate", "confirmed"}
 

@@ -4,7 +4,6 @@ import datetime as dt
 import sqlite3
 from typing import Any
 
-from .. import registry as core
 from project_registry_core import project_record
 
 

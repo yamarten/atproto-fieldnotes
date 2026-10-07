@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-import copy
 import datetime as dt
 import io
 import json
+import sys
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, captured_stdout, registry
 from project_registry_core import cli, database, domain_policy, relations, source_sync
-from project_registry_core.commands import maintenance as maintenance_commands
 from project_registry_core.commands import review as review_commands
 from project_registry_core.commands import queue_interaction
 from project_registry_core.application import maintenance as maintenance_services
@@ -2575,9 +2574,9 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             stdout.isatty = lambda: True
 
             with (
-                mock.patch.object(registry.sys, "stdout", stdout),
-                mock.patch.object(registry.sys, "stderr", stderr),
-                mock.patch.object(registry.sys.stdin, "isatty", return_value=True),
+                mock.patch.object(sys, "stdout", stdout),
+                mock.patch.object(sys, "stderr", stderr),
+                mock.patch.object(sys.stdin, "isatty", return_value=True),
                 mock.patch("builtins.input", side_effect=["h", "中核機能が未実装"]),
             ):
                 queue_interaction.output_project_queue(

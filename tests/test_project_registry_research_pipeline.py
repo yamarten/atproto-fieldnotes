@@ -18,7 +18,6 @@ from project_registry_core import enrichment_pipeline, source_sync
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
 from project_registry_core import evaluation as evaluation_core
 from project_registry_core import github_api
-from project_registry_core import integration as integration_core
 from project_registry_core import investigation as investigation_core
 from project_registry_core import llm_transport as llm_transport_core
 from project_registry_core import relations as relation_core

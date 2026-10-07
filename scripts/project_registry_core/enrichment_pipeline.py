@@ -55,7 +55,6 @@ from project_registry_core.registry import (
     collect_tangled_repo_evidence,
     compute_duplicate_candidates,
     compute_merge_recommendation,
-    confirm_project_repository_url,
     confirm_project_repository_url_with_trust,
     derived_authority_probe_urls,
     enrich_from_resource_pages,

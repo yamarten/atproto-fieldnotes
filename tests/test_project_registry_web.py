@@ -12,7 +12,7 @@ from unittest import mock
 from http import HTTPStatus
 from io import BytesIO
 
-from helpers import ROOT, ProjectRecordTestCase, SCRIPTS, TempRegistryDbTestCase, registry
+from helpers import ROOT, ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from project_registry_core import domain_policy, introduced_review, storage
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle
 from project_registry_web.server import (

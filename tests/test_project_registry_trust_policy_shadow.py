@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import json
 import sqlite3
-import tempfile
 import unittest
-from pathlib import Path
 
 from helpers import ROOT, TempRegistryDbTestCase
 from project_registry_core import cli, trust_policy_shadow

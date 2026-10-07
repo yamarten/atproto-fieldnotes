@@ -2,7 +2,6 @@ import contextlib
 import copy
 import io
 import json
-from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from promotion_selection import cases, apply_fixed_assessment

@@ -4,7 +4,6 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from . import collector_relation_policy
 from . import service
 from . import oauth_metadata
 from .evidence import EvidenceBundle

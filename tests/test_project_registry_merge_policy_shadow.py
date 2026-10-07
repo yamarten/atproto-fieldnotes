@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 
 from helpers import ROOT, TempRegistryDbTestCase
 from project_registry_core import cli, merge_policy_shadow, project_record, registry

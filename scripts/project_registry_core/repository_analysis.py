@@ -33,15 +33,7 @@ ALLOWED_PREDICATES = {
     "declares_service_url",
     "deploys_documentation_site",
 }
-ALLOWED_BASES = {"declared", "observed", "inferred"}
 ALLOWED_OPERATIONS = {"define", "read", "write", "call", "mention"}
-DECLARED_ONLY_PREDICATES = {
-    "declares_browser_extension",
-    "declares_cli_entrypoint",
-    "declares_example_or_template",
-    "declares_documentation_site_url",
-    "declares_service_url",
-}
 DEFERRED_RETRY_ERROR_CATEGORIES = {"timeout", "rate_limited", "http_error", "request_error"}
 
 
@@ -550,11 +542,6 @@ def _locator_catalog(material: dict[str, Any]) -> dict[tuple[str, int, str], dic
     return catalog
 
 
-def supported_locator_keys(material: dict[str, Any]) -> set[tuple[str, int, str]]:
-    """Return exact evidence locators accepted from one bounded material snapshot."""
-    return set(_locator_catalog(material))
-
-
 def _evidence_id_catalog(material: dict[str, Any]) -> dict[str, dict[str, Any]]:
     catalog = _locator_catalog(material)
     return {
@@ -585,13 +572,6 @@ def evidence_block_catalog(material: dict[str, Any]) -> list[dict[str, Any]]:
 
 def supported_evidence_ids(material: dict[str, Any]) -> set[str]:
     return set(_evidence_id_catalog(material))
-
-
-def material_supports_collection_nsid(material: dict[str, Any], nsid: str) -> bool:
-    """Return whether an exact, content-bearing collection candidate exists."""
-    return bool(nsid) and any(
-        item["nsid"] == nsid for item in collection_candidate_catalog(material).values()
-    )
 
 
 def _candidate_id(prefix: str, index: int) -> str:
@@ -767,20 +747,6 @@ def _resolve_evidence(values: Any, catalog: dict[str, dict[str, Any]]) -> list[d
         if canonical and canonical not in output:
             output.append(canonical)
     return output
-
-
-def _validated_observation_value(predicate: str, value: Any, evidence: list[dict[str, Any]]) -> str:
-    raw = str(value or "").strip()
-    if not raw:
-        return ""
-    if predicate not in {"declares_documentation_site_url", "declares_service_url"}:
-        return ""
-    normalized = identifier_core.normalize_url(raw)
-    if not normalized:
-        return ""
-    supporting_text = "\n".join(str(item.get("excerpt") or "") for item in evidence)
-    parsed = urllib.parse.urlparse(normalized)
-    return normalized if normalized in supporting_text or parsed.netloc in supporting_text else ""
 
 
 def _evidence_declares(evidence: list[dict[str, Any]], pattern: str) -> bool:

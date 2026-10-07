@@ -694,15 +694,6 @@ def _service_link_contexts(state: dict[str, Any]) -> dict[tuple[str, str], list[
     return dict(output)
 
 
-def _service_link_index(state: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
-    """Compatibility view used by the earlier observation comparison."""
-    return {
-        key: contexts[-1]
-        for key, contexts in _service_link_contexts(state).items()
-        if contexts
-    }
-
-
 def _surface_statuses(
     state: dict[str, Any], identifiers_by_value: dict[tuple[str, str], list[dict[str, str]]],
 ) -> dict[str, str]:

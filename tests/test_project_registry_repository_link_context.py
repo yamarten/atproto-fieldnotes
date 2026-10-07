@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import unittest
 
-from helpers import ROOT  # noqa: F401 - initializes the local scripts import path
 from project_registry_core import collector_relation_shadow, repository_link_context
 
 

@@ -336,10 +336,6 @@ def project_decisions(project: dict[str, Any]) -> list[ProjectDecision]:
     return runtime_view.project_decisions(project)
 
 
-def strip_normalized_fields(payload: dict[str, Any]) -> dict[str, Any]:
-    return runtime_view.strip_runtime_fields(payload)
-
-
 def replace_project_children(conn: sqlite3.Connection, project: dict[str, Any]) -> None:
     project_key = str(project["project_key"])
     conn.execute("DELETE FROM project_identifiers WHERE project_key = ?", (project_key,))
@@ -492,41 +488,6 @@ def normalized_rows_snapshot(conn: sqlite3.Connection) -> dict[str, list[dict[st
     ):
         snapshot["adoptions"].append(dict(row))
     return snapshot
-
-
-def verify_normalized_roundtrip(conn: sqlite3.Connection) -> dict[str, Any]:
-    from . import project_record
-
-    before = normalized_rows_snapshot(conn)
-    project_keys = [str(row["project_key"]) for row in conn.execute("SELECT project_key FROM projects ORDER BY project_key")]
-    for project_key in project_keys:
-        project = project_record.fetch_project(conn, project_key)
-        if project is None:
-            raise RuntimeError(f"roundtrip project missing: {project_key}")
-        project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True)
-    after = normalized_rows_snapshot(conn)
-    examples: list[dict[str, Any]] = []
-    diff_count = 0
-    for table in ("identifiers", "relations", "decisions", "adoptions"):
-        if before[table] != after[table]:
-            diff_count += 1
-            first_mismatch = next(
-                (
-                    index
-                    for index, (before_item, after_item) in enumerate(zip(before[table], after[table]))
-                    if before_item != after_item
-                ),
-                min(len(before[table]), len(after[table])),
-            )
-            examples.append({
-                "table": table,
-                "before_count": len(before[table]),
-                "after_count": len(after[table]),
-                "first_mismatch": first_mismatch,
-                "before_item": before[table][first_mismatch:first_mismatch + 1],
-                "after_item": after[table][first_mismatch:first_mismatch + 1],
-            })
-    return {"normalized_roundtrip_diff_count": diff_count, "normalized_roundtrip_examples": examples[:3]}
 
 
 def validate_database(

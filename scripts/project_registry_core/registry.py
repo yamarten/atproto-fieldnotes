@@ -14,8 +14,6 @@ import re
 import shlex
 import socket
 import sqlite3
-import sys
-import time
 import urllib.error
 import urllib.parse
 import uuid
@@ -41,7 +39,6 @@ from project_registry_core import service as service_core
 from project_registry_core import tangled as tangled_core
 from project_registry_core import trust_graph as trust_graph_core
 from project_registry_core import url_alias as url_alias_core
-from project_registry_core import collector_adapters as collector_adapter_core
 from project_registry_core import reliability as reliability_core
 from project_registry_core import database as registry_database
 from project_registry_core import runtime_view
@@ -183,10 +180,6 @@ URL_FIELD_INVENTORY: tuple[dict[str, str], ...] = (
     {"field": "failed_service_urls", "layer": "observation", "role": "failed service probes"},
     {"field": "supported_service_urls", "layer": "observation", "role": "supported heuristic service probes"},
 )
-
-
-def ensure_dirs() -> None:
-    (ROOT / "data").mkdir(exist_ok=True)
 
 
 def format_duration_hms(seconds: float) -> str:
@@ -1101,13 +1094,6 @@ def build_url_field_audit(conn: sqlite3.Connection, *, example_limit: int = 20) 
     }
 
 
-def project_json_payload(project: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(project)
-    for field in project_record.PROJECT_STORAGE_SCALAR_FIELDS:
-        payload.pop(field, None)
-    return payload
-
-
 def project_storage_projection(project: dict[str, Any]) -> dict[str, Any]:
     return {
         "scalars": {
@@ -1150,39 +1136,6 @@ def name_is_safe_for_record(project: dict[str, Any]) -> bool:
             return False
         return True
     return False
-
-
-def build_project_comparison_payload(source: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
-    scalar_fields = (
-        "name",
-        "website_url",
-        "service_status",
-        "tracking_state",
-        "introduced_url",
-        "first_seen_at",
-        "last_seen_at",
-    )
-    scalar_comparison: dict[str, dict[str, Any]] = {}
-    for field in scalar_fields:
-        scalar_comparison[field] = {
-            "source": source.get(field),
-            "target": target.get(field),
-        }
-
-    record_source = project_record.project_record_payload(source)
-    record_target = project_record.project_record_payload(target)
-    core_source = dict(record_source.get("core", {}))
-    core_target = dict(record_target.get("core", {}))
-    core_source.pop("tagline_is_provisional", None)
-    core_target.pop("tagline_is_provisional", None)
-
-    return {
-        "scalars": scalar_comparison,
-        "core": {
-            "source": core_source,
-            "target": core_target,
-        },
-    }
 
 
 def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
@@ -2560,14 +2513,6 @@ def extract_meta_description(html: str) -> str:
         if match:
             return unescape(re.sub(r"\s+", " ", match.group(1)).strip())
     return ""
-
-
-def extract_bluesky_profile_handle(url: str) -> str:
-    return project_record.extract_bluesky_profile_subject(url).get("handle", "")
-
-
-def extract_bluesky_profile_did(url: str) -> str:
-    return project_record.extract_bluesky_profile_subject(url).get("did", "")
 
 
 def project_service_identity_hosts(project: dict[str, Any]) -> set[str]:
@@ -4855,30 +4800,6 @@ def verified_lexicon_authority_domains(project: dict[str, Any]) -> set[str]:
     }
 
 
-def repo_references_service(project: dict[str, Any], repo_url: str, service_url: str) -> bool:
-    normalized_repo = repo_url_core.canonical_repo_url(repo_url)
-    normalized_service = identifier_core.normalize_url(service_url)
-    if not normalized_repo or not normalized_service:
-        return False
-    for item in relation_core.normalize_relation_records(project.get("relation_evidence", [])):
-        relation = item["relation"]
-        if relation["predicate"] != "project_repository":
-            continue
-        if relation["subject"]["type"] != "repo" or repo_url_core.canonical_repo_url(relation["subject"]["value"]) != normalized_repo:
-            continue
-        if relation["object"]["type"] not in {"website", "service"}:
-            continue
-        if domain_policy_core.is_same_site_family(relation["object"]["value"], normalized_service):
-            return True
-    for record in project_record.normalize_source_repo_records(project.get("source_repo_records", [])):
-        if repo_url_core.canonical_repo_url(str(record.get("url") or "")) != normalized_repo:
-            continue
-        evidence_url = identifier_core.normalize_url(str(record.get("evidence_url") or ""))
-        if evidence_url and domain_policy_core.is_same_site_family(evidence_url, normalized_service):
-            return True
-    return False
-
-
 def trusted_anchor_nodes(project: dict[str, Any]) -> list[dict[str, str]]:
     output: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
@@ -6174,14 +6095,6 @@ def fetch_collection_first_creator_did(collection: str) -> str:
     return did
 
 
-def refresh_recent_record_samples(project: dict[str, Any], *, timeout: float = REQUEST_TIMEOUT_LEXICON_HTTP) -> None:
-    collections = lexicon_types.record_sample_nsids(project)[:6]
-    if not collections:
-        project["recent_record_samples"] = []
-        return
-    project["recent_record_samples"] = fetch_recent_record_samples(collections, timeout=timeout)
-
-
 def project_content_is_clear_enough(project: dict[str, Any]) -> bool:
     summary = str(project.get("summary") or "").strip()
     tagline = str(project.get("tagline") or "").strip()
@@ -6429,20 +6342,6 @@ def confirm_collection_candidates_from_publications(project: dict[str, Any], adm
             note="collection accepted through authority-scoped publication evidence",
             source_ref=project_record.dump_json(evaluation), policy_version=collection_trust.POLICY_VERSION,
         )
-
-
-def enrich_from_lexicon(
-    project: dict[str, Any],
-    nsid: str,
-    *,
-    dns_timeout: float = REQUEST_TIMEOUT_LEXICON_DNS,
-    http_timeout: float = REQUEST_TIMEOUT_LEXICON_HTTP,
-) -> None:
-    nsid = identifier_core.normalize_nsid(nsid)
-    if not nsid:
-        return
-    result = fetch_lexicon_record(nsid, dns_timeout=dns_timeout, http_timeout=http_timeout)
-    apply_lexicon_record_result(project, nsid, result)
 
 
 def collect_github_repo_evidence(
@@ -7013,17 +6912,6 @@ def service_probe_timeout_for_project(project: dict[str, Any], service_url: str)
     return REQUEST_TIMEOUT_SERVICE_CANDIDATE
 
 
-def authority_families(project: dict[str, Any]) -> set[str]:
-    families: set[str] = set()
-    for domain in project.get("authority_domains", []):
-        lowered = str(domain or "").strip().lower()
-        if lowered and not project_record.is_shared_official_identity_host(lowered):
-            families.add(domain_policy_core.root_domain(lowered))
-    for host in project_record.service_hosts(project):
-        families.add(domain_policy_core.root_domain(host))
-    return families
-
-
 def trusted_collection_nsids_for_merge(project: dict[str, Any]) -> set[str]:
     candidates = {
         identifier_core.normalize_nsid(str(value or ""))
@@ -7422,34 +7310,6 @@ def apply_repository_link_assessments(
         )
 
 
-def clean_search_query(value: str) -> str:
-    return investigation_core.clean_search_query(value)
-
-
-def github_search_term(value: str) -> str:
-    return investigation_core.github_search_term(value)
-
-
-def build_github_repo_search_queries(plan: dict[str, Any]) -> list[str]:
-    return investigation_core.build_github_repo_search_queries(plan)
-
-
-def query_contains_kana(value: str) -> bool:
-    return investigation_core.query_contains_kana(value)
-
-
-def bsky_search_term(value: str) -> str:
-    return investigation_core.bsky_search_term(value)
-
-
-def build_bsky_search_queries(plan: dict[str, Any], key: str, *, max_queries: int = 2) -> list[str]:
-    return investigation_core.build_bsky_search_queries(plan, key, max_queries=max_queries)
-
-
-def seed_investigation_queries(project: dict[str, Any]) -> dict[str, list[str]]:
-    return investigation_core.seed_investigation_queries(project)
-
-
 def plan_investigation_queries(
     project: dict[str, Any],
     *,
@@ -7477,35 +7337,6 @@ def plan_investigation_queries(
         llm_api_style=llm_api_style,
         llm_max_output_tokens=llm_max_output_tokens,
     )
-
-
-def merge_investigation_results(project: dict[str, Any], *, source: str, urls: list[str], handles: list[str]) -> None:
-    for url in urls:
-        parsed = urllib.parse.urlparse(url)
-        if parsed.netloc == "github.com":
-            normalized = repo_url_core.normalize_github_repo_url(url)
-            if normalized:
-                add_candidate_project_repository_url(
-                    project,
-                    normalized,
-                    source,
-                    reason="mentioned in Bluesky investigation result",
-                    evidence_kind="bluesky_reference",
-                    evidence_url=url,
-                )
-        elif parsed.netloc == "tangled.org":
-            normalized = repo_url_core.normalize_tangled_repo_url(url)
-            if normalized:
-                add_candidate_project_repository_url(
-                    project,
-                    normalized,
-                    source,
-                    reason="mentioned in Bluesky investigation result",
-                    evidence_kind="bluesky_reference",
-                    evidence_url=url,
-                )
-    for handle in handles:
-        project_record.record_developer_handle(project, handle, source)
 
 
 def collect_investigation_evidence(project: dict[str, Any], plan: dict[str, Any], *, observation: dict[str, Any] | None = None) -> EvidenceBundle:
@@ -8047,11 +7878,6 @@ def collect_oauth_metadata_evidence(project: dict[str, Any], metadata_url: str) 
             request_count=1,
         )
     return bundle
-
-
-def run_investigation_collectors(project: dict[str, Any], plan: dict[str, Any]) -> None:
-    bundle = collect_investigation_evidence(project, plan)
-    apply_investigation_evidence(project, bundle)
 
 
 def apply_llm_output(project: dict[str, Any], payload: dict[str, Any], meta: dict[str, Any], evidence: dict[str, Any]) -> None:

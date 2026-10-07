@@ -183,28 +183,6 @@ def identifier_is_guarded(project: dict[str, Any], identifier_type: str, value: 
     return False
 
 
-def relation_supports_nsid_ownership(project: dict[str, Any], nsid: str) -> bool:
-    if identifier_is_guarded(project, "nsid", nsid):
-        return False
-    confirmed_dids = {
-        str(item.get("did") or "")
-        for item in project.get("developer_accounts", [])
-        if isinstance(item, dict) and item.get("did")
-    }
-    for item in normalize_relation_records(project.get("relation_evidence", [])):
-        if item["classification"] != "confirmed":
-            continue
-        relation = item["relation"]
-        if relation["predicate"] != "defines_schema" or relation["object"] != {"type": "nsid", "value": nsid}:
-            continue
-        subject = relation["subject"]
-        if subject["type"] == "did" and subject["value"] in confirmed_dids:
-            return True
-        if subject == {"type": "project", "value": str(project.get("project_key") or "")}:
-            return True
-    return False
-
-
 def corroborate_source_repositories(project: dict[str, Any]) -> list[str]:
     relations = normalize_relation_records(project.get("relation_evidence", []))
     app_to_repo: dict[str, set[str]] = {}

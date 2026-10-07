@@ -15,7 +15,6 @@ TRUST_GRAPH_FIELD = "trust_graph"
 
 NODE_KINDS = {"service_url", "repo_url", "handle", "did", "domain", "collection", "nsid"}
 URL_NODE_KINDS = {"service_url", "repo_url"}
-IDENTITY_NODE_KINDS = {"did", "handle", "domain"}
 CLASSIFICATION_RANK = {"heuristic": 0, "candidate": 1, "derived": 2, "confirmed": 3}
 
 AUTO_CONFIRM_PREDICATES = {
