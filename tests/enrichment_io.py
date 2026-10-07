@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 from unittest import mock
 
 from helpers import registry
+from project_registry_core.transport import atproto
 from project_registry_core.transport import http_transport, llm_transport, reliability
 from project_registry_core.repositories import repository_sources
 
@@ -71,9 +72,9 @@ class EnrichmentIO:
         ):
             for name in names:
                 self.stack.enter_context(mock.patch.object(module, name, reliability.TTLCache()))
-        self.stack.enter_context(mock.patch.object(registry, "_BSKY_SESSION_CACHE", {}))
+        self.stack.enter_context(mock.patch.object(atproto, "_BSKY_SESSION_CACHE", {}))
         self.stack.enter_context(mock.patch.object(http_transport, "request_bytes_with_final_url", self.http))
-        self.stack.enter_context(mock.patch.object(registry, "resolve_dns_txt", self.dns))
+        self.stack.enter_context(mock.patch.object(atproto, "resolve_dns_txt", self.dns))
         self.stack.enter_context(mock.patch.object(registry.service_core, "playwright_navigate", self.browser))
         self.stack.enter_context(mock.patch.object(llm_transport, "run_local_llm", self.llm))
         return self

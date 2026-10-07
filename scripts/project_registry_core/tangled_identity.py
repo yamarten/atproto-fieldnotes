@@ -9,7 +9,7 @@ from typing import Any, Callable
 
 from .transport import http_transport
 from .project_record import ATPROTO_HANDLE_RE
-from .registry import BSKY_PUBLIC_API, resolve_did_document
+from project_registry_core.transport.atproto import BSKY_PUBLIC_API, resolve_did_document
 from .transport.reliability import run_with_retry
 
 

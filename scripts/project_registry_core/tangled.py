@@ -4,6 +4,7 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from .transport import atproto, http_transport
 from .evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
 from .relations import relation_record
 from .transport.reliability import RetryPolicy, run_with_retry
@@ -145,3 +146,14 @@ def normalize_jetstream_event(value: Any) -> dict[str, Any] | None:
         "record": record,
         "atproto_relevant": operation != "delete" and atproto_relevant(record),
     }
+
+
+def list_atproto_records(pds_url: str, did: str, cursor: str = "") -> dict[str, Any]:
+    params: dict[str, Any] = {"repo": did, "collection": TANGLED_COLLECTION, "limit": 100}
+    if cursor:
+        params["cursor"] = cursor
+    payload = http_transport.request_json(
+        f"{pds_url}/xrpc/com.atproto.repo.listRecords?{urllib.parse.urlencode(params)}",
+        timeout=atproto.REQUEST_TIMEOUT_LEXICON_HTTP,
+    )
+    return payload if isinstance(payload, dict) else {}

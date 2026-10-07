@@ -12,6 +12,7 @@ from io import BytesIO
 from unittest import mock
 
 from helpers import ROOT, registry
+from project_registry_core.transport import atproto
 
 from project_registry_core import project_review
 
@@ -479,12 +480,12 @@ class ProjectRegistryIncrementalSyncTest(unittest.TestCase):
             seen_urls.append(url)
             return {"posts": []}
 
-        with mock.patch.object(registry, "bsky_authenticated_app_url", return_value="https://example.test/xrpc/search"), mock.patch.object(
-            registry,
+        with mock.patch.object(atproto, "bsky_authenticated_app_url", return_value="https://example.test/xrpc/search"), mock.patch.object(
+            atproto,
             "bsky_access_token",
             return_value="token",
         ), mock.patch.object(http_transport_core, "request_json_authenticated", side_effect=fake_request):
-            registry.search_bsky_posts_payload(
+            atproto.search_bsky_posts_payload(
                 "from:example.test",
                 limit=5,
                 since="2026-06-01T00:00:00+00:00",
@@ -1623,7 +1624,7 @@ class ProjectRegistryProfileUrlTest(unittest.TestCase):
         self.assertEqual(project["candidate_developer_accounts"], [])
         self.assertNotIn(
             "https://bsky.app/profile/${encodeURIComponent(profileData.handle)}`",
-            registry.extract_urls('const url = `https://bsky.app/profile/${encodeURIComponent(profileData.handle)}`;'),
+            identifier_core.extract_urls('const url = `https://bsky.app/profile/${encodeURIComponent(profileData.handle)}`;'),
         )
 
     def test_did_profile_url_becomes_candidate_account_not_service(self) -> None:

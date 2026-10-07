@@ -108,3 +108,21 @@ def normalize_alias_token(value: str) -> str:
     if len(lowered) < 4 or lowered in GENERIC_ALIAS_TOKENS:
         return ""
     return lowered
+
+
+def extract_urls(html: str) -> list[str]:
+    pattern = r'https?://[^\s"\'<>]+'
+    output: list[str] = []
+    for raw in re.findall(pattern, html):
+        cleaned = sanitize_extracted_url(raw)
+        parsed = urllib.parse.urlparse(cleaned)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            continue
+        output.append(normalize_url(cleaned))
+    for raw in re.findall(r'\]\((https?://[^)\s]+)\)', html):
+        cleaned = sanitize_extracted_url(raw)
+        parsed = urllib.parse.urlparse(cleaned)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            continue
+        output.append(normalize_url(cleaned))
+    return list(dict.fromkeys(value for value in output if value))

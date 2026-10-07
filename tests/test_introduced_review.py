@@ -5,6 +5,7 @@ import unittest
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
+from project_registry_core.transport import atproto
 from project_registry_core import introduced_review, project_record, source_sync
 
 
@@ -54,7 +55,7 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
             payload = introduced_review.review_payload(conn, include_resolved=True)
             by_key = {(x["post_uri"].split("/")[-1], x["url"]): x for x in payload["items"]}
             self.assertEqual(summary["updated"], 1)
-            self.assertEqual(saved["introduced_url"], registry.bsky_post_web_url(posts[0]))
+            self.assertEqual(saved["introduced_url"], atproto.bsky_post_web_url(posts[0]))
             self.assertEqual(by_key[("mixed", "https://auto.example")]["status"], "auto_applied")
             self.assertEqual(by_key[("mixed", "https://auto.example/about")]["reason"], "no_seed")
             self.assertEqual(by_key[("plain", "https://plain.example/path")]["reason"], "text_url_not_extracted")
@@ -94,7 +95,7 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
             conn.close()
             conn = registry.open_db()
             saved = project_record.fetch_project(conn, "proj:candidate")
-            self.assertEqual(saved["introduced_url"], registry.bsky_post_web_url(source))
+            self.assertEqual(saved["introduced_url"], atproto.bsky_post_web_url(source))
             self.assertIn("https://github.com/example/candidate", saved["candidate_project_repository_urls"])
             self.assertNotIn("https://github.com/example/candidate", saved["project_repository_urls"])
             self.sync(conn, [source])
@@ -168,7 +169,7 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
             self.assertEqual(next(item for item in payload["items"] if item["url"] == "https://also.example")["status"], "auto_applied")
             introduced_review.resolve_item(conn, scope_key=ambiguous["scope_key"], target_id=ambiguous["id"], action="ignore")
             self.assertEqual(project_record.fetch_project(conn, "proj:first")["introduced_url"],
-                             registry.bsky_post_web_url(source))
+                             atproto.bsky_post_web_url(source))
         finally:
             conn.close()
 
@@ -190,7 +191,7 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
                 introduced_review.resolve_item(conn, scope_key=first_reopen["scope_key"],
                                                target_id=first_reopen["id"], action="reopen")
                 self.assertEqual(project_record.fetch_project(conn, "proj:manual")["introduced_url"],
-                                 registry.bsky_post_web_url(source))
+                                 atproto.bsky_post_web_url(source))
                 self.assertEqual(introduced_review.review_payload(conn, include_resolved=True)["count"], 2)
                 introduced_review.resolve_item(conn, scope_key=remaining["scope_key"],
                                                target_id=remaining["id"], action="reopen")
@@ -217,11 +218,11 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
             introduced_review.resolve_item(conn, scope_key=automatic["scope_key"], target_id=automatic["id"],
                                            action="ignore")
             self.assertEqual(project_record.fetch_project(conn, "proj:auto")["introduced_url"],
-                             registry.bsky_post_web_url(source))
+                             atproto.bsky_post_web_url(source))
             introduced_review.resolve_item(conn, scope_key=manual["scope_key"], target_id=manual["id"],
                                            action="reopen")
             self.assertEqual(project_record.fetch_project(conn, "proj:auto")["introduced_url"],
-                             registry.bsky_post_web_url(source))
+                             atproto.bsky_post_web_url(source))
             introduced_review.resolve_item(conn, scope_key=second_manual["scope_key"], target_id=second_manual["id"],
                                            action="reopen")
             self.assertEqual(project_record.fetch_project(conn, "proj:auto")["introduced_url"], "")
@@ -247,7 +248,7 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
                                            action="link", project_key="proj:cross-query")
             introduced_review.resolve_item(conn, scope_key=first["scope_key"], target_id=first["id"], action="reopen")
             self.assertEqual(project_record.fetch_project(conn, "proj:cross-query")["introduced_url"],
-                             registry.bsky_post_web_url(source))
+                             atproto.bsky_post_web_url(source))
             introduced_review.resolve_item(conn, scope_key=second["scope_key"], target_id=second["id"], action="reopen")
             self.assertEqual(project_record.fetch_project(conn, "proj:cross-query")["introduced_url"], "")
         finally:
@@ -311,7 +312,7 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
             self.assertEqual(payload["open_count"], 1)
             self.assertEqual(payload["items"][0]["reason"], "multiple_projects")
             self.assertEqual(len(payload["items"][0]["matched_project_keys"]), 2)
-            self.assertEqual(project_record.fetch_project(conn, "proj:first")["introduced_url"], registry.bsky_post_web_url(source))
+            self.assertEqual(project_record.fetch_project(conn, "proj:first")["introduced_url"], atproto.bsky_post_web_url(source))
             self.assertEqual(project_record.fetch_project(conn, "proj:second")["introduced_url"], "")
             self.sync(conn, [source], cursor="next", max_pages=1)
             self.assertEqual(introduced_review.review_payload(conn)["open_count"], 1)
@@ -320,10 +321,10 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
                                            action="link", project_key="proj:second")
             self.assertEqual(project_record.fetch_project(conn, "proj:first")["introduced_url"], "")
             self.assertEqual(project_record.fetch_project(conn, "proj:second")["introduced_url"],
-                             registry.bsky_post_web_url(source))
+                             atproto.bsky_post_web_url(source))
             introduced_review.resolve_item(conn, scope_key=item["scope_key"], target_id=item["id"], action="reopen")
             self.assertEqual(project_record.fetch_project(conn, "proj:first")["introduced_url"],
-                             registry.bsky_post_web_url(source))
+                             atproto.bsky_post_web_url(source))
             self.assertEqual(project_record.fetch_project(conn, "proj:second")["introduced_url"], "")
             introduced_review.resolve_item(conn, scope_key=item["scope_key"], target_id=item["id"], action="ignore")
             self.assertEqual(project_record.fetch_project(conn, "proj:first")["introduced_url"], "")

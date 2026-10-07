@@ -25,8 +25,6 @@ from project_registry_core.repositories import repository_analysis as repository
 
 from project_registry_core.registry import (
     ENRICH_IO_MAX_WORKERS,
-    REQUEST_TIMEOUT_LEXICON_DNS,
-    REQUEST_TIMEOUT_LEXICON_HTTP,
     apply_authority_service_probe_result,
     apply_candidate_repo_trust_evidence,
     apply_collector_snapshot_evidence,
@@ -56,7 +54,6 @@ from project_registry_core.registry import (
     enrich_from_resource_pages,
     exact_project_page_component_role,
     failed_collector_bundle,
-    fetch_lexicon_record,
     fetch_recent_record_samples,
     finalize_project_shape,
     load_config,
@@ -69,6 +66,7 @@ from project_registry_core.registry import (
     should_refresh_lexicon_surface,
     should_refresh_recent_record_samples,
 )
+from project_registry_core.transport.atproto import REQUEST_TIMEOUT_LEXICON_DNS, REQUEST_TIMEOUT_LEXICON_HTTP, fetch_lexicon_record
 from project_registry_core.integration import add_investigation_log, note_failure, reset_investigation_state
 from project_registry_core.project_review import apply_promotion_state, record_promotion_transition
 from project_registry_core.project_merge import compute_duplicate_candidates, compute_merge_recommendation

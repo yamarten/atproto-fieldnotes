@@ -13,6 +13,8 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
+from project_registry_core.identity import identifiers as identifier_core
+from project_registry_core.transport import atproto
 
 from project_registry_core import project_review
 from enrichment_io import EnrichmentIO
@@ -515,7 +517,7 @@ class ProjectRegistryResearchPipelineTest(ProjectRecordTestCase):
                 "default_branch": "main",
             },
             repo_lexicon_hints=lexicon_hints,
-            extract_urls=registry.extract_urls,
+            extract_urls=identifier_core.extract_urls,
             repo_semantic_hints=semantic_hints,
         )
 
@@ -805,7 +807,7 @@ class ProjectRegistryResearchPipelineTest(ProjectRecordTestCase):
                 "tree": [{"path": "README.md", "type": "blob"}],
                 "default_branch": "main",
             },
-            extract_urls=lambda text: registry.extract_urls(text),
+            extract_urls=lambda text: identifier_core.extract_urls(text),
         )
 
         bundle = investigation_core.collect_tangled_repo_evidence(
@@ -826,7 +828,7 @@ class ProjectRegistryResearchPipelineTest(ProjectRecordTestCase):
         text = "[![Crate](https://img.shields.io/crates/v/app.svg)](https://crates.io/crates/app)"
 
         self.assertEqual(
-            registry.extract_urls(text),
+            identifier_core.extract_urls(text),
             ["https://img.shields.io/crates/v/app.svg", "https://crates.io/crates/app"],
         )
 
@@ -917,8 +919,8 @@ class ProjectRegistryResearchPipelineTest(ProjectRecordTestCase):
             mock.patch.object(registry, "search_github_repositories", return_value=repo_results) as github_search,
             mock.patch.object(registry, "github_repo_relevance", side_effect=[9, 7]),
             mock.patch.object(registry, "repo_candidate_allowed_for_project", return_value=True),
-            mock.patch.object(registry, "search_bsky_actors", side_effect=TimeoutError("actor timeout")) as actor_search,
-            mock.patch.object(registry, "search_bsky_posts", return_value=[]),
+            mock.patch.object(atproto, "search_bsky_actors", side_effect=TimeoutError("actor timeout")) as actor_search,
+            mock.patch.object(atproto, "search_bsky_posts", return_value=[]),
             mock.patch.object(investigation_core, "run_with_retry", partial(reliability.run_with_retry, sleep=sleep)),
         ):
             bundle = registry.collect_investigation_evidence(project, plan)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from project_registry_core.transport import atproto
+
 from project_registry_core import project_review
 
 from project_registry_core import project_merge
@@ -70,25 +72,17 @@ DB_PATH = ROOT / "data" / "survey.db"
 CONFIG_PATH = ROOT / "config" / "sources.json"
 ENRICH_RUNS_DIR = ROOT / "data" / "enrich-runs"
 GITHUB_API = "https://api.github.com"
-DNS_RESOLVER_URL = "https://dns.google/resolve"
 REQUEST_TIMEOUT_DEFAULT = 60.0
 REQUEST_TIMEOUT_SHORT = 15.0
 REQUEST_TIMEOUT_SERVICE_CONFIRMED = 45.0
 REQUEST_TIMEOUT_SERVICE_CANDIDATE = 15.0
-REQUEST_TIMEOUT_LEXICON_DNS = 12.0
-REQUEST_TIMEOUT_LEXICON_HTTP = 45.0
-REQUEST_TIMEOUT_DISCOVERY_SEARCH = 12.0
 ENRICH_IO_MAX_WORKERS = 4
 DEEP_INVESTIGATION_PATHS = ("/about", "/docs", "/faq", "/app", "/login", "/signup")
 TRIAGE_PROMPT_PATH = ROOT / "prompts" / "project-triage.md"
 EDITORIAL_SOURCE_POLICY_VERSION = 4
-BSKY_PUBLIC_API = "https://public.api.bsky.app"
-BSKY_ENTRYWAY = "https://bsky.social"
-BSKY_APPVIEW_PROXY = "did:web:api.bsky.app#bsky_appview"
 
 UFOS_API = "https://ufos-api.microcosm.blue"
 SEMBLE_API = "https://api.semble.so"
-_BSKY_SESSION_CACHE: dict[str, Any] = {}
 _GITHUB_REPO_SEARCH_CACHE = reliability_core.TTLCache()
 _SERVICE_PROBE_CACHE = reliability_core.TTLCache()
 
@@ -136,16 +130,6 @@ def format_duration_hms(seconds: float) -> str:
     hours, remainder = divmod(total_seconds, 3600)
     minutes, secs = divmod(remainder, 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-
-
-def is_bsky_post_url(url: str) -> bool:
-    normalized = identifier_core.normalize_url(str(url or "")) if url else ""
-    if not normalized:
-        return False
-    parsed = urllib.parse.urlparse(normalized)
-    if parsed.netloc != "bsky.app":
-        return False
-    return bool(re.match(r"^/profile/[^/]+/post/[^/]+$", parsed.path))
 
 
 def exact_service_origin_for_authority_domain(authority_domain: str) -> str:
@@ -299,7 +283,7 @@ def urls_from_nested_value(value: Any, *, depth: int = 0) -> list[str]:
     if depth > 5:
         return []
     if isinstance(value, str):
-        return extract_urls(value)
+        return identifier_core.extract_urls(value)
     if isinstance(value, dict):
         urls: list[str] = []
         for item in value.values():
@@ -1996,97 +1980,6 @@ def repair_trust_graph(
     }
 
 
-def bsky_auth_settings() -> dict[str, str]:
-    return {
-        "identifier": os.getenv("BSKY_HANDLE", "").strip(),
-        "password": os.getenv("BSKY_APP_PASSWORD", "").strip(),
-        "host": os.getenv("BSKY_AUTH_HOST", BSKY_ENTRYWAY).rstrip("/"),
-    }
-
-
-def bsky_session_cache_key() -> str:
-    settings = bsky_auth_settings()
-    return f"{settings['host']}|{settings['identifier']}"
-
-
-def bsky_pds_url_from_session(session: dict[str, Any]) -> str:
-    did_doc = session.get("didDoc")
-    if isinstance(did_doc, dict):
-        for service in did_doc.get("service", []):
-            if not isinstance(service, dict):
-                continue
-            if str(service.get("id") or "") != "#atproto_pds":
-                continue
-            endpoint = str(service.get("serviceEndpoint") or "").rstrip("/")
-            if endpoint.startswith("https://"):
-                return endpoint
-    return ""
-
-
-def bsky_create_session() -> dict[str, Any]:
-    settings = bsky_auth_settings()
-    if not settings["identifier"] or not settings["password"]:
-        raise RuntimeError("BSKY_HANDLE and BSKY_APP_PASSWORD are required for authenticated Bluesky search")
-    cache_key = bsky_session_cache_key()
-    cached = _BSKY_SESSION_CACHE.get(cache_key)
-    if cached:
-        return cached
-    payload = http_transport.request_json_post(
-        f"{settings['host']}/xrpc/com.atproto.server.createSession",
-        {"identifier": settings["identifier"], "password": settings["password"]},
-    )
-    _BSKY_SESSION_CACHE[cache_key] = payload
-    return payload
-
-
-def bsky_access_token() -> str:
-    session = bsky_create_session()
-    token = str(session.get("accessJwt") or "")
-    if not token:
-        raise RuntimeError("Bluesky session did not return accessJwt")
-    return token
-
-
-def bsky_refresh_session() -> dict[str, Any]:
-    cache_key = bsky_session_cache_key()
-    session = bsky_create_session()
-    refresh_token = str(session.get("refreshJwt") or "")
-    if not refresh_token:
-        raise RuntimeError("Bluesky session did not return refreshJwt")
-    pds_url = bsky_pds_url_from_session(session)
-    if not pds_url:
-        settings = bsky_auth_settings()
-        pds_url = settings["host"]
-    _, body, _ = http_transport.request_bytes(
-        f"{pds_url}/xrpc/com.atproto.server.refreshSession",
-        headers={"Authorization": f"Bearer {refresh_token}"},
-        method="POST",
-    )
-    refreshed = json.loads(body.decode("utf-8"))
-    if not isinstance(refreshed, dict):
-        raise RuntimeError("Bluesky refreshSession response was not a JSON object")
-    if not refreshed.get("didDoc") and session.get("didDoc"):
-        refreshed["didDoc"] = session["didDoc"]
-    _BSKY_SESSION_CACHE[cache_key] = refreshed
-    return refreshed
-
-
-def bsky_pds_url() -> str:
-    session = bsky_create_session()
-    pds_url = bsky_pds_url_from_session(session)
-    if pds_url:
-        return pds_url
-    settings = bsky_auth_settings()
-    if settings["host"]:
-        return settings["host"]
-    raise RuntimeError("Bluesky session did not include a resolvable PDS endpoint")
-
-
-def bsky_authenticated_app_url(path: str) -> str:
-    base = bsky_pds_url()
-    return f"{base.rstrip('/')}/xrpc/{path.lstrip('/')}"
-
-
 def extract_title(html: str) -> str:
     match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
     return unescape(re.sub(r"\s+", " ", match.group(1)).strip()) if match else ""
@@ -2158,24 +2051,6 @@ def service_url_auto_confirmable(project: dict[str, Any], url: str) -> bool:
             return True
 
     return False
-
-
-def extract_urls(html: str) -> list[str]:
-    pattern = r'https?://[^\s"\'<>]+'
-    output: list[str] = []
-    for raw in re.findall(pattern, html):
-        cleaned = identifier_core.sanitize_extracted_url(raw)
-        parsed = urllib.parse.urlparse(cleaned)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            continue
-        output.append(identifier_core.normalize_url(cleaned))
-    for raw in re.findall(r'\]\((https?://[^)\s]+)\)', html):
-        cleaned = identifier_core.sanitize_extracted_url(raw)
-        parsed = urllib.parse.urlparse(cleaned)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            continue
-        output.append(identifier_core.normalize_url(cleaned))
-    return project_record.unique_list(output)
 
 
 def normalize_tagline(value: str) -> str:
@@ -2988,56 +2863,10 @@ def prune_project_urls(project: dict[str, Any], *, restore_manual_repositories: 
         ]
 
 
-def bsky_post_web_url(post: dict[str, Any]) -> str:
-    author = post.get("author", {}) if isinstance(post.get("author"), dict) else {}
-    handle = str(author.get("handle") or "").strip()
-    uri = str(post.get("uri") or "").strip()
-    rkey = uri.rsplit("/", 1)[-1] if uri else ""
-    if handle and rkey:
-        return f"https://bsky.app/profile/{handle}/post/{rkey}"
-    return ""
-
-
-def extract_post_link_entries(post: dict[str, Any]) -> list[dict[str, str]]:
-    record = post.get("record", {}) if isinstance(post.get("record"), dict) else {}
-    text = str(record.get("text") or "")
-    raw = text.encode("utf-8")
-    output: list[dict[str, str]] = []
-    for facet in record.get("facets", []):
-        if not isinstance(facet, dict):
-            continue
-        index_data = facet.get("index", {}) if isinstance(facet.get("index"), dict) else {}
-        start = index_data.get("byteStart")
-        end = index_data.get("byteEnd")
-        label = ""
-        if isinstance(start, int) and isinstance(end, int):
-            try:
-                label = raw[start:end].decode("utf-8", errors="replace").strip()
-            except Exception:
-                label = ""
-        for feature in facet.get("features", []):
-            if not isinstance(feature, dict):
-                continue
-            if feature.get("$type") != "app.bsky.richtext.facet#link":
-                continue
-            url = identifier_core.normalize_url(str(feature.get("uri") or ""))
-            if not url:
-                continue
-            output.append(
-                {
-                    "label": label,
-                    "url": url,
-                    "post_uri": str(post.get("uri") or ""),
-                    "post_web_url": bsky_post_web_url(post),
-                }
-            )
-    return output
-
-
 def collect_applog_entries(posts: list[dict[str, Any]]) -> dict[tuple[str, str], dict[str, Any]]:
     entries_by_seed: dict[tuple[str, str], dict[str, Any]] = {}
     for post in posts:
-        for entry in extract_post_link_entries(post):
+        for entry in atproto.extract_post_link_entries(post):
             seed = applog_seed_from_url(entry["url"])
             if seed is None:
                 continue
@@ -3723,7 +3552,7 @@ def probe_service_url(url: str, *, timeout: float = REQUEST_TIMEOUT_DEFAULT) -> 
     html = body.decode(charset, errors="replace")
     title = extract_title(html)
     description = extract_meta_description(html)
-    urls = extract_urls(html)
+    urls = identifier_core.extract_urls(html)
     links = extract_links(html, url)
     service_status, service_status_confidence, service_status_evidence = classify_service_probe_result(
         status_code=status_code,
@@ -4749,7 +4578,7 @@ def search_github_repositories(
     query: str,
     limit: int = 5,
     *,
-    timeout: float = REQUEST_TIMEOUT_DISCOVERY_SEARCH,
+    timeout: float = http_transport.REQUEST_TIMEOUT_DISCOVERY_SEARCH,
     request_metrics: github_api.GitHubRequestMetrics | None = None,
 ) -> list[dict[str, Any]]:
     cache_key = (str(query or "").strip(), int(limit))
@@ -4786,22 +4615,6 @@ def search_github_repositories(
     return results
 
 
-def search_bsky_actors(query: str, limit: int = 5, *, timeout: float = REQUEST_TIMEOUT_DISCOVERY_SEARCH) -> list[dict[str, Any]]:
-    params = urllib.parse.urlencode({"q": query, "limit": max(1, min(limit, 10))})
-    payload = http_transport.request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.actor.searchActors?{params}", timeout=timeout)
-    results: list[dict[str, Any]] = []
-    for item in payload.get("actors", [])[:limit]:
-        results.append(
-            {
-                "handle": str(item.get("handle") or ""),
-                "did": str(item.get("did") or ""),
-                "display_name": str(item.get("displayName") or ""),
-                "description": str(item.get("description") or ""),
-            }
-        )
-    return results
-
-
 def repo_context_service_candidate_allowed(project: dict[str, Any], url: str, *, repo_url: str, lexicon_ids: list[str]) -> bool:
     normalized = project_record.normalize_service_candidate_url(url)
     if not normalized:
@@ -4823,169 +4636,7 @@ def repo_context_service_candidate_allowed(project: dict[str, Any], url: str, *,
     return any(token and token in normalized_host for token in tokens)
 
 
-def search_bsky_posts(query: str, limit: int = 5, *, timeout: float = REQUEST_TIMEOUT_DISCOVERY_SEARCH) -> list[dict[str, Any]]:
-    payload = search_bsky_posts_payload(query, limit=limit, timeout=timeout)
-    results: list[dict[str, Any]] = []
-    for item in payload.get("posts", [])[:limit]:
-        author = item.get("author", {}) if isinstance(item.get("author"), dict) else {}
-        record = item.get("record", {}) if isinstance(item.get("record"), dict) else {}
-        text = str(record.get("text") or "")
-        results.append(
-            {
-                "uri": str(item.get("uri") or ""),
-                "text": text,
-                "urls": extract_urls(text),
-                "author_handle": str(author.get("handle") or ""),
-                "author_did": str(author.get("did") or ""),
-            }
-        )
-    return results
-
-
-def search_bsky_posts_payload(
-    query: str,
-    *,
-    limit: int = 25,
-    cursor: str = "",
-    since: str = "",
-    timeout: float = REQUEST_TIMEOUT_DISCOVERY_SEARCH,
-) -> dict[str, Any]:
-    params_dict: dict[str, Any] = {"q": query, "limit": max(1, min(limit, 100)), "sort": "latest"}
-    if cursor:
-        params_dict["cursor"] = cursor
-    if since:
-        params_dict["since"] = since
-    params = urllib.parse.urlencode(params_dict)
-    url = f"{bsky_authenticated_app_url('app.bsky.feed.searchPosts')}?{params}"
-    headers = {"atproto-proxy": BSKY_APPVIEW_PROXY}
-    try:
-        payload = http_transport.request_json_authenticated(url, bsky_access_token(), headers=headers, timeout=timeout)
-    except urllib.error.HTTPError as exc:
-        body = ""
-        try:
-            body = exc.read().decode("utf-8", errors="replace")
-        except Exception:
-            body = ""
-        if exc.code == 401 or (exc.code == 400 and ("InvalidToken" in body or "ExpiredToken" in body)):
-            refreshed = bsky_refresh_session()
-            payload = http_transport.request_json_authenticated(url, str(refreshed.get("accessJwt") or ""), headers=headers, timeout=timeout)
-        else:
-            snippet = body[:300].strip()
-            raise RuntimeError(f"Bluesky post search failed HTTP {exc.code}: {snippet or exc.reason}") from exc
-    return payload if isinstance(payload, dict) else {}
-
-
-def fetch_bsky_author_feed(actor: str, limit: int = 10, *, timeout: float = REQUEST_TIMEOUT_DISCOVERY_SEARCH) -> list[dict[str, Any]]:
-    params = urllib.parse.urlencode({"actor": actor, "limit": max(1, min(limit, 20))})
-    payload = http_transport.request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.feed.getAuthorFeed?{params}", timeout=timeout)
-    results: list[dict[str, Any]] = []
-    for item in payload.get("feed", [])[:limit]:
-        post = item.get("post", {}) if isinstance(item.get("post"), dict) else {}
-        author = post.get("author", {}) if isinstance(post.get("author"), dict) else {}
-        record = post.get("record", {}) if isinstance(post.get("record"), dict) else {}
-        text = str(record.get("text") or "")
-        results.append(
-            {
-                "uri": str(post.get("uri") or ""),
-                "text": text,
-                "urls": bsky_record_urls(record),
-                "author_handle": str(author.get("handle") or actor),
-            }
-        )
-    return results
-
-
-def fetch_bsky_profile(actor: str) -> dict[str, Any]:
-    params = urllib.parse.urlencode({"actor": actor})
-    payload = http_transport.request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.actor.getProfile?{params}")
-    return payload if isinstance(payload, dict) else {}
-
-
-def fetch_bsky_post_by_web_url(url: str) -> dict[str, Any]:
-    normalized = identifier_core.normalize_url(url)
-    parsed = urllib.parse.urlparse(normalized)
-    if parsed.netloc != "bsky.app":
-        return {}
-    segments = [segment for segment in parsed.path.split("/") if segment]
-    if len(segments) < 4 or segments[0] != "profile" or segments[2] != "post":
-        return {}
-    actor = segments[1]
-    rkey = segments[3]
-    profile = fetch_bsky_profile(actor)
-    did = str(profile.get("did") or "")
-    if not did:
-        return {}
-    params = urllib.parse.urlencode({"uris": f"at://{did}/app.bsky.feed.post/{rkey}"})
-    payload = http_transport.request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.feed.getPosts?{params}")
-    posts = payload.get("posts", []) if isinstance(payload, dict) else []
-    return posts[0] if posts else {}
-
-
-def bsky_record_urls(record: dict[str, Any]) -> list[str]:
-    urls: list[str] = []
-    facets = record.get("facets", []) if isinstance(record.get("facets", []), list) else []
-    for facet in facets:
-        if not isinstance(facet, dict):
-            continue
-        for feature in facet.get("features", []) if isinstance(facet.get("features", []), list) else []:
-            if not isinstance(feature, dict):
-                continue
-            uri = str(feature.get("uri") or "").strip()
-            if uri:
-                urls.append(uri)
-    urls.extend(extract_urls(str(record.get("text") or "")))
-    return project_record.unique_list(urls)
-
-
-def resolve_dns_txt(name: str, *, timeout: float = REQUEST_TIMEOUT_LEXICON_DNS) -> list[str]:
-    params = urllib.parse.urlencode({"name": name, "type": "TXT"})
-    payload = http_transport.request_json(f"{DNS_RESOLVER_URL}?{params}", timeout=timeout)
-    values: list[str] = []
-    for answer in payload.get("Answer", []):
-        data = str(answer.get("data") or "").strip()
-        if data.startswith('"') and data.endswith('"'):
-            data = data[1:-1]
-        values.append(data)
-    return values
-
-
-def resolve_did_document_url(did: str) -> str:
-    if did.startswith("did:plc:"):
-        return f"https://plc.directory/{urllib.parse.quote(did, safe=':')}"
-    if did.startswith("did:web:"):
-        body = did.removeprefix("did:web:")
-        parts = body.split(":")
-        if len(parts) == 1:
-            return f"https://{parts[0]}/.well-known/did.json"
-        host = parts[0]
-        path = "/".join(parts[1:])
-        return f"https://{host}/{path}/did.json"
-    raise ValueError(f"unsupported DID method: {did}")
-
-
-def resolve_did_document(did: str, *, timeout: float = REQUEST_TIMEOUT_LEXICON_HTTP) -> dict[str, Any]:
-    return http_transport.request_json(resolve_did_document_url(did), timeout=timeout)
-
-
-def extract_pds_url(did_doc: dict[str, Any]) -> str:
-    for service in did_doc.get("service", []):
-        service_type = str(service.get("type") or "")
-        service_id = str(service.get("id") or "")
-        if service_type == "AtprotoPersonalDataServer" or service_id.endswith("#atproto_pds"):
-            return str(service.get("serviceEndpoint") or "").rstrip("/")
-    return ""
-
-
-def did_document_handles(did_doc: dict[str, Any]) -> list[str]:
-    values = []
-    for item in did_doc.get("alsoKnownAs", []) if isinstance(did_doc.get("alsoKnownAs"), list) else []:
-        text = str(item or "").strip()
-        if text.startswith("at://"):
-            values.append(text.removeprefix("at://").strip().lower().rstrip("."))
-    return project_record.unique_list([value for value in values if value])
-
-
-def fetch_recent_record_samples(collections: list[str], *, timeout: float = REQUEST_TIMEOUT_LEXICON_HTTP) -> list[dict[str, Any]]:
+def fetch_recent_record_samples(collections: list[str], *, timeout: float = atproto.REQUEST_TIMEOUT_LEXICON_HTTP) -> list[dict[str, Any]]:
     normalized = project_record.unique_list([identifier_core.normalize_nsid(value) for value in collections if identifier_core.normalize_nsid(value)])
     if not normalized:
         return []
@@ -5062,52 +4713,6 @@ def should_refresh_lexicon_surface(project: dict[str, Any], nsids: list[str]) ->
     return not project_content_is_clear_enough(project)
 
 
-def resolve_lexicon_authority_did(authority_domain: str, *, timeout: float = REQUEST_TIMEOUT_LEXICON_DNS) -> str:
-    txt_name = f"_lexicon.{authority_domain}"
-    for value in resolve_dns_txt(txt_name, timeout=timeout):
-        if value.startswith("did="):
-            return value.removeprefix("did=").strip()
-    raise ValueError(f"no lexicon DID found for authority domain: {authority_domain}")
-
-
-def fetch_lexicon_record(
-    nsid: str,
-    *,
-    dns_timeout: float = REQUEST_TIMEOUT_LEXICON_DNS,
-    http_timeout: float = REQUEST_TIMEOUT_LEXICON_HTTP,
-    authority_cache: dict[str, str] | None = None,
-    document_cache: dict[str, dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-    normalized = identifier_core.normalize_nsid(nsid)
-    authority_domain = identifier_core.derive_authority_domain(normalized)
-    if not authority_domain:
-        raise ValueError(f"invalid NSID: {nsid}")
-    did = (authority_cache or {}).get(authority_domain) or resolve_lexicon_authority_did(authority_domain, timeout=dns_timeout)
-    if authority_cache is not None:
-        authority_cache[authority_domain] = did
-    did_doc = (document_cache or {}).get(did) or resolve_did_document(did, timeout=http_timeout)
-    if document_cache is not None:
-        document_cache[did] = did_doc
-    pds_url = extract_pds_url(did_doc)
-    if not pds_url:
-        raise ValueError(f"no PDS endpoint found for DID: {did}")
-    params = urllib.parse.urlencode(
-        {
-            "repo": did,
-            "collection": "com.atproto.lexicon.schema",
-            "rkey": normalized,
-        }
-    )
-    payload = http_transport.request_json(f"{pds_url}/xrpc/com.atproto.repo.getRecord?{params}", timeout=http_timeout)
-    return {
-        "did": did,
-        "did_doc": did_doc,
-        "authority_domain": authority_domain,
-        "pds_url": pds_url,
-        "record": payload,
-    }
-
-
 def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict[str, Any]) -> None:
     nsid = identifier_core.normalize_nsid(nsid)
     if not nsid:
@@ -5176,7 +4781,7 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
         eligible_for_auto_confirm=not type_changed,
         observed_at=project_record.iso_now(),
     )
-    for handle in did_document_handles(dict(result.get("did_doc") or {})):
+    for handle in atproto.did_document_handles(dict(result.get("did_doc") or {})):
         project_record.record_trust_edge(
             project,
             "did",
@@ -5185,7 +4790,7 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
             "handle",
             handle,
             source=f"did_document:{result['did']}",
-            locator=resolve_did_document_url(str(result["did"])),
+            locator=atproto.resolve_did_document_url(str(result["did"])),
             method="alsoKnownAs",
             classification="confirmed",
             eligible_for_auto_confirm=not type_changed,
@@ -5287,7 +4892,7 @@ def collect_github_repo_evidence(
             repo_lexicon_hints=lambda url, **kwargs: repository_material_core.repo_lexicon_hints(
                 url, **kwargs, file_text=file_text
             ),
-            extract_urls=extract_urls,
+            extract_urls=identifier_core.extract_urls,
             repo_semantic_hints=lambda url, **kwargs: repository_material_core.repo_semantic_hints(
                 url, **kwargs, file_text=file_text
             ),
@@ -5318,7 +4923,7 @@ def collect_codeberg_repo_evidence(
             repo_lexicon_hints=lambda url, **kwargs: repository_material_core.repo_lexicon_hints(
                 url, **kwargs, file_text=repository_source_core.codeberg_repo_file_text,
             ),
-            extract_urls=extract_urls,
+            extract_urls=identifier_core.extract_urls,
             repo_semantic_hints=lambda url, **kwargs: repository_material_core.repo_semantic_hints(
                 url, **kwargs, file_text=repository_source_core.codeberg_repo_file_text,
             ),
@@ -5346,7 +4951,7 @@ def collect_tangled_repo_evidence(
         investigation_core.TangledRepoCollectorDependencies(
             now=project_record.iso_now,
             fetch_tangled_repo=repository_source_core.fetch_tangled_repo,
-            extract_urls=extract_urls,
+            extract_urls=identifier_core.extract_urls,
         ),
         trust_only=trust_only,
     )
@@ -5919,7 +5524,7 @@ def build_llm_evidence_bundle(
         "tagline_candidates": project.get("tagline_candidates", []),
         "evidence_urls": [
             url for url in project.get("evidence_urls", [])
-            if not is_bsky_post_url(url)
+            if not atproto.is_bsky_post_url(url)
         ],
     }
     evidence["description_sources"] = editorial.sources({
@@ -6103,12 +5708,12 @@ def collect_investigation_evidence(project: dict[str, Any], plan: dict[str, Any]
             ),
             github_repo_relevance=github_repo_relevance,
             repo_candidate_allowed=repo_candidate_allowed_for_project,
-            search_bsky_actors=search_bsky_actors,
+            search_bsky_actors=atproto.search_bsky_actors,
             bsky_actor_relevance=bsky_actor_relevance,
-            search_bsky_posts=search_bsky_posts,
+            search_bsky_posts=atproto.search_bsky_posts,
             handle_matches_project=integration_core.handle_matches_project,
-            fetch_bsky_author_feed=fetch_bsky_author_feed,
-            timeout=REQUEST_TIMEOUT_DISCOVERY_SEARCH,
+            fetch_bsky_author_feed=atproto.fetch_bsky_author_feed,
+            timeout=http_transport.REQUEST_TIMEOUT_DISCOVERY_SEARCH,
             github_request_metrics=github_request_metrics,
         ),
         observation=observation,
@@ -6496,27 +6101,16 @@ def apply_saved_service_evidence(project: dict[str, Any], bundle: EvidenceBundle
     apply_current_service_observation_state(project)
 
 
-def list_atproto_records(pds_url: str, did: str, cursor: str = "") -> dict[str, Any]:
-    params: dict[str, Any] = {"repo": did, "collection": tangled_core.TANGLED_COLLECTION, "limit": 100}
-    if cursor:
-        params["cursor"] = cursor
-    payload = http_transport.request_json(
-        f"{pds_url}/xrpc/com.atproto.repo.listRecords?{urllib.parse.urlencode(params)}",
-        timeout=REQUEST_TIMEOUT_LEXICON_HTTP,
-    )
-    return payload if isinstance(payload, dict) else {}
-
-
 def collect_tangled_account_evidence(project: dict[str, Any], handle: str) -> EvidenceBundle:
     return tangled_core.collect_account_repos(
         project,
         handle,
         tangled_core.TangledDependencies(
             now=project_record.iso_now,
-            resolve_handle=fetch_bsky_profile,
-            resolve_did_document=resolve_did_document,
-            extract_pds_url=extract_pds_url,
-            list_records=list_atproto_records,
+            resolve_handle=atproto.fetch_bsky_profile,
+            resolve_did_document=atproto.resolve_did_document,
+            extract_pds_url=atproto.extract_pds_url,
+            list_records=tangled_core.list_atproto_records,
         ),
     )
 
@@ -6771,7 +6365,7 @@ def finalize_project_shape(project: dict[str, Any], *, restore_manual_repositori
     project["introduced_url"] = introduced_url
     project["evidence_urls"] = [
         url for url in project_record.unique_list(project.get("evidence_urls", []))
-        if url and identifier_core.normalize_url(url) != introduced_url and not is_bsky_post_url(url)
+        if url and identifier_core.normalize_url(url) != introduced_url and not atproto.is_bsky_post_url(url)
     ]
     project["investigation_queries"] = []
     cleaned_logs: list[dict[str, Any]] = []
@@ -6788,7 +6382,7 @@ def finalize_project_shape(project: dict[str, Any], *, restore_manual_repositori
         evidence["project_key"] = project["project_key"]
         evidence["evidence_urls"] = [
             url for url in evidence.get("evidence_urls", [])
-            if url and identifier_core.normalize_url(str(url)) != introduced_url and not is_bsky_post_url(str(url))
+            if url and identifier_core.normalize_url(str(url)) != introduced_url and not atproto.is_bsky_post_url(str(url))
         ]
         integration_core.normalize_evidence_accounts(project, evidence)
         project["llm_source"] = dict(project["llm_source"], evidence=evidence)

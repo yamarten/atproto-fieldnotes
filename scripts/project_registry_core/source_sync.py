@@ -36,16 +36,11 @@ from html.parser import HTMLParser
 
 from typing import Any, Callable, Sequence
 
+from project_registry_core.identity.identifiers import extract_urls
 from project_registry_core.registry import (
-    extract_urls,
     pdsls_collection_reference_nsid,
-    is_bsky_post_url,
     detect_seed_type,
     resolve_project_key_for_seed_value,
-    fetch_bsky_profile,
-    fetch_bsky_author_feed,
-    fetch_bsky_post_by_web_url,
-    bsky_record_urls,
     GITHUB_API,
     SEMBLE_API,
     SEMBLE_TRACKED_COLLECTIONS,
@@ -69,10 +64,17 @@ from project_registry_core.registry import (
     load_config,
     read_sync_state,
     resolve_semble_project_key_for_seed_value,
-    search_bsky_posts_payload,
     sync_watermark_datetime,
     upsert_collection_observation,
     write_sync_state,
+)
+from project_registry_core.transport.atproto import (
+    is_bsky_post_url,
+    fetch_bsky_profile,
+    fetch_bsky_author_feed,
+    fetch_bsky_post_by_web_url,
+    bsky_record_urls,
+    search_bsky_posts_payload,
 )
 from project_registry_core.project_review import activity_is_recent
 from project_registry_core.project_record import parse_iso_datetime

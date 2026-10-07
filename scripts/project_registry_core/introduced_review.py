@@ -17,7 +17,8 @@ from typing import Any
 
 from .identity import identifiers
 from . import project_record
-from .registry import applog_seed_from_url, bsky_post_web_url, extract_post_link_entries
+from project_registry_core.registry import applog_seed_from_url
+from project_registry_core.transport.atproto import bsky_post_web_url, extract_post_link_entries
 
 
 TEXT_URL = re.compile(r"https?://[^\s<>\[\]{}\"']+", re.IGNORECASE)

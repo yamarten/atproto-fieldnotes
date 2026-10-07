@@ -1,6 +1,8 @@
 """Bounded publication sync; network work never owns a registry write lock."""
 from __future__ import annotations
 
+from project_registry_core.transport import atproto
+
 import json
 import sqlite3
 import time
@@ -66,7 +68,6 @@ def verify(conn: sqlite3.Connection, *, limit: int | None = None, max_seconds: f
            fetcher: Callable[..., dict[str, Any]] | None = None,
            cancel_requested: Callable[[], bool] | None = None,
            progress: Callable[..., None] | None = None) -> dict[str, Any]:
-    from .. import registry
     selected = verification_targets(conn, limit=limit, now=catalog.iso_now())
     started = time.monotonic()
     outcomes = []
@@ -86,7 +87,7 @@ def verify(conn: sqlite3.Connection, *, limit: int | None = None, max_seconds: f
         try:
             remaining = max(0.1, min(20.0, remaining))
             options = {} if fetcher else {"authority_cache": authority_cache, "document_cache": document_cache}
-            payload = (fetcher or registry.fetch_lexicon_record)(
+            payload = (fetcher or atproto.fetch_lexicon_record)(
                 sid, dns_timeout=min(10.0, remaining / 3), http_timeout=remaining / 3, **options)
             return {"payload": payload, "checked_at": checked_at}
         except Exception as exc:

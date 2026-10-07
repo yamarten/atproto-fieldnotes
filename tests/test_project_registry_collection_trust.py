@@ -6,6 +6,7 @@ from contextlib import closing
 from unittest.mock import patch
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
+from project_registry_core.transport import atproto
 
 from project_registry_core import project_merge
 
@@ -181,11 +182,11 @@ class CollectionPublicationTrustUnitTest(ProjectRecordTestCase):
 
     def test_fetch_records_exact_dns_authority_without_changing_endpoint_contract(self) -> None:
         result = publication(A)
-        with patch.object(registry, "resolve_lexicon_authority_did", return_value=DID) as dns, \
-             patch.object(registry, "resolve_did_document", return_value={"id": DID}) as did, \
-             patch.object(registry, "extract_pds_url", return_value=result["pds_url"]), \
+        with patch.object(atproto, "resolve_lexicon_authority_did", return_value=DID) as dns, \
+             patch.object(atproto, "resolve_did_document", return_value={"id": DID}) as did, \
+             patch.object(atproto, "extract_pds_url", return_value=result["pds_url"]), \
              patch.object(registry.http_transport, "request_json", return_value=result["record"]) as get:
-            fetched = registry.fetch_lexicon_record(A)
+            fetched = atproto.fetch_lexicon_record(A)
         self.assertEqual(fetched["authority_domain"], "profile.example.org")
         self.assertTrue(collection_trust.publication_validation(A, fetched))
         self.assertEqual(dns.call_args.args[0], "profile.example.org")
