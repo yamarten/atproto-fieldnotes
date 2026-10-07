@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from project_registry_core import project_review
+
 import argparse
 import sys
 import urllib.error
@@ -194,7 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
     review_ignore_parser.add_argument("--execute", action="store_true", help="Apply the suggested tracking_state=ignore updates. Without this flag, show a dry-run summary only.")
     review_ignore_parser.add_argument("--interactive", action="store_true", help="Step through ignore candidates interactively and apply confirmed ignores.")
     review_ignore_parser.add_argument("--note", help="Optional tracking note to store when applying ignore updates.")
-    review_ignore_parser.add_argument("--note-reason", choices=sorted(registry.IGNORE_REVIEW_NOTE_REASONS), help="Preset review-ignore note category to store with ignored projects.")
+    review_ignore_parser.add_argument("--note-reason", choices=sorted(project_review.IGNORE_REVIEW_NOTE_REASONS), help="Preset review-ignore note category to store with ignored projects.")
     review_ignore_parser.set_defaults(func=review_commands.cmd_review_ignore)
 
     review_scope_parser = subparsers.add_parser(
@@ -206,7 +208,7 @@ def build_parser() -> argparse.ArgumentParser:
     review_scope_parser.add_argument("--execute", action="store_true", help="Apply suggested tracking_state=out_of_scope updates. Without this flag, show a dry-run summary only.")
     review_scope_parser.add_argument("--interactive", action="store_true", help="Step through out-of-scope candidates interactively and apply confirmed updates.")
     review_scope_parser.add_argument("--note", help="Optional tracking note to store when applying out-of-scope updates.")
-    review_scope_parser.add_argument("--note-reason", choices=sorted(registry.OUT_OF_SCOPE_REVIEW_NOTE_REASONS), help="Preset reason category to store with out-of-scope projects.")
+    review_scope_parser.add_argument("--note-reason", choices=sorted(project_review.OUT_OF_SCOPE_REVIEW_NOTE_REASONS), help="Preset reason category to store with out-of-scope projects.")
     review_scope_parser.set_defaults(func=review_commands.cmd_review_out_of_scope)
 
     seed_list_parser = subparsers.add_parser("import-seed-list", help="Import a mixed text seed list with headings, notes, and URLs.")

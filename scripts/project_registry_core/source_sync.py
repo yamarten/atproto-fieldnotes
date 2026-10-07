@@ -48,7 +48,6 @@ from project_registry_core.registry import (
     GITHUB_API,
     SEMBLE_API,
     SEMBLE_TRACKED_COLLECTIONS,
-    activity_is_recent,
     add_candidate_project_repository_url,
     add_candidate_url,
     add_collection_owned_nsid,
@@ -67,7 +66,6 @@ from project_registry_core.registry import (
     github_headers,
     import_collection_inventory_payload,
     load_config,
-    parse_iso_datetime,
     read_sync_state,
     resolve_semble_project_key_for_seed_value,
     search_bsky_posts_payload,
@@ -75,6 +73,8 @@ from project_registry_core.registry import (
     upsert_collection_observation,
     write_sync_state,
 )
+from project_registry_core.project_review import activity_is_recent
+from project_registry_core.project_record import parse_iso_datetime
 from project_registry_core.project_merge import compute_duplicate_candidates, compute_merge_recommendation
 
 

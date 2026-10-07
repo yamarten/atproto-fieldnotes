@@ -4,6 +4,8 @@ import io
 import json
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
+
+from project_registry_core.application import review as application_review
 from promotion_selection import cases, apply_fixed_assessment
 from project_registry_core import atproto_usage, project_record, promotion_attention
 from project_registry_core.application import decisions, presentation, merge
@@ -13,14 +15,14 @@ from project_registry_core.cli import build_parser
 class PromotionSelectionUnitTest(ProjectRecordTestCase):
     def test_operator_references_and_counterexamples_through_normal_queue(self):
         projects = [apply_fixed_assessment(c) for c in cases()]
-        queue = registry.build_showcase_queue_from_projects(projects, limit=None)
+        queue = application_review.build_showcase_queue_from_projects(projects, limit=None)
         ranks = {p["project_key"]: i for i, p in enumerate(queue)}
         for good in ("bluesky", "rolld", "meyasuat", "standard-site", "idiolect"):
             for limited in ("squire", "skysweeper"):
                 self.assertLess(ranks["fixture:" + good], ranks["fixture:" + limited])
         self.assertLess(ranks["fixture:schema-only"], ranks["fixture:squire"])
         self.assertEqual(len(queue), 8)  # Unknown and limited use remain selectable.
-        technical = registry.build_showcase_queue_from_projects(projects, view="technical", limit=None)
+        technical = application_review.build_showcase_queue_from_projects(projects, view="technical", limit=None)
         self.assertEqual({p["project_key"] for p in technical},
                          {"fixture:bluesky", "fixture:standard-site", "fixture:idiolect"})
         # Neither changing the name nor having a usable service drives technical ordering.
@@ -28,7 +30,7 @@ class PromotionSelectionUnitTest(ProjectRecordTestCase):
         for p in modified:
             p.update(name="Renamed example", service_status="live", service_status_confidence="high")
         self.assertEqual([p["project_key"] for p in technical], [p["project_key"] for p in
-            registry.build_showcase_queue_from_projects(modified, view="technical", limit=None)])
+            application_review.build_showcase_queue_from_projects(modified, view="technical", limit=None)])
 
     def test_llm_roles_never_change_usage_ranking_even_with_current_sources(self):
         for case in cases():
@@ -36,7 +38,7 @@ class PromotionSelectionUnitTest(ProjectRecordTestCase):
                 p = apply_fixed_assessment(case, operator=False)
                 self.assertEqual(atproto_usage.projection(p)["role"], "unknown")
                 self.assertEqual(atproto_usage.projection(p)["source"], "none")
-                queue = registry.build_showcase_queue_from_projects([p], limit=None)
+                queue = application_review.build_showcase_queue_from_projects([p], limit=None)
                 self.assertEqual(queue[0]["score_breakdown"]["components"]["atproto_usage"], 0)
                 # A plausible reference can still have the wrong meaning.
                 # Old automatic state must not revive that ranking in read-only views.
@@ -47,14 +49,14 @@ class PromotionSelectionUnitTest(ProjectRecordTestCase):
                 }}
                 self.assertEqual(atproto_usage.projection(p)["role"], "unknown")
                 self.assertEqual(promotion_attention.projection(p), fingerprint)
-                self.assertEqual(registry.build_showcase_queue_from_projects([p], limit=None), queue)
+                self.assertEqual(application_review.build_showcase_queue_from_projects([p], limit=None), queue)
 
     def test_bluesky_tools_can_have_independent_technical_interest(self):
         case = next(c for c in cases() if c["ref"] == "skysweeper")
         p = apply_fixed_assessment(case)
         p.update(technical_interest_level="high", technical_interest_summary="A concrete reusable protocol mechanism",
                  summary="Bluesky profile viewer analytics dashboard", inspired_by=["Bluesky"])
-        self.assertEqual(len(registry.build_showcase_queue_from_projects([p], view="technical")), 1)
+        self.assertEqual(len(application_review.build_showcase_queue_from_projects([p], view="technical")), 1)
         self.assertEqual(atproto_usage.projection(p)["role"], "bluesky_client")
 
     def test_merge_conflicting_operator_roles_requires_resolution(self):

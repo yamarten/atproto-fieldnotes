@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from project_registry_core import project_review
+
 import argparse
 import contextlib
 import hmac
@@ -25,7 +27,13 @@ from project_registry_core import domain_policy
 from project_registry_core import identifiers as identifier_core
 from project_registry_core import introduced_review
 from project_registry_core import registry as core
-from project_registry_core.application import decisions, maintenance, merge, presentation as services, projects
+from project_registry_core.application import (
+    decisions,
+    maintenance,
+    merge,
+    presentation as services,
+    projects,
+)
 from .jobs import JobConflictError, JobManager
 from .request_cancellation import RequestCancellation, RequestCancelled
 from project_registry_core import project_record
@@ -638,9 +646,9 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             raise ValueError(f"invalid tracking_states: {', '.join(sorted(invalid_states))}")
         note_reason = str(payload.get("note_reason") or "").strip()
         allowed_reasons = (
-            set(core.IGNORE_REVIEW_NOTE_REASONS)
+            set(project_review.IGNORE_REVIEW_NOTE_REASONS)
             if kind == "ignore"
-            else set(core.OUT_OF_SCOPE_REVIEW_NOTE_REASONS)
+            else set(project_review.OUT_OF_SCOPE_REVIEW_NOTE_REASONS)
             if kind == "out_of_scope"
             else set()
         )
@@ -754,7 +762,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 conn,
                 project_key=project_key,
                 reason=str(payload.get("reason") or note),
-                days=None if raw_days in (None, "") else _int(raw_days, core.DEFAULT_PROMOTION_DEFER_DAYS, maximum=365),
+                days=None if raw_days in (None, "") else _int(raw_days, project_review.DEFAULT_PROMOTION_DEFER_DAYS, maximum=365),
                 clear=action.startswith("clear-"),
             )
         if action in {"lower-promotion-priority", "clear-promotion-priority"}:

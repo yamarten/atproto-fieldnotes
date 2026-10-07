@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from project_registry_core.application import review as application_review
+from project_registry_core import project_review
+
 import argparse
 import json
 import sqlite3
@@ -10,7 +13,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable
 
-from project_registry_core import database, project_record, registry
+from project_registry_core import database, project_record
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,7 +66,7 @@ def _service_route(project: dict[str, Any], *, include_personal_tools: bool) -> 
         "blockers": blockers,
         "website_url": str(project.get("website_url") or ""),
         "confirmed_service_urls": [str(item) for item in project.get("service_urls", [])],
-        "candidate_service_urls": registry.project_service_hint_urls(project),
+        "candidate_service_urls": project_review.project_service_hint_urls(project),
     }
 
 
@@ -83,7 +86,7 @@ def _lexicon_route(project: dict[str, Any]) -> dict[str, Any]:
         has_reference = bool(
             project.get("website_url")
             or project.get("project_repository_urls")
-            or registry.project_repo_hint_urls(project)
+            or project_review.project_repo_hint_urls(project)
             or project_record.resource_url_values(project)
         )
         if not has_reference:
@@ -156,7 +159,7 @@ def analyze_projects(
     introduction_groups: dict[str, list[dict[str, Any]]] = {}
     for project in introduced_projects:
         introduction_groups.setdefault(str(project.get("introduced_url") or ""), []).append(project)
-    current_queue = registry.build_showcase_queue_from_projects(
+    current_queue = application_review.build_showcase_queue_from_projects(
         projects,
         limit=None,
         include_personal_tools=include_personal_tools,
@@ -179,16 +182,16 @@ def analyze_projects(
         project = _counterfactual_project(original)
         category = str(project.get("category") or "")
         introduced_categories[category] += 1
-        visibility = registry.promotion_candidate_visibility(project)
+        visibility = project_review.promotion_candidate_visibility(project)
         visibility_groups.append(str(visibility.get("group") or ""))
-        signals = registry.compute_showcase_signals(
+        signals = project_review.compute_showcase_signals(
             project,
             include_personal_tools=include_personal_tools,
             include_ineligible=True,
         )
         signal_kinds = sorted(str(item.get("kind") or "") for item in signals)
         signal_counts.update(signal_kinds)
-        score_breakdown = registry.promotion_queue_score_breakdown(project, signals) if signals else None
+        score_breakdown = project_review.promotion_queue_score_breakdown(project, signals) if signals else None
         if signals:
             signal_project_count += 1
             signaled_categories[category] += 1
@@ -234,7 +237,7 @@ def analyze_projects(
                     ),
                     "website_url": str(project.get("website_url") or ""),
                     "confirmed_service_urls": [str(item) for item in project.get("service_urls", [])],
-                    "candidate_service_urls": registry.project_service_hint_urls(project),
+                    "candidate_service_urls": project_review.project_service_hint_urls(project),
                     "stored_service_url_candidates": [
                         str(item) for item in project.get("service_url_candidates", [])
                     ][:5],
@@ -248,7 +251,7 @@ def analyze_projects(
                         project,
                         "service_url",
                     )[:5],
-                    "repository_urls": registry.project_repo_hint_urls(project)[:3],
+                    "repository_urls": project_review.project_repo_hint_urls(project)[:3],
                     "nsids": project_record.unique_list(
                         [str(item or "") for item in project.get("resolved_nsids", []) if str(item or "").strip()]
                         + [str(item or "") for item in project.get("input_nsids", []) if str(item or "").strip()]

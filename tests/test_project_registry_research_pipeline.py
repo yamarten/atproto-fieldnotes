@@ -13,6 +13,8 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
+
+from project_registry_core import project_review
 from enrichment_io import EnrichmentIO
 from project_registry_core import enrichment_pipeline, source_sync
 from project_registry_core.evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
@@ -1772,7 +1774,7 @@ class ProjectRegistryResearchPipelineTest(ProjectRecordTestCase):
                 project["category"] = "project"
                 project["website_url"] = case["service_url"]
                 project["service_urls"] = [case["service_url"]]
-                signal_kinds = {item["kind"] for item in registry.compute_showcase_signals(project)}
+                signal_kinds = {item["kind"] for item in project_review.compute_showcase_signals(project)}
                 self.assertIn("service_surface_confirmed", signal_kinds)
 
     def test_tangled_account_collector_paginates_pds_records(self) -> None:

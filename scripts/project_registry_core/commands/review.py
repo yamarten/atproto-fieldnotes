@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from project_registry_core import project_review
+
 import argparse
 import datetime as dt
 import json
@@ -212,7 +214,7 @@ def cmd_review_queue(args: argparse.Namespace) -> int:
     if interactive:
         batch_size = 100
         total_limit = max(1, int(args.limit)) if args.limit is not None else None
-        project_list = core.list_review_projects(conn, tracking_states=tracking_states)
+        project_list = project_record.list_review_projects(conn, tracking_states=tracking_states)
         next_index = 0
         emitted = 0
 
@@ -221,7 +223,7 @@ def cmd_review_queue(args: argparse.Namespace) -> int:
             if total_limit is not None and emitted >= total_limit:
                 return []
             current_batch_size = batch_size if total_limit is None else min(batch_size, total_limit - emitted)
-            items, next_index_result = core.build_review_queue_batch(
+            items, next_index_result = services.build_review_queue_batch(
                 conn,
                 tracking_states=tracking_states,
                 kinds=kinds,
@@ -312,10 +314,10 @@ def cmd_review_ignore(args: argparse.Namespace) -> int:
                 conn, args,
                 review_name="review-ignore",
                 target_state="ignore",
-                entry_builder=core.ignore_review_entry,
-                note_reason_choices=core.IGNORE_REVIEW_NOTE_REASONS,
-                default_note_reason=core.default_ignore_review_note_reason,
-                build_note=core.build_ignore_review_note,
+                entry_builder=project_review.ignore_review_entry,
+                note_reason_choices=project_review.IGNORE_REVIEW_NOTE_REASONS,
+                default_note_reason=project_review.default_ignore_review_note_reason,
+                build_note=project_review.build_ignore_review_note,
             )
         tracking_states = {
             str(item).strip() for item in (args.tracking_states or []) if str(item).strip()
@@ -340,10 +342,10 @@ def cmd_review_out_of_scope(args: argparse.Namespace) -> int:
                 conn, args,
                 review_name="review-out-of-scope",
                 target_state="out_of_scope",
-                entry_builder=core.out_of_scope_review_entry,
-                note_reason_choices=core.OUT_OF_SCOPE_REVIEW_NOTE_REASONS,
-                default_note_reason=core.default_out_of_scope_review_note_reason,
-                build_note=core.build_out_of_scope_review_note,
+                entry_builder=project_review.out_of_scope_review_entry,
+                note_reason_choices=project_review.OUT_OF_SCOPE_REVIEW_NOTE_REASONS,
+                default_note_reason=project_review.default_out_of_scope_review_note_reason,
+                build_note=project_review.build_out_of_scope_review_note,
                 default_tracking_states={"active", "stable", "stalled", "out_of_scope"},
             )
         tracking_states = {

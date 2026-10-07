@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from project_registry_core import project_review
+
 from project_registry_core import project_merge
 
 from .. import editorial, service, usage_material
@@ -11,8 +13,23 @@ import json
 import sqlite3
 from typing import Any, Callable
 
-from .. import evaluation, relations, registry as core, runtime_view, storage
-from . import decisions, explain, investigation, merge, projects, query as query_service, review, review_targets
+from .. import (
+    evaluation,
+    relations,
+    registry as core,
+    runtime_view,
+    storage,
+)
+from . import (
+    decisions,
+    explain,
+    investigation,
+    merge,
+    projects,
+    query as query_service,
+    review,
+    review_targets,
+)
 from project_registry_core import project_record, promotion_attention
 
 
@@ -121,7 +138,7 @@ def _summary(project: dict[str, Any]) -> dict[str, Any]:
         "last_enriched_at": str(project.get("last_enriched_at") or ""),
         "has_candidates": bool(project.get("_query_has_candidates", project.get("service_url_candidates") or project.get("candidate_project_repository_urls"))),
         "has_errors": bool(project.get("last_run_errors")),
-        "promotion_hold": bool(project.get("_query_promotion_hold", core.active_promotion_deferral(project) is not None)),
+        "promotion_hold": bool(project.get("_query_promotion_hold", project_review.active_promotion_deferral(project) is not None)),
     }
 
 
@@ -656,9 +673,9 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         current = publication_registry.schemas(conn, now=project_record.iso_now(),
                     schema_ids={item["schema_id"] for item in project["publication_schemas"]})
         project["publication_schemas"] = [{**item, **current.get(item["schema_id"], {})} for item in project["publication_schemas"]]
-    prepared = core.apply_promotion_state(project)
-    promotion_signals = core.compute_showcase_signals(prepared, include_ineligible=True)
-    promotion_policy = core.promotion_policy_projection(prepared, promotion_signals)
+    prepared = project_review.apply_promotion_state(project)
+    promotion_signals = project_review.compute_showcase_signals(prepared, include_ineligible=True)
+    promotion_policy = project_review.promotion_policy_projection(prepared, promotion_signals)
     profile = project_record.project_record_payload(prepared)
     state = _json(str(row["state_json"]), {})
     raw_project = {
@@ -706,7 +723,7 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "promotion_policy": promotion_policy,
         "promotion_signals": promotion_signals,
         "investigation": _investigation_summary(conn, resolved),
-        "review": core.build_review_queue_item(conn, resolved),
+        "review": review.build_review_queue_item(conn, resolved),
         "duplicates": [],
         "merge_recommendation": {},
         "merge_analysis_pending": True,
@@ -728,8 +745,8 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         ),
         "active_guards": payload["decisions"]["active"],
         "promotion_defer": {
-            "default_days": core.DEFAULT_PROMOTION_DEFER_DAYS,
-            "last_reason": core.latest_promotion_deferral_reason(project),
+            "default_days": project_review.DEFAULT_PROMOTION_DEFER_DAYS,
+            "last_reason": project_review.latest_promotion_deferral_reason(project),
         },
     }
     return payload

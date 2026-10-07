@@ -11,19 +11,20 @@ from project_registry_core import runtime_view
 from project_registry_core.enrichment_pipeline import enrich_project
 from project_registry_core.registry import (
     add_confirmed_identifier_decision,
-    apply_promotion_state,
-    build_review_queue_item,
-    build_showcase_queue_item,
     confirm_repo_seed,
     confirm_service_seed,
-    defer_promotion_on_project,
     finalize_project_shape,
-    latest_promotion_deferral_reason,
-    project_repo_hint_urls,
-    project_service_hint_urls,
     update_project_tracking_state_value,
     verify_service_project,
 )
+from project_registry_core.project_review import (
+    apply_promotion_state,
+    defer_promotion_on_project,
+    latest_promotion_deferral_reason,
+    project_repo_hint_urls,
+    project_service_hint_urls,
+)
+from project_registry_core.application.review import build_review_queue_item, build_showcase_queue_item
 from project_registry_core.project_merge import compute_duplicate_candidates, compute_merge_recommendation
 from project_registry_core.project_record import (
     ensure_project_shape,

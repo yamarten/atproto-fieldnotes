@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from project_registry_core import project_review
+from project_registry_core.application import review as application_review
+
 import json
 from pathlib import Path
 from typing import Any
 
-from project_registry_core import registry
+
 from project_registry_core.replay import semantic_diff
 from project_registry_core import project_record
 
@@ -29,10 +32,10 @@ def _fixture_project(case: dict[str, Any]) -> dict[str, Any]:
     service_url = str(subject.pop("service_url", "") or "")
     subject["website_url"] = service_url
     subject["service_urls"] = [service_url] if service_url else []
-    project = registry.apply_promotion_state(project_record.ensure_project_shape(subject))
+    project = project_review.apply_promotion_state(project_record.ensure_project_shape(subject))
     expected_promotion = dict(case.get("expected_promotion") or {})
     if expected_promotion.get("disposition") == "deprioritize":
-        registry.set_promotion_priority_on_project(
+        project_review.set_promotion_priority_on_project(
             project,
             lowered=True,
             reason=str(expected_promotion.get("reason") or ""),
@@ -70,7 +73,7 @@ def evaluate(path: Path) -> dict[str, Any]:
         case_by_ref[subject_ref] = case
         projects.append(project)
 
-    queue = registry.build_showcase_queue_from_projects(projects, limit=None)
+    queue = application_review.build_showcase_queue_from_projects(projects, limit=None)
     queued_by_ref = {
         str(item["project_key"]).removeprefix("fixture:"): item
         for item in queue
@@ -100,8 +103,8 @@ def evaluate(path: Path) -> dict[str, Any]:
     for project in projects:
         subject_ref = str(project.get("ref") or "")
         case = case_by_ref[subject_ref]
-        signals = registry.compute_showcase_signals(project)
-        policy = registry.promotion_policy_projection(project, signals)
+        signals = project_review.compute_showcase_signals(project)
+        policy = project_review.promotion_policy_projection(project, signals)
         queue_item = queued_by_ref.get(subject_ref)
         actual = {
             "disposition": (

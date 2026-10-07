@@ -36,7 +36,6 @@ from project_registry_core.registry import (
     apply_investigation_evidence,
     apply_llm_output,
     add_resource_url,
-    apply_promotion_state,
     apply_service_evidence,
     apply_tangled_evidence,
     authority_probe_all_urls,
@@ -66,7 +65,6 @@ from project_registry_core.registry import (
     plan_investigation_queries,
     probe_service_url,
     reconcile_trust_supported_url_candidates,
-    record_promotion_transition,
     repository_homepage_probe_urls,
     reset_investigation_state,
     select_authority_probe_urls,
@@ -74,6 +72,7 @@ from project_registry_core.registry import (
     should_refresh_lexicon_surface,
     should_refresh_recent_record_samples,
 )
+from project_registry_core.project_review import apply_promotion_state, record_promotion_transition
 from project_registry_core.project_merge import compute_duplicate_candidates, compute_merge_recommendation
 from project_registry_core.project_record import (
     add_unique,

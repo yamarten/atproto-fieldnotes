@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from project_registry_core import project_review
+
 import sqlite3
 import urllib.parse
 from typing import Any
@@ -120,7 +122,7 @@ def merge_projects(
                 "source_project_key": str(next_source.get("project_key") or ""),
                 "target_project_key": str(next_target.get("project_key") or ""),
             }
-    merged = core.apply_promotion_state(merged)
+    merged = project_review.apply_promotion_state(merged)
     summary = {
         "mode": "execute" if execute else "dry_run",
         "source_project_key": source["project_key"],

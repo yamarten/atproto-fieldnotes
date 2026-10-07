@@ -6,12 +6,22 @@ from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
 
+from project_registry_core import project_review
+
 from project_registry_core import project_merge
 from project_registry_core import cli
 from project_registry_core import service, storage
 from project_registry_core.commands import projects as project_commands
 from project_registry_core.evidence import CollectorResult, EvidenceBundle, EvidenceRecord
-from project_registry_core.application import decisions, explain, maintenance, merge, presentation, projects, review
+from project_registry_core.application import (
+    decisions,
+    explain,
+    maintenance,
+    merge,
+    presentation,
+    projects,
+    review,
+)
 from project_registry_core import project_record
 
 
@@ -45,14 +55,14 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
             )
             saved = project_record.fetch_project(conn, project["project_key"])
             assert saved is not None
-            signals = registry.compute_showcase_signals(saved)
-            policy = registry.promotion_policy_projection(saved, signals)
+            signals = project_review.compute_showcase_signals(saved)
+            policy = project_review.promotion_policy_projection(saved, signals)
 
             self.assertEqual(result["priority_group"], "lowered")
             self.assertEqual(policy["candidate_visibility"]["group"], "eligible")
             self.assertEqual(policy["priority_group"], "lowered")
             self.assertEqual(policy["priority_reason"], "best presented with similar projects")
-            self.assertIsNone(registry.active_promotion_deferral(saved))
+            self.assertIsNone(project_review.active_promotion_deferral(saved))
             rows = conn.execute(
                 "SELECT kind, target_type, target_value, cleared_at FROM project_decisions "
                 "WHERE project_key = ? AND kind = 'lower_promotion_priority'",
@@ -71,7 +81,7 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
             assert saved is not None
             self.assertEqual(cleared["priority_group"], "normal")
             self.assertEqual(
-                registry.promotion_policy_projection(saved, registry.compute_showcase_signals(saved))["priority_group"],
+                project_review.promotion_policy_projection(saved, project_review.compute_showcase_signals(saved))["priority_group"],
                 "normal",
             )
         finally:

@@ -9,9 +9,26 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase
+
+from project_registry_core import project_review
 from enrichment_io import EnrichmentIO
-from project_registry_core import concurrency, database, project_record, registry, storage, source_sync
-from project_registry_core.application import decisions, enrichment, merge, presentation, projects, review, maintenance
+from project_registry_core import (
+    concurrency,
+    database,
+    project_record,
+    registry,
+    storage,
+    source_sync,
+)
+from project_registry_core.application import (
+    decisions,
+    enrichment,
+    merge,
+    presentation,
+    projects,
+    review,
+    maintenance,
+)
 from project_registry_core.evidence import EvidenceBundle
 from project_registry_core.jobs import OperationRequest
 
@@ -281,7 +298,7 @@ class ProjectConcurrencyTest(TempRegistryDbTestCase):
             if project["project_key"] == self.key:
                 projects.set_tracking_state(self.other, project_key=self.key, tracking_state="ignore")
             return {"project_key": project["project_key"], "kind": "test", "suggested_tracking_state": "out_of_scope"}
-        with mock.patch.object(registry, "out_of_scope_review_entry", side_effect=entry):
+        with mock.patch.object(project_review, "out_of_scope_review_entry", side_effect=entry):
             result = review.out_of_scope(self.conn, execute=True)
         self.assertEqual(result["operation_status"], "retry_wait")
         self.assertEqual(len(result["conflicted_projects"]), 1)

@@ -12,7 +12,14 @@ from typing import Any
 
 from .. import database as registry_database
 from .. import enrichment_pipeline, registry as core, storage, concurrency
-from ..jobs import CancellationToken, EventKind, EventSink, OperationEvent, OperationRequest, OperationResult
+from ..jobs import (
+    CancellationToken,
+    EventKind,
+    EventSink,
+    OperationEvent,
+    OperationRequest,
+    OperationResult,
+)
 from project_registry_core import project_record
 from .enrich_prefetch import InitialPrefetch
 
@@ -197,8 +204,8 @@ def _tracking_states(options: EnrichmentOptions) -> set[str] | None:
 
 
 def _sort_key(project: dict[str, Any]) -> tuple[int, dt.datetime, float, str]:
-    last_enriched = core.parse_iso_datetime(str(project.get("last_enriched_at") or ""))
-    last_seen = core.parse_iso_datetime(str(project.get("last_seen_at") or ""))
+    last_enriched = project_record.parse_iso_datetime(str(project.get("last_enriched_at") or ""))
+    last_seen = project_record.parse_iso_datetime(str(project.get("last_seen_at") or ""))
     return (
         0 if last_enriched is None else 1,
         last_enriched or dt.datetime.fromtimestamp(0, tz=dt.timezone.utc),

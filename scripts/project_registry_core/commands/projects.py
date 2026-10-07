@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from project_registry_core import project_review
+
 import argparse
 import json
 
@@ -79,8 +81,8 @@ def _print_project(project: dict[str, object]) -> None:
         deferred = [f"{item.get('type')}:{item.get('value')} until {item.get('expires_at')}" for item in project.get("deferred_identifiers", []) if item.get("type") and item.get("value")]
         print(f"  deferred_identifiers={', '.join(deferred) or '-'}")
     if project.get("promotion_deferrals"):
-        active = core.active_promotion_deferral(project)
-        detail = f"{active.get('reason')} until {active.get('expires_at')}" if active else f"inactive; last reason={core.latest_promotion_deferral_reason(project) or '-'}"
+        active = project_review.active_promotion_deferral(project)
+        detail = f"{active.get('reason')} until {active.get('expires_at')}" if active else f"inactive; last reason={project_review.latest_promotion_deferral_reason(project) or '-'}"
         print(f"  promotion_deferral={detail}")
     if project.get("separate_project_keys"):
         print(f"  separate_project_keys={', '.join(project.get('separate_project_keys', []))}")

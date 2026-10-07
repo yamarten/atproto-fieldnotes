@@ -9,6 +9,8 @@ from pathlib import Path
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 
+from project_registry_core import project_review
+
 from project_registry_core.application import merge as application_merge
 import promotion_evaluation
 from project_registry_core import database
@@ -309,9 +311,9 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
                 service_url = project.pop("service_url")
                 project["website_url"] = service_url
                 project["service_urls"] = [service_url]
-                shaped = registry.apply_promotion_state(project_record.ensure_project_shape(project))
-                signals = registry.compute_showcase_signals(shaped)
-                policy = registry.promotion_policy_projection(shaped, signals)
+                shaped = project_review.apply_promotion_state(project_record.ensure_project_shape(project))
+                signals = project_review.compute_showcase_signals(shaped)
+                policy = project_review.promotion_policy_projection(shaped, signals)
                 self.assertEqual(policy["priority_group"], "normal")
 
     def test_promotion_benchmark_executes_all_cases_and_detects_order_regression(self) -> None:

@@ -3,6 +3,8 @@ import json
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
+
+from project_registry_core import project_review
 from project_registry_core import project_record, promotion_attention
 from project_registry_core.application import presentation
 
@@ -50,7 +52,7 @@ class ProjectQueryDecisionTest(TempRegistryDbTestCase):
                 project_record.save_project(conn, project)
                 project = project_record.fetch_project(conn, project["project_key"])
                 if hours is not None:
-                    registry.defer_promotion_on_project(project)
+                    project_review.defer_promotion_on_project(project)
                     project["promotion_deferrals"][0]["expires_at"] = (
                         now + dt.timedelta(hours=hours)
                     ).astimezone(dt.timezone(dt.timedelta(hours=offset))).isoformat()
@@ -61,7 +63,7 @@ class ProjectQueryDecisionTest(TempRegistryDbTestCase):
                 project_record.save_project(conn, project)
 
             expected = {
-                key: registry.active_promotion_deferral(project_record.fetch_project(conn, key)) is not None
+                key: project_review.active_promotion_deferral(project_record.fetch_project(conn, key)) is not None
                 for key in ["proj:" + label for label in ("future", "expired", "offset-expired", "changed", "cleared", "no-hold")]
             }
             self.assertEqual({key for key, held in expected.items() if held}, {"proj:future"})

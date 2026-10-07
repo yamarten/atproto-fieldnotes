@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from project_registry_core import project_review
+
 from project_registry_core import project_merge
 
 import sqlite3
@@ -206,11 +208,11 @@ def set_promotion_defer(
 ) -> dict[str, Any]:
     project = project_record.ensure_project_shape(core.resolve_single_project(conn, project_key=project_key, seed=seed, seed_type=seed_type))
     if clear:
-        core.clear_active_promotion_deferrals(project)
+        project_review.clear_active_promotion_deferrals(project)
         promotion_attention.record(project, "restore")
         entry = None
     else:
-        entry = core.defer_promotion_on_project(project, reason=reason.strip(), days=days)
+        entry = project_review.defer_promotion_on_project(project, reason=reason.strip(), days=days)
     project_record.save_project(
         conn,
         project,
@@ -222,7 +224,7 @@ def set_promotion_defer(
         "mode": "clear" if clear else "set",
         "project_key": project["project_key"],
         "promotion_deferral": entry,
-        "active_promotion_deferral": core.active_promotion_deferral(project),
+        "active_promotion_deferral": project_review.active_promotion_deferral(project),
         "promotion_deferrals": project.get("promotion_deferrals", []),
     }
 
@@ -237,7 +239,7 @@ def set_promotion_priority(
     project = project_record.ensure_project_shape(
         core.resolve_single_project(conn, project_key=project_key)
     )
-    entry = core.set_promotion_priority_on_project(
+    entry = project_review.set_promotion_priority_on_project(
         project,
         lowered=lowered,
         reason=reason,

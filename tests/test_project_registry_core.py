@@ -13,6 +13,8 @@ from unittest import mock
 
 from helpers import ROOT, registry
 
+from project_registry_core import project_review
+
 from project_registry_core import project_merge
 from project_registry_core.application import merge as application_merge
 from project_registry_core.cli import build_parser
@@ -86,7 +88,7 @@ class ProjectRegistryIdentifierHelperTest(unittest.TestCase):
             "manual_seeds": [],
         })
 
-        self.assertEqual(registry.evaluate_promotion(project), [])
+        self.assertEqual(project_review.evaluate_promotion(project), [])
 
     def test_normalize_url_preserves_path_but_drops_query_and_fragment(self) -> None:
         self.assertEqual(
@@ -3219,8 +3221,8 @@ class ProjectRegistryAtprotoContributionTest(unittest.TestCase):
         signals = [{"kind": "llm_manual_review_recommended", "priority": 7}]
 
         self.assertGreater(
-            registry.review_queue_sort_score({"atproto_contribution_score": 90}, signals),
-            registry.review_queue_sort_score({"atproto_contribution_score": 20}, signals),
+            project_review.review_queue_sort_score({"atproto_contribution_score": 90}, signals),
+            project_review.review_queue_sort_score({"atproto_contribution_score": 20}, signals),
         )
 
 
@@ -3230,7 +3232,7 @@ class ProjectRegistryOutOfScopeTest(unittest.TestCase):
         project["category"] = "project"
         project["atproto_auth_only"] = True
 
-        entry = registry.out_of_scope_review_entry(project)
+        entry = project_review.out_of_scope_review_entry(project)
 
         self.assertIsNotNone(entry)
         self.assertEqual(entry["kind"], "auth_only_without_owned_protocol_surface")
@@ -3242,20 +3244,20 @@ class ProjectRegistryOutOfScopeTest(unittest.TestCase):
         project["atproto_auth_only"] = True
         project["resolved_nsids"] = ["app.example.record"]
 
-        self.assertIsNone(registry.out_of_scope_review_entry(project))
+        self.assertIsNone(project_review.out_of_scope_review_entry(project))
 
     def test_out_of_scope_is_not_an_ignore_candidate(self) -> None:
         project = project_record.default_project_record("proj:scoped", "repo_url", "https://github.com/example/fork")
         project["tracking_state"] = "out_of_scope"
 
-        self.assertIsNone(registry.ignore_review_entry(project))
+        self.assertIsNone(project_review.ignore_review_entry(project))
 
     def test_out_of_scope_with_owned_protocol_surface_is_reactivation_candidate(self) -> None:
         project = project_record.default_project_record("proj:reactivate", "nsid", "app.example.record")
         project["tracking_state"] = "out_of_scope"
         project["resolved_nsids"] = ["app.example.record"]
 
-        entry = registry.out_of_scope_review_entry(project)
+        entry = project_review.out_of_scope_review_entry(project)
 
         self.assertIsNotNone(entry)
         self.assertEqual(entry["kind"], "owned_protocol_surface_detected")
@@ -3283,7 +3285,7 @@ class ProjectRegistryStalledReviewTest(unittest.TestCase):
         return project
 
     def review(self, project: dict) -> dict | None:
-        return registry.stalled_review_entry(
+        return project_review.stalled_review_entry(
             project,
             now=self.NOW,
             inactivity_days=45,
@@ -3341,7 +3343,7 @@ class ProjectRegistryTechnicalInterestTest(unittest.TestCase):
             }
         )
 
-        signals = registry.compute_showcase_signals(project)
+        signals = project_review.compute_showcase_signals(project)
 
         self.assertEqual([signal["kind"] for signal in signals], ["technical_insight_candidate"])
         self.assertEqual(signals[0]["details"]["technical_interest_score"], 70)
@@ -3359,7 +3361,7 @@ class ProjectRegistryTechnicalInterestTest(unittest.TestCase):
         shaped = project_record.ensure_project_shape(project)
 
         self.assertEqual(shaped["technical_interest_score"], 40)
-        self.assertEqual(registry.compute_showcase_signals(shaped), [])
+        self.assertEqual(project_review.compute_showcase_signals(shaped), [])
 
     def test_technical_interest_state_filters_unsupported_reason(self) -> None:
         project = self.project()
@@ -3418,7 +3420,7 @@ class ProjectRegistryManualReviewSignalTest(unittest.TestCase):
 
     def llm_signal(self, project: dict) -> dict | None:
         return next(
-            (signal for signal in registry.compute_review_signals(project) if signal["kind"] == "llm_manual_review_recommended"),
+            (signal for signal in project_review.compute_review_signals(project) if signal["kind"] == "llm_manual_review_recommended"),
             None,
         )
 

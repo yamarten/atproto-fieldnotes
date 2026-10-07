@@ -2924,3 +2924,123 @@ def merge_service_status_confidence(current: str, new_value: str) -> str:
         new_value,
         normalize_service_status_confidence,
     )
+
+
+def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
+    shaped: dict[str, Any] = {
+        "project_key": str(project.get("project_key") or ""),
+        "name": str(project.get("name") or ""),
+        "website_url": str(project.get("website_url") or ""),
+        "service_status": normalize_service_status(project.get("service_status")),
+        "tracking_state": normalize_tracking_state(str(project.get("tracking_state") or "active")),
+        "introduced_url": str(project.get("introduced_url") or ""),
+        "first_seen_at": str(project.get("first_seen_at") or ""),
+        "last_seen_at": str(project.get("last_seen_at") or ""),
+        "last_enriched_at": str(project.get("last_enriched_at") or ""),
+        "status": str(project.get("status") or "draft"),
+        "category": str(project.get("category") or ""),
+        "app_category": str(project.get("app_category") or ""),
+        "summary": str(project.get("summary") or ""),
+        "tagline": str(project.get("tagline") or ""),
+        "tagline_is_provisional": bool(project.get("tagline_is_provisional")),
+        "manual_review_recommended": bool(project.get("manual_review_recommended")),
+        "manual_review_kind": str(project.get("manual_review_kind") or "other"),
+        "manual_review_priority": str(project.get("manual_review_priority") or "none"),
+        "manual_review_reason": str(project.get("manual_review_reason") or ""),
+        "service_status_confidence": normalize_service_status_confidence(project.get("service_status_confidence")),
+        "atproto_contribution_level": str(project.get("atproto_contribution_level") or "unknown"),
+        "atproto_contribution_score": int(project.get("atproto_contribution_score", 0) or 0),
+        "technical_interest_level": str(project.get("technical_interest_level") or "none"),
+        "technical_interest_score": int(project.get("technical_interest_score", 0) or 0),
+        "technical_interest_summary": str(project.get("technical_interest_summary") or ""),
+        "watch_reason": str(project.get("watch_reason") or ""),
+        "project_repository_url": str(project.get("project_repository_url") or ""),
+        "llm_source": project.get("llm_source") if isinstance(project.get("llm_source"), dict) else {},
+        "editorial": dict(project.get("editorial") or {}),
+    }
+    list_fields = (
+        "dismissed_review_kinds",
+        "blocked_identifiers",
+        "deferred_identifiers",
+        "confirmed_identifiers",
+        "promotion_blockers",
+        "manual_seeds",
+        "features",
+        "input_nsids",
+        "resolved_nsids",
+        "lexicon_namespaces",
+        "recorded_lexicon_namespaces",
+        "external_lexicons",
+        "service_status_evidence",
+        "service_verification_results",
+        "service_urls",
+        "service_url_candidates",
+        "project_site_urls",
+        "project_site_url_candidates",
+        "failed_service_urls",
+        "project_repository_urls",
+        "candidate_project_repository_urls",
+        "resource_url_records",
+        "collection_observations",
+        "source_repo_records",
+        "promotion_deferrals",
+        "lexicon_schema_samples",
+        "recent_record_samples",
+        "atproto_contribution_evidence",
+        "technical_interest_reasons",
+        runtime_view.RUNTIME_IDENTIFIER_ROWS,
+    )
+    for field in list_fields:
+        value = project.get(field)
+        if isinstance(value, list):
+            shaped[field] = value
+        elif value:
+            shaped[field] = [value]
+        else:
+            shaped[field] = []
+    if shaped["project_repository_url"] and shaped["project_repository_url"] not in shaped["project_repository_urls"]:
+        shaped["project_repository_urls"] = [shaped["project_repository_url"], *shaped["project_repository_urls"]]
+    shaped["recorded_lexicon_namespaces"] = unique_list(
+        [str(item or "") for item in shaped["recorded_lexicon_namespaces"] if str(item or "").strip()]
+        + [str(item or "") for item in shaped["lexicon_namespaces"] if str(item or "").strip()]
+    )
+    return apply_technical_interest_state(apply_atproto_contribution_state(shaped))
+
+
+def list_review_projects(conn: sqlite3.Connection, tracking_states: set[str] | None = None) -> list[dict[str, Any]]:
+    if tracking_states is None:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM projects
+            ORDER BY last_seen_at DESC, project_key ASC
+            """
+        ).fetchall()
+    else:
+        requested = sorted(normalize_tracking_state(item) for item in tracking_states if item)
+        if not requested:
+            return []
+        placeholders = ", ".join("?" for _ in requested)
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM projects
+            WHERE tracking_state IN ({placeholders})
+            ORDER BY last_seen_at DESC, project_key ASC
+            """,
+            tuple(requested),
+        ).fetchall()
+    return [lightweight_review_project_shape(project_from_row(conn, row)) for row in rows]
+
+
+def parse_iso_datetime(value: str) -> dt.datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(dt.timezone.utc)

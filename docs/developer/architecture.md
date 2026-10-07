@@ -34,6 +34,8 @@ flowchart TD
 
 CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をtext/JSONまたはHTTP responseへ変換します。長時間処理ではCLIはserviceを直接呼び、Webは別processの`worker.py`を介します。serviceが進捗eventと終了resultを返し、enrichでは対象選択・保存・checkpoint・再開も担当します。
 
+紹介候補・要レビュー一覧の取得とpayload組立ては`application/review.py`、判定・採点は`project_review.py`が担当します。通常一覧・batch・単件取得は同じreview項目生成を使い、全体の順位付けとbatchの走査位置は各入口で保持します。
+
 追跡状態レビュー（stalled / ignore / out-of-scope）は`application/review.py`が候補抽出・並べ替えと状態・メモの保存を担当し、対話CLIと非対話serviceで共有します。候補選択時のprojectと更新番号を`ReviewSnapshot`で保持し、利用者の入力後もそのsnapshotで保存競合を検査します。対話入力・理由の選択・表示は`commands/review.py`、候補ID・計画照合・進捗・中断はserviceが担当します。CLIのDB接続はコマンド入口で開閉します。
 
 [App record export](specs/app-record-export.md)は保存済みprojectから公開用JSONを生成します。[LLM事例保存](specs/llm-case-store.md)は明示登録した入力・出力・判断をGit管理外のJSONへ保存し、通常enrichには接続しません。
@@ -76,7 +78,7 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 | `application/enrichment.py` | enrichの対象選択・transaction・保存・checkpoint |
 | `enrichment_pipeline.py` | 1 projectのcollector・LLM・保存前更新の実行順序。Lexicon・record sample・resource pageの収集結果をEvidenceBundleへ梱包する処理も保持 |
 | `application/enrich_prefetch.py` | LLM区間中の次の一件の先行取得。DBとLLMはcaller threadに保ち、使用前にsnapshotを照合 |
-| `registry.py` | collector適用・finalizeの補助処理、queue policy |
+| `registry.py` | collector適用・finalizeの補助処理 |
 | `maintenance/` | 明示的な比較・移行commandの実装。6つのshadow比較、4つのmaterialization、repo信頼移行を保持し、通常の調査・query・保存から呼ばない |
 | `dev_database.py` | 架空定義から開発DBを生成・リセット。通常CLIのDB選択は`cli.py` |
 
@@ -94,6 +96,7 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 | `oauth_metadata.py` / `oauth_scope_parser.mjs` | 取得済みOAuth metadataを公式SDKで解析。Nodeで外部取得はしない |
 | `usage_material.py` | collection名に対応する宣言・record観測・原文の関連記述を抽出。用途判定はしない |
 | `integration.py` | 観測をprojectへ適用 |
+| `project_review.py` | review signal・紹介候補の採点／保留／優先度・追跡状態の提案。DB・registry・applicationには依存しない |
 | `project_merge.py` | 重複候補の比較・推薦・batch計画と未保存recordの合成。比較集合のDB読出しは可能だが、外部取得・finalize・保存は担当しない |
 | `evaluation.py` | ownership・atproto寄与度・service statusの純粋評価 |
 | `collection_trust.py` / `trust_graph.py` | Lexicon公開応答の検証・限定したcollection信頼policyと共通経路評価。取得・採用・DB保存は分離 |

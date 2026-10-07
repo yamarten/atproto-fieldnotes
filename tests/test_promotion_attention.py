@@ -6,6 +6,9 @@ import json
 from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
+
+from project_registry_core.application import review as application_review
+from project_registry_core import project_review
 from project_registry_core import project_record, promotion_attention, runtime_view
 from project_registry_core.application import decisions, merge, presentation
 
@@ -59,29 +62,29 @@ class _PromotionAttentionFixtures:
 class PromotionAttentionUnitTest(_PromotionAttentionFixtures, ProjectRecordTestCase):
     def test_fifty_held_candidates_leave_normal_queue_but_remain_recoverable(self):
         projects = [self.candidate(f"proj:{n:012d}") for n in range(55)]
-        first = registry.build_showcase_queue_from_projects(projects)
+        first = application_review.build_showcase_queue_from_projects(projects)
         self.assertEqual(len(first), 50)
         for project in projects[:50]:
-            registry.defer_promotion_on_project(project)
-        next_queue = registry.build_showcase_queue_from_projects(projects)
+            project_review.defer_promotion_on_project(project)
+        next_queue = application_review.build_showcase_queue_from_projects(projects)
         self.assertEqual(len(next_queue), 5)
         self.assertEqual([item["project_key"] for item in next_queue[:5]], [p["project_key"] for p in projects[50:]])
-        inbox = registry.build_showcase_queue_from_projects(projects, view="inbox")
+        inbox = application_review.build_showcase_queue_from_projects(projects, view="inbox")
         self.assertEqual(len(inbox), 5)
-        self.assertEqual(len(registry.build_showcase_queue_from_projects(projects, view="all", limit=None)), 55)
-        registry.clear_active_promotion_deferrals(projects[0])
-        self.assertEqual(len(registry.build_showcase_queue_from_projects(projects, view="inbox")), 6)
+        self.assertEqual(len(application_review.build_showcase_queue_from_projects(projects, view="all", limit=None)), 55)
+        project_review.clear_active_promotion_deferrals(projects[0])
+        self.assertEqual(len(application_review.build_showcase_queue_from_projects(projects, view="inbox")), 6)
 
     def test_fingerprint_ignores_refresh_but_detects_material_change_and_expiry(self):
         project = self.candidate("proj:attention")
         now = dt.datetime.now(dt.timezone.utc)
-        registry.defer_promotion_on_project(project)
+        project_review.defer_promotion_on_project(project)
         original = promotion_attention.fingerprint(project)
         project.update(last_seen_at="2099-01-01", last_enriched_at="2099-01-01", summary="A wording revision",
                        collection_observations=[{"recent_count": 500}])
         # First material becoming available is a change; subsequent prose is not.
         self.assertNotEqual(original, promotion_attention.fingerprint(project))
-        registry.defer_promotion_on_project(project)
+        project_review.defer_promotion_on_project(project)
         project["summary"] = "Same purpose, different wording"
         self.assertEqual(promotion_attention.projection(project, now=now)["group"], "held")
         self.assertEqual(promotion_attention.projection(project, now=now + dt.timedelta(days=31))["group"], "due")
@@ -92,7 +95,7 @@ class PromotionAttentionUnitTest(_PromotionAttentionFixtures, ProjectRecordTestC
         project = self.candidate("proj:schema")
         project["resolved_nsids"] = ["app.example.record"]
         project["lexicon_schema_samples"] = [{"nsid":"app.example.record", "defs":{"main":{"type":"record"}}}]
-        registry.defer_promotion_on_project(project)
+        project_review.defer_promotion_on_project(project)
         project["lexicon_schema_samples"][0]["observed_at"] = "2099-01-01"
         self.assertEqual(promotion_attention.projection(project)["group"], "held")
         project["lexicon_schema_samples"][0]["defs"]["extra"] = {"type":"string"}
@@ -102,7 +105,7 @@ class PromotionAttentionUnitTest(_PromotionAttentionFixtures, ProjectRecordTestC
         project = self.candidate("proj:technical")
         project.update(technical_interest_level="high", technical_interest_reasons=["novel_design_pattern"],
                        technical_interest_summary="Distinctive protocol design")
-        item = registry.build_showcase_queue_from_projects([project], kinds={"technical_insight_candidate"})[0]
+        item = application_review.build_showcase_queue_from_projects([project], kinds={"technical_insight_candidate"})[0]
         self.assertEqual(item["service_evidence_group"], "not_applicable")
         self.assertEqual(item["score_breakdown"]["components"]["service_evidence"], 0)
 
@@ -116,9 +119,9 @@ class PromotionAttentionTest(_PromotionAttentionFixtures, TempRegistryDbTestCase
                                technical_interest_reasons=["novel_design_pattern"],
                                technical_interest_summary="Protocol design")
                 if n % 3 == 0:
-                    registry.set_promotion_priority_on_project(project, lowered=True, reason="Straße")
+                    project_review.set_promotion_priority_on_project(project, lowered=True, reason="Straße")
                 if n % 4 == 0:
-                    registry.defer_promotion_on_project(project, reason="公開待ち")
+                    project_review.defer_promotion_on_project(project, reason="公開待ち")
                 if n == 5:
                     project["category"] = "personal_tool"
                 if n == 6:
@@ -138,12 +141,12 @@ class PromotionAttentionTest(_PromotionAttentionFixtures, TempRegistryDbTestCase
                         for personal in (False, True):
                             selected = [p for p in projects if view not in {"inbox", "technical"}
                                         or p["tracking_state"] == "active"]
-                            expected = registry.build_showcase_queue_from_projects(
+                            expected = application_review.build_showcase_queue_from_projects(
                                 [project_record.ensure_project_shape(p) for p in selected],
                                 view=view, kinds=kinds, include_personal_tools=personal, limit=None,
-                                command_prefix=registry.registry_command_prefix(conn))
+                                command_prefix=application_review.registry_command_prefix(conn))
                             if view == "queue":
-                                self.assertEqual(registry.build_showcase_queue(conn, view=view, kinds=kinds,
+                                self.assertEqual(application_review.promotion_queue(conn, view=view, kinds=kinds,
                                     include_personal_tools=personal, limit=None), expected)
                                 continue
                             reasons = {}
@@ -178,7 +181,7 @@ class PromotionAttentionTest(_PromotionAttentionFixtures, TempRegistryDbTestCase
             project_record.save_project(conn, self.candidate("proj:once"))
             with mock.patch.object(project_record, "ensure_project_shape", wraps=project_record.ensure_project_shape) as shape, \
                  mock.patch.object(runtime_view, "refresh_baselines", wraps=runtime_view.refresh_baselines) as baseline:
-                registry.build_showcase_queue(conn, view="inbox")
+                application_review.promotion_queue(conn, view="inbox")
             self.assertEqual(shape.call_count, 1)
             self.assertEqual(baseline.call_count, 1)
             fetched = project_record.fetch_project(conn, "proj:once")
@@ -198,28 +201,28 @@ class PromotionAttentionTest(_PromotionAttentionFixtures, TempRegistryDbTestCase
                 if reader is conn:
                     changed = project_record.fetch_project(writer, key)
                     changed["name"] = "updated"
-                    registry.set_promotion_priority_on_project(changed, lowered=True, reason="new")
+                    project_review.set_promotion_priority_on_project(changed, lowered=True, reason="new")
                     project_record.save_project(writer, changed)
                 return original(reader, row)
             with mock.patch.object(project_record, "_project_from_snapshot_row", side_effect=update_after_selection):
                 selected = project_record.list_projects(conn)[0]
             self.assertNotEqual(selected["name"], "updated")
-            self.assertIsNone(registry.active_promotion_priority_adjustment(selected))
+            self.assertIsNone(project_review.active_promotion_priority_adjustment(selected))
             self.assertEqual(str(selected[runtime_view.RUNTIME_PROJECT_REVISION]), revision)
             self.assertFalse(conn.in_transaction)
             current = project_record.fetch_project(conn, key)
             self.assertEqual(current["name"], "updated")
-            self.assertEqual(registry.active_promotion_priority_adjustment(current)["reason"], "new")
+            self.assertEqual(project_review.active_promotion_priority_adjustment(current)["reason"], "new")
 
     def test_lowered_prefilter_preserves_full_response_across_filters_and_pages(self):
         with contextlib.closing(registry.open_db()) as conn:
             for n in range(8):
                 project = self.candidate(f"proj:filtered{n}")
                 if n:
-                    registry.set_promotion_priority_on_project(project, lowered=True,
+                    project_review.set_promotion_priority_on_project(project, lowered=True,
                         reason="Straße" if n % 2 == 0 else "テーマ")
                 if n == 1:
-                    registry.set_promotion_priority_on_project(project, lowered=False)
+                    project_review.set_promotion_priority_on_project(project, lowered=False)
                 elif n == 3:
                     project.update(tracking_state="out_of_scope", service_status="unknown")
                 elif n == 4:
@@ -230,9 +233,9 @@ class PromotionAttentionTest(_PromotionAttentionFixtures, TempRegistryDbTestCase
                     project.update(tracking_state="stalled", technical_interest_level="high",
                         technical_interest_reasons=["novel_design_pattern"],
                         technical_interest_summary="Protocol design")
-                    registry.defer_promotion_on_project(project, reason="release", days=30)
+                    project_review.defer_promotion_on_project(project, reason="release", days=30)
                 elif n == 7:
-                    registry.defer_promotion_on_project(project)
+                    project_review.defer_promotion_on_project(project)
                 project_record.save_project(conn, project)
             revisions = list(conn.execute("SELECT * FROM project_revisions ORDER BY project_key"))
             all_items = self.assert_lowered_matches_full_scan(conn)
@@ -257,10 +260,10 @@ class PromotionAttentionTest(_PromotionAttentionFixtures, TempRegistryDbTestCase
             for n in range(32):
                 project = self.candidate(f"proj:bounded{n}")
                 if n < 2:
-                    registry.set_promotion_priority_on_project(project, lowered=True, reason="first")
-                    registry.set_promotion_priority_on_project(project, lowered=True, reason="edited")
+                    project_review.set_promotion_priority_on_project(project, lowered=True, reason="first")
+                    project_review.set_promotion_priority_on_project(project, lowered=True, reason="edited")
                 if n == 1:
-                    registry.set_promotion_priority_on_project(project, lowered=False)
+                    project_review.set_promotion_priority_on_project(project, lowered=False)
                 project_record.save_project(conn, project)
             with mock.patch.object(project_record, "_project_from_snapshot_row", wraps=project_record._project_from_snapshot_row) as fetch:
                 result = presentation.queue_payload(conn, queue="promotion", tracking_states={"active"},
@@ -269,14 +272,14 @@ class PromotionAttentionTest(_PromotionAttentionFixtures, TempRegistryDbTestCase
             self.assertCountEqual([call.args[1]["project_key"] for call in fetch.call_args_list],
                                   ["proj:bounded0", "proj:bounded1"])
             for states in (None, {"active"}, {"stalled"}, set()):
-                actual = registry.build_showcase_queue(conn, view="lowered", tracking_states=states)
-                expected = registry.build_showcase_queue_from_projects(
+                actual = application_review.promotion_queue(conn, view="lowered", tracking_states=states)
+                expected = application_review.build_showcase_queue_from_projects(
                     project_record.list_projects(conn, tracking_states=states), view="lowered",
-                    command_prefix=registry.registry_command_prefix(conn))
+                    command_prefix=application_review.registry_command_prefix(conn))
                 self.assertEqual(actual, expected)
             with mock.patch.object(project_record, "list_projects_with_decision") as selector:
                 for view in ("queue", "inbox", "all"):
-                    registry.build_showcase_queue(conn, view=view)
+                    application_review.promotion_queue(conn, view=view)
                 selector.assert_not_called()
 
     def test_lowered_prefilter_observes_edits_clear_and_merge_without_cache(self):
@@ -300,7 +303,7 @@ class PromotionAttentionTest(_PromotionAttentionFixtures, TempRegistryDbTestCase
         with contextlib.closing(registry.open_db()) as conn, contextlib.closing(registry.open_db()) as writer:
             key = "proj:snapshotlowered"
             project = self.candidate(key)
-            registry.set_promotion_priority_on_project(project, lowered=True, reason="before")
+            project_review.set_promotion_priority_on_project(project, lowered=True, reason="before")
             project_record.save_project(conn, project)
             original = project_record._project_from_snapshot_row
 
@@ -312,7 +315,7 @@ class PromotionAttentionTest(_PromotionAttentionFixtures, TempRegistryDbTestCase
 
             with mock.patch.object(project_record, "_project_from_snapshot_row", side_effect=clear_after_selection):
                 selected = project_record.list_projects_with_decision(conn, "lower_promotion_priority")
-            self.assertEqual(registry.active_promotion_priority_adjustment(selected[0])["reason"], "before")
+            self.assertEqual(project_review.active_promotion_priority_adjustment(selected[0])["reason"], "before")
             self.assertFalse(conn.in_transaction)
             self.assertEqual(self.assert_lowered_matches_full_scan(conn)["total"], 0)
 
@@ -322,18 +325,18 @@ class PromotionAttentionTest(_PromotionAttentionFixtures, TempRegistryDbTestCase
             project_record.save_project(conn, project)
             decisions.set_promotion_defer(conn, project_key=project["project_key"], reason="公開待ち", days=30)
             saved = project_record.fetch_project(conn, project["project_key"])
-            self.assertIsNotNone(registry.active_promotion_deferral(saved))
+            self.assertIsNotNone(project_review.active_promotion_deferral(saved))
             saved["last_enriched_at"] = "2099-01-01"
-            self.assertIsNotNone(registry.active_promotion_deferral(saved))
+            self.assertIsNotNone(project_review.active_promotion_deferral(saved))
             saved["service_status"] = "beta"
             project_record.save_project(conn, saved)
             saved = project_record.fetch_project(conn, project["project_key"])
-            self.assertIsNone(registry.active_promotion_deferral(saved))
-            self.assertEqual(registry.build_showcase_queue_from_projects([saved], view="inbox")[0]["attention"]["group"], "changed")
+            self.assertIsNone(project_review.active_promotion_deferral(saved))
+            self.assertEqual(application_review.build_showcase_queue_from_projects([saved], view="inbox")[0]["attention"]["group"], "changed")
             self.assertEqual(len(saved["promotion_deferrals"]), 1)
             # Existing decisions with no fingerprint retain their time-only contract.
             saved["promotion_deferrals"][0].pop("fingerprint")
-            self.assertIsNotNone(registry.active_promotion_deferral(saved))
+            self.assertIsNotNone(project_review.active_promotion_deferral(saved))
             decisions.set_promotion_defer(conn, project_key=project["project_key"], reason="再確認待ち", days=30)
             again = project_record.fetch_project(conn, project["project_key"])
             self.assertTrue(again["promotion_deferrals"][0]["cleared_at"])
@@ -360,7 +363,7 @@ class PromotionAttentionTest(_PromotionAttentionFixtures, TempRegistryDbTestCase
         with contextlib.closing(registry.open_db()) as conn:
             for n in range(3):
                 project = self.candidate(f"proj:backlog{n}")
-                registry.set_promotion_priority_on_project(project, lowered=True, reason="認証のみ" if n < 2 else "共有機能")
+                project_review.set_promotion_priority_on_project(project, lowered=True, reason="認証のみ" if n < 2 else "共有機能")
                 # A feature backlog must remain recoverable after recommendation disappears.
                 project.update(service_status="unknown", tracking_state="out_of_scope")
                 project_record.save_project(conn, project)
@@ -396,8 +399,8 @@ class PromotionAttentionTest(_PromotionAttentionFixtures, TempRegistryDbTestCase
                     detail = presentation.project_detail(conn, project_key=key)
                     history = [x for x in detail["decisions"]["history"] if x["kind"] == "defer_promotion"]
                     self.assertEqual(len(history), len(holds))
-                    self.assertEqual(registry.latest_promotion_deferral_reason(restored), "release" if days else "")
-                    active = registry.active_promotion_deferral(restored)
+                    self.assertEqual(project_review.latest_promotion_deferral_reason(restored), "release" if days else "")
+                    active = project_review.active_promotion_deferral(restored)
                     self.assertEqual(bool(active), days is not None or (not expired and not cleared))
                     if active:
                         deadlines = [project_record.parse_iso(x["expires_at"]) for x in holds]
@@ -420,10 +423,10 @@ class PromotionAttentionTest(_PromotionAttentionFixtures, TempRegistryDbTestCase
             self.assertEqual(len(saved["promotion_deferrals"]), 2)
             saved["features"] = ["changed"]
             # A legacy defer without a fingerprint still lasts until its deadline.
-            self.assertIsNotNone(registry.active_promotion_deferral(saved))
+            self.assertIsNotNone(project_review.active_promotion_deferral(saved))
             decisions.set_promotion_defer(conn, project_key=key, clear=True)
             saved = project_record.fetch_project(conn, key)
-            self.assertIsNone(registry.active_promotion_deferral(saved))
+            self.assertIsNone(project_review.active_promotion_deferral(saved))
             self.assertTrue(all(x.get("cleared_at") for x in saved["promotion_deferrals"]))
             self.assertEqual(saved["promotion_deferrals"][-1]["legacy_review"], old)
             decisions.set_promotion_defer(conn, project_key=key)

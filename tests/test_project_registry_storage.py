@@ -10,8 +10,17 @@ from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, captured_stdout, registry
 
+from project_registry_core import project_review
+from project_registry_core.application import review as application_review
+
 from project_registry_core import project_merge
-from project_registry_core import cli, database, domain_policy, relations, source_sync
+from project_registry_core import (
+    cli,
+    database,
+    domain_policy,
+    relations,
+    source_sync,
+)
 from project_registry_core.commands import review as review_commands
 from project_registry_core.commands import queue_interaction
 from project_registry_core.application import maintenance as maintenance_services
@@ -341,14 +350,14 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
         })
         registry.confirm_service_seed(project, "https://example.com", source="test")
 
-        registry.defer_promotion_on_project(project, reason="中核機能が未実装")
+        project_review.defer_promotion_on_project(project, reason="中核機能が未実装")
 
-        self.assertEqual(registry.compute_showcase_signals(project), [])
+        self.assertEqual(project_review.compute_showcase_signals(project), [])
         project["promotion_deferrals"][0]["expires_at"] = (
             dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)
         ).isoformat()
         self.assertEqual(
-            [signal["kind"] for signal in registry.compute_showcase_signals(project)],
+            [signal["kind"] for signal in project_review.compute_showcase_signals(project)],
             ["service_surface_confirmed"],
         )
 
@@ -362,7 +371,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
         })
         registry.confirm_service_seed(project, "https://example.com", source="test")
 
-        self.assertEqual(registry.compute_showcase_signals(project), [])
+        self.assertEqual(project_review.compute_showcase_signals(project), [])
 
     def test_dns_verified_lexicon_publisher_is_high_priority_promotion_candidate(self) -> None:
         project = self.make_project("proj:lexiconpublisher", "nsid", "app.example.post")
@@ -381,13 +390,13 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
             }],
         })
 
-        signals = registry.compute_showcase_signals(project)
+        signals = project_review.compute_showcase_signals(project)
 
         self.assertEqual([signal["kind"] for signal in signals], ["lexicon_publisher_confirmed"])
         self.assertEqual(signals[0]["priority"], 7)
         self.assertEqual(signals[0]["details"]["publication_count"], 1)
         self.assertEqual(
-            registry.promotion_queue_score_breakdown(project, signals)["components"]["lexicon_publication"],
+            project_review.promotion_queue_score_breakdown(project, signals)["components"]["lexicon_publication"],
             160,
         )
 
@@ -400,7 +409,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
             "lexicon_resolution_entries": [],
         })
 
-        self.assertEqual(registry.compute_showcase_signals(project), [])
+        self.assertEqual(project_review.compute_showcase_signals(project), [])
 
     def test_dns_resolved_candidate_nsid_is_not_confirmed_publisher_signal(self) -> None:
         project = self.make_project("proj:candidatelexicon", "nsid", "app.example.post")
@@ -418,7 +427,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
             }],
         })
 
-        self.assertEqual(registry.compute_showcase_signals(project), [])
+        self.assertEqual(project_review.compute_showcase_signals(project), [])
 
     def test_lexicon_publication_requires_matching_authority_and_record_uri(self) -> None:
         base = self.make_project("proj:mismatchedlexicon", "nsid", "app.example.post")
@@ -442,7 +451,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
             with self.subTest(field=field):
                 project = dict(base)
                 project["lexicon_resolution_entries"] = [{**entry, field: invalid_value}]
-                self.assertEqual(registry.compute_showcase_signals(project), [])
+                self.assertEqual(project_review.compute_showcase_signals(project), [])
 
     def test_personal_tool_lexicon_publisher_requires_include_flag(self) -> None:
         project = self.make_project("proj:personallexicon", "nsid", "app.example.post")
@@ -459,9 +468,9 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
             }],
         })
 
-        self.assertEqual(registry.compute_showcase_signals(project), [])
+        self.assertEqual(project_review.compute_showcase_signals(project), [])
         self.assertEqual(
-            [signal["kind"] for signal in registry.compute_showcase_signals(project, include_personal_tools=True)],
+            [signal["kind"] for signal in project_review.compute_showcase_signals(project, include_personal_tools=True)],
             ["lexicon_publisher_confirmed"],
         )
 
@@ -475,7 +484,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
         })
         registry.confirm_service_seed(project, "https://example.com", source="test")
 
-        signals = registry.compute_showcase_signals(project)
+        signals = project_review.compute_showcase_signals(project)
 
         self.assertEqual([signal["kind"] for signal in signals], ["service_candidate_needs_validation"])
         self.assertEqual(
@@ -493,7 +502,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
         })
         registry.confirm_service_seed(project, "https://example.com", source="test")
 
-        signals = registry.compute_showcase_signals(project)
+        signals = project_review.compute_showcase_signals(project)
 
         self.assertEqual([signal["kind"] for signal in signals], ["service_candidate_needs_validation"])
         self.assertEqual(
@@ -511,7 +520,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
         })
         registry.confirm_service_seed(project, "https://example.com", source="test")
 
-        signals = registry.compute_showcase_signals(project)
+        signals = project_review.compute_showcase_signals(project)
 
         self.assertEqual([signal["kind"] for signal in signals], ["service_candidate_needs_validation"])
         self.assertEqual(
@@ -529,7 +538,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
         })
         registry.confirm_service_seed(project, "https://infra.example", source="test")
 
-        signals = registry.compute_showcase_signals(project)
+        signals = project_review.compute_showcase_signals(project)
 
         self.assertEqual([signal["kind"] for signal in signals], ["service_surface_confirmed"])
         self.assertEqual(signals[0]["details"]["category"], "infra_tool")
@@ -544,7 +553,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
         })
         registry.confirm_service_seed(project, "https://infra.example", source="test")
 
-        signals = registry.compute_showcase_signals(project)
+        signals = project_review.compute_showcase_signals(project)
 
         self.assertEqual([signal["kind"] for signal in signals], ["service_candidate_needs_validation"])
 
@@ -558,7 +567,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
         })
         registry.confirm_service_seed(project, "https://library.example", source="test")
 
-        self.assertEqual(registry.compute_showcase_signals(project), [])
+        self.assertEqual(project_review.compute_showcase_signals(project), [])
 
     def test_validation_candidate_sorts_below_confirmed_service_surface(self) -> None:
         confirmed = self.make_project("proj:confirmed", "service_url", "https://confirmed.example")
@@ -573,14 +582,14 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
         validation["project_key"] = "proj:validation"
         validation["service_status_evidence"] = ["http_200"]
 
-        confirmed_signals = registry.compute_showcase_signals(confirmed)
-        validation_signals = registry.compute_showcase_signals(validation)
+        confirmed_signals = project_review.compute_showcase_signals(confirmed)
+        validation_signals = project_review.compute_showcase_signals(validation)
 
         self.assertEqual([item["kind"] for item in confirmed_signals], ["service_surface_confirmed"])
         self.assertEqual([item["kind"] for item in validation_signals], ["service_candidate_needs_validation"])
         self.assertEqual(
-            registry.promotion_queue_sort_score(confirmed, confirmed_signals)
-            - registry.promotion_queue_sort_score(validation, validation_signals),
+            project_review.promotion_queue_sort_score(confirmed, confirmed_signals)
+            - project_review.promotion_queue_sort_score(validation, validation_signals),
             100,
         )
 
@@ -593,9 +602,9 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
             "service_status_evidence": ["http_200", "login_surface_detected"],
         })
         registry.confirm_service_seed(project, "https://example.com", source="test")
-        signals = registry.compute_showcase_signals(project)
+        signals = project_review.compute_showcase_signals(project)
 
-        policy = registry.promotion_policy_projection(project, signals)
+        policy = project_review.promotion_policy_projection(project, signals)
 
         self.assertEqual(policy["candidate_visibility"], {"group": "eligible", "reasons": []})
         self.assertEqual(policy["service_evidence_group"], "confirmed")
@@ -606,26 +615,26 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
         )
         self.assertEqual(policy["score_breakdown"]["components"]["service_evidence"], 200)
 
-        registry.set_promotion_priority_on_project(project, lowered=True)
-        policy = registry.promotion_policy_projection(project, signals)
+        project_review.set_promotion_priority_on_project(project, lowered=True)
+        policy = project_review.promotion_policy_projection(project, signals)
         self.assertEqual(policy["priority_group"], "lowered")
         self.assertEqual(policy["priority_reason"], "")
 
-        registry.defer_promotion_on_project(project, reason="editorial review later")
+        project_review.defer_promotion_on_project(project, reason="editorial review later")
         self.assertEqual(
-            registry.promotion_candidate_visibility(project),
+            project_review.promotion_candidate_visibility(project),
             {"group": "deferred", "reasons": ["active_promotion_deferral"]},
         )
 
     def test_merge_keeps_canonical_target_promotion_priority(self) -> None:
         target = self.make_project("proj:editorialtarget", "service_url", "https://target.example")
         source = self.make_project("proj:editorialsource", "service_url", "https://source.example")
-        registry.set_promotion_priority_on_project(
+        project_review.set_promotion_priority_on_project(
             target,
             lowered=True,
             reason="not ready for a standalone introduction",
         )
-        registry.set_promotion_priority_on_project(
+        project_review.set_promotion_priority_on_project(
             source,
             lowered=True,
             reason="best grouped with similar projects",
@@ -634,7 +643,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
         merged = merge_services.merge_project_records(target, source)
 
         self.assertEqual(
-            registry.active_promotion_priority_adjustment(merged)["reason"],
+            project_review.active_promotion_priority_adjustment(merged)["reason"],
             "not ready for a standalone introduction",
         )
         adjustments = merged["promotion_priority_adjustments"]
@@ -645,27 +654,27 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
     def test_promotion_deferral_allows_empty_reason_and_clear_keeps_history(self) -> None:
         project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
 
-        registry.defer_promotion_on_project(project, reason="中核機能が未実装")
-        registry.clear_active_promotion_deferrals(project)
-        entry = registry.defer_promotion_on_project(project)
+        project_review.defer_promotion_on_project(project, reason="中核機能が未実装")
+        project_review.clear_active_promotion_deferrals(project)
+        entry = project_review.defer_promotion_on_project(project)
 
         self.assertEqual(entry["reason"], "")
         self.assertEqual(len(project["promotion_deferrals"]), 2)
         self.assertTrue(project["promotion_deferrals"][0]["cleared_at"])
-        self.assertEqual(registry.active_promotion_deferral(project)["reason"], "")
+        self.assertEqual(project_review.active_promotion_deferral(project)["reason"], "")
 
     def test_promotion_deferral_default_is_thirty_days_regardless_of_age_and_history(self) -> None:
         project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
         project["first_seen_at"] = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=3)).isoformat()
         for _ in range(5):
-            entry = registry.defer_promotion_on_project(project)
+            entry = project_review.defer_promotion_on_project(project)
             duration = project_record.parse_iso(entry["expires_at"]) - project_record.parse_iso(entry["added_at"])
             self.assertAlmostEqual(duration.total_seconds(), 30 * 86400, delta=1)
 
     def test_promotion_deferral_uses_explicit_days_when_provided(self) -> None:
         project = self.make_project("proj:promotionhold", "service_url", "https://example.com")
 
-        entry = registry.defer_promotion_on_project(project, reason="explicit", days=7)
+        entry = project_review.defer_promotion_on_project(project, reason="explicit", days=7)
         expires = project_record.parse_iso(entry["expires_at"])
         added = project_record.parse_iso(entry["added_at"])
 
@@ -2154,7 +2163,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project_record.save_project(conn, project)
             conn.commit()
 
-            item = registry.build_showcase_queue_item(conn, project["project_key"])
+            item = application_review.build_showcase_queue_item(conn, project["project_key"])
 
             self.assertIsNotNone(item)
             assert item is not None
@@ -2180,7 +2189,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             lowered["project_key"] = "proj:loweredpriority"
             lowered["website_url"] = "https://lowered.example"
             lowered["service_urls"] = ["https://lowered.example"]
-            registry.set_promotion_priority_on_project(
+            project_review.set_promotion_priority_on_project(
                 lowered,
                 lowered=True,
                 reason="weak candidate",
@@ -2189,7 +2198,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project_record.save_project(conn, lowered)
             conn.commit()
 
-            queue = registry.build_showcase_queue(conn, limit=None)
+            queue = application_review.promotion_queue(conn, limit=None)
 
             keys = [item["project_key"] for item in queue]
             self.assertLess(keys.index(normal["project_key"]), keys.index(lowered["project_key"]))
@@ -2224,7 +2233,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 source="service_page:https://example.com",
                 confidence="confirmed",
             )
-            registry.defer_promotion_on_project(project, reason="中核機能が未実装")
+            project_review.defer_promotion_on_project(project, reason="中核機能が未実装")
 
             project_record.save_project(conn, project, enriched=True)
             conn.commit()
@@ -2443,9 +2452,9 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 raise AssertionError("review queue should use stored derived merge fields")
 
             project_merge.compute_duplicate_candidates = fail_compute
-            queue = registry.build_review_queue(conn, tracking_states={"active"}, limit=5)
-            batch, next_index = registry.build_review_queue_batch(conn, tracking_states={"active"}, batch_size=5)
-            item = registry.build_review_queue_item(conn, "proj:cafecafecafe")
+            queue = application_review.review_queue(conn, tracking_states={"active"}, limit=5)
+            batch, next_index = application_review.build_review_queue_batch(conn, tracking_states={"active"}, batch_size=5)
+            item = application_review.build_review_queue_item(conn, "proj:cafecafecafe")
 
             self.assertEqual(queue[0]["project_key"], "proj:cafecafecafe")
             self.assertEqual(batch[0]["project_key"], "proj:cafecafecafe")
@@ -2471,16 +2480,16 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
             row = conn.execute("SELECT * FROM projects WHERE project_key = ?", ("proj:abababababab",)).fetchone()
             payload = project_record.project_from_row_payload(row)
-            full = registry.apply_promotion_state(project_record.ensure_project_shape(dict(payload)))
-            light = registry.apply_promotion_state(registry.lightweight_review_project_shape(dict(payload)))
-            full_signals = registry.compute_review_signals(full, assume_shaped=True, apply_promotion=False)
-            light_signals = registry.compute_review_signals(light, assume_shaped=True, apply_promotion=False)
+            full = project_review.apply_promotion_state(project_record.ensure_project_shape(dict(payload)))
+            light = project_review.apply_promotion_state(project_record.lightweight_review_project_shape(dict(payload)))
+            full_signals = project_review.compute_review_signals(full, assume_shaped=True, apply_promotion=False)
+            light_signals = project_review.compute_review_signals(light, assume_shaped=True, apply_promotion=False)
 
             self.assertEqual(
                 [item["kind"] for item in light_signals],
                 [item["kind"] for item in full_signals],
             )
-            self.assertEqual(registry.build_review_queue(conn, tracking_states={"active"}, limit=1)[0]["project_key"], "proj:abababababab")
+            self.assertEqual(application_review.review_queue(conn, tracking_states={"active"}, limit=1)[0]["project_key"], "proj:abababababab")
         finally:
             conn.close()
 
@@ -2504,7 +2513,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project_record.save_project(conn, substantial)
             conn.commit()
 
-            queue = registry.build_review_queue(conn, tracking_states={"active"}, limit=2)
+            queue = application_review.review_queue(conn, tracking_states={"active"}, limit=2)
 
             self.assertEqual([item["project_key"] for item in queue], ["proj:222222222222", "proj:111111111111"])
             self.assertEqual(queue[0]["atproto_contribution_level"], "substantial")
@@ -2570,7 +2579,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             registry.confirm_service_seed(project, "https://example.com", source="test")
             project_record.save_project(conn, project)
             conn.commit()
-            queue = registry.build_showcase_queue(conn, tracking_states={"active"})
+            queue = application_review.promotion_queue(conn, tracking_states={"active"})
             stdout = io.StringIO()
             stderr = io.StringIO()
             stdout.isatty = lambda: True
@@ -2591,7 +2600,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
                 )
 
             fetched = project_record.fetch_project(conn, "proj:promotionhold")
-            active = registry.active_promotion_deferral(fetched)
+            active = project_review.active_promotion_deferral(fetched)
             self.assertEqual(active["reason"], "中核機能が未実装")
             self.assertGreater(
                 project_record.parse_iso(active["expires_at"]),

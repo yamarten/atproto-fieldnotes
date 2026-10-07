@@ -13,7 +13,16 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import ROOT, SCRIPTS
-from project_registry_core import cli, database, dev_database, project_record, registry, storage
+
+from project_registry_core.application import review as application_review
+from project_registry_core import (
+    cli,
+    database,
+    dev_database,
+    project_record,
+    registry,
+    storage,
+)
 from project_registry_core.application import presentation
 
 
@@ -46,9 +55,9 @@ class DevDatabaseTest(unittest.TestCase):
             self.assertEqual(database.database_schema_version(conn), database.SCHEMA_VERSION)
             self.assertEqual(conn.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             self.assertEqual(conn.execute("PRAGMA foreign_key_check").fetchall(), [])
-            promotion = registry.build_showcase_queue(conn)
+            promotion = application_review.promotion_queue(conn)
             self.assertEqual([p["project_key"] for p in promotion], ["proj:dddd00000001"])
-            review = registry.build_review_queue(conn)
+            review = application_review.review_queue(conn)
             sketch = next(p for p in review if p["project_key"] == "proj:dddd00000002")
             self.assertIn("service_candidate_needs_confirmation", [s["kind"] for s in sketch["signals"]])
             for item in promotion + review:

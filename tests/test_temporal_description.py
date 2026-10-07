@@ -3,6 +3,8 @@ from __future__ import annotations
 from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
+
+from project_registry_core.application import review as application_review
 from project_registry_core import editorial, project_record, service, storage
 from project_registry_core.application import investigation, presentation, projects
 from project_registry_core import worker
@@ -160,7 +162,7 @@ class TemporalDescriptionTest(_TemporalDescriptionFixtures, TempRegistryDbTestCa
             conn.commit()
             loaded = project_record.fetch_project(conn, project["project_key"])
             self.assertEqual(loaded["editorial"], project["editorial"])
-            queue = registry.build_review_queue(conn, kinds={"editorial_refresh"})
+            queue = application_review.review_queue(conn, kinds={"editorial_refresh"})
             self.assertEqual(queue[0]["project_key"], project["project_key"])
             detail = presentation.project_detail(conn, project_key=project["project_key"])
             self.assertFalse(detail["project"]["editorial"]["automatic"])
@@ -244,7 +246,7 @@ class TemporalDescriptionTest(_TemporalDescriptionFixtures, TempRegistryDbTestCa
         try:
             project_record.save_project(conn, project)
             conn.commit()
-            queue = registry.build_review_queue(conn)
+            queue = application_review.review_queue(conn)
             self.assertEqual(queue[0]["project_key"], project["project_key"])
             self.assertEqual([signal["kind"] for signal in queue[0]["signals"]], ["service_observation_changed"])
             self.assertEqual(project_record.fetch_project(conn, project["project_key"])["tracking_state"], "out_of_scope")

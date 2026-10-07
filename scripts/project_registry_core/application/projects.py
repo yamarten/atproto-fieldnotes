@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from project_registry_core import project_review
+
 from project_registry_core import project_merge
 
 from project_registry_core import naming
@@ -154,7 +156,7 @@ def prepare_project_view(
     duplicate_candidates = project_merge.compute_duplicate_candidates(conn, project, check_cancelled=check_cancelled)
     prepared = dict(project, duplicate_candidates=duplicate_candidates)
     prepared["merge_recommendation"] = project_merge.compute_merge_recommendation(prepared)
-    return core.apply_promotion_state(prepared)
+    return project_review.apply_promotion_state(prepared)
 
 
 def prepare_project_views(
