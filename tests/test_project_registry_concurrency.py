@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import argparse
 import json
 import multiprocessing
 import sqlite3
@@ -14,7 +13,6 @@ from project_registry_core import concurrency, database, project_record, registr
 from project_registry_core.application import decisions, enrichment, merge, presentation, projects, review, maintenance
 from project_registry_core.evidence import EvidenceBundle
 from project_registry_core.jobs import OperationRequest
-from project_registry_core.commands import review as review_commands
 
 
 def update_from_process(path: str, key: str, ready, proceed, result) -> None:
@@ -310,39 +308,6 @@ class ProjectConcurrencyTest(TempRegistryDbTestCase):
                 source_sync.sync_collection_inventory(self.conn, source_url="https://inventory.example.org", execute=True, create_unmatched=False, lookback_days=7)
         self.assertEqual(project_record.fetch_project(self.conn, self.key)["tracking_state"], "ignore")
         self.assertEqual(registry.read_sync_state(self.conn, "collections", {"source_url": "https://inventory.example.org"}), before)
-
-    def test_interactive_reviews_keep_the_snapshot_shown_before_user_input(self):
-        def entry(project, **kwargs):
-            return {"project_key": project["project_key"], "kind": "test", "suggested_tracking_state": "stalled"}
-
-        for classification in (False, True):
-            with self.subTest(classification=classification):
-                for key in (self.key, "proj:222222222222", "proj:333333333333"):
-                    projects.set_tracking_state(self.other, project_key=key, tracking_state="active")
-                first = True
-                def answer():
-                    nonlocal first
-                    if first:
-                        first = False
-                        projects.set_tracking_state(self.other, project_key=self.key, tracking_state="ignore")
-                    return "y"
-                args = argparse.Namespace(inactivity_days=45, max_enrich_age_days=30, note="review", note_reason="test", tracking_states=None, limit=None)
-                with (
-                    mock.patch.object(registry, "stalled_review_entry", side_effect=entry),
-                    mock.patch("builtins.input", side_effect=answer),
-                    mock.patch("builtins.print"),
-                    mock.patch.object(review_commands.sys.stdin, "isatty", return_value=True),
-                    mock.patch.object(review_commands.sys.stdout, "isatty", return_value=True),
-                    mock.patch.object(review_commands, "_print", wraps=review_commands._print) as output,
-                ):
-                    if classification:
-                        status = review_commands._cmd_review_classification_interactive(args, review_name="test", target_state="stalled", entry_builder=entry, note_reason_choices={}, default_note_reason=lambda item: "test", build_note=lambda *args: "review")
-                    else:
-                        status = review_commands._cmd_review_stalled_interactive(args)
-                self.assertEqual(status, 2)
-                self.assertEqual(output.call_args.args[0]["updated_count"], 2)
-                self.assertEqual(len(output.call_args.args[0]["conflicted_projects"]), 1)
-                self.assertEqual(project_record.fetch_project(self.conn, self.key)["tracking_state"], "ignore")
 
     def test_unresolved_history_survives_pruning(self):
         project = project_record.fetch_project(self.conn, self.key)

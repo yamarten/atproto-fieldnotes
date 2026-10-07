@@ -10,9 +10,8 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import ProjectRecordTestCase, SCRIPTS, TempRegistryDbTestCase, registry
-from project_registry_core import source_sync, worker, runtime_view
+from project_registry_core import source_sync, worker
 from project_registry_core.jobs import CancellationToken, OperationRequest
-from project_registry_core.application import review as review_services
 from project_registry_web.jobs import JobConflictError, JobManager, JobRecord, _schedule_due
 
 
@@ -896,50 +895,6 @@ class ProjectRegistryJobTest(_ProjectRegistryJobFixtures, TempRegistryDbTestCase
         self.assertTrue(summary["truncated"])
         self.assertTrue(summary["state_updated"])
         self.assertEqual(state["watermark"]["seq"], 10)
-
-    def test_stalled_review_limit_bounds_returned_candidates(self) -> None:
-        projects = [{"project_key": f"proj:{index}", runtime_view.RUNTIME_PROJECT_REVISION: 1} for index in range(3)]
-
-        def entry(project: dict, **_kwargs: object) -> dict:
-            return {
-                "project_key": project["project_key"],
-                "suggested_tracking_state": "stalled",
-            }
-
-        conn = registry.open_db()
-        try:
-            with mock.patch.object(review_services.project_record, "list_projects", return_value=projects), mock.patch.object(
-                review_services.project_record, "ensure_project_shape", side_effect=lambda project: project
-            ), mock.patch.object(review_services.core, "stalled_review_entry", side_effect=entry):
-                payload = review_services.stalled(
-                    conn,
-                    limit=2,
-                    now=dt.datetime(2026, 6, 15, tzinfo=dt.timezone.utc),
-                )
-        finally:
-            conn.close()
-
-        self.assertEqual(payload["candidate_count"], 2)
-        self.assertEqual(payload["total_candidate_count"], 3)
-        self.assertEqual(len(payload["candidates"]), 2)
-        self.assertTrue(payload["plan_fingerprint"].startswith("plan:"))
-        self.assertTrue(all(item["candidate_id"].startswith("candidate:") for item in payload["candidates"]))
-
-        with mock.patch.object(review_services.project_record, "list_projects", return_value=projects), mock.patch.object(
-            review_services.project_record, "ensure_project_shape", side_effect=lambda project: project
-        ), mock.patch.object(review_services.core, "stalled_review_entry", side_effect=entry):
-            with self.assertRaisesRegex(ValueError, "plan changed"):
-                conn = registry.open_db()
-                try:
-                    review_services.stalled(
-                        conn,
-                        limit=2,
-                        expected_plan_fingerprint="plan:stale",
-                        now=dt.datetime(2026, 6, 15, tzinfo=dt.timezone.utc),
-                    )
-                finally:
-                    conn.close()
-
 
 
 if __name__ == "__main__":

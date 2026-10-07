@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import sqlite3
 import sys
 from collections.abc import Callable
 from typing import Any
@@ -18,36 +19,40 @@ def _print(payload: dict[str, Any]) -> int:
     return 2 if payload.get("operation_status") == "retry_wait" else 0
 
 
-def _cmd_review_stalled_interactive(args: argparse.Namespace) -> int:
-    conn = core.open_db()
+def _prompt_review_candidate(conn: sqlite3.Connection, item: dict[str, Any], apply_label: str) -> str:
+    print(f"[y]={apply_label}, [n]=skip, [j]=full json, [q]=quit", file=sys.stderr)
+    while True:
+        try:
+            answer = input().strip().lower()
+        except EOFError:
+            return "quit"
+        if answer in {"", "y", "yes"}:
+            return "apply"
+        if answer in {"n", "no"}:
+            return "skip"
+        if answer in {"q", "quit"}:
+            return "quit"
+        if answer == "j":
+            project = project_record.fetch_project(conn, str(item.get("project_key") or ""))
+            if project is not None:
+                print(json.dumps(
+                    runtime_view.sanitize_runtime_snapshot(project),
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                ))
+
+
+def _cmd_review_stalled_interactive(conn: sqlite3.Connection, args: argparse.Namespace) -> int:
     now = dt.datetime.now(dt.timezone.utc)
     inactivity_days = max(1, int(args.inactivity_days or 45))
     max_enrich_age_days = max(1, int(args.max_enrich_age_days or 30))
-    project_list = [
-        project_record.ensure_project_shape(project)
-        for project in project_record.list_projects(conn, tracking_states={"active", "stalled"})
-    ]
-    candidates = [
-        entry
-        for project in project_list
-        if (entry := core.stalled_review_entry(
-            project,
-            now=now,
-            inactivity_days=inactivity_days,
-            max_enrich_age_days=max_enrich_age_days,
-        ))
-    ]
-    candidates.sort(
-        key=lambda item: (
-            str(item.get("suggested_tracking_state") or "") != "active",
-            item["project_key"],
-        )
+    snapshot = services.stalled_review_snapshot(
+        conn, now=now, inactivity_days=inactivity_days, max_enrich_age_days=max_enrich_age_days,
     )
-    project_snapshots = {str(project["project_key"]): project for project in project_list}
-    suggested_state_counts: dict[str, int] = {}
-    for item in candidates:
-        state = str(item.get("suggested_tracking_state") or "")
-        suggested_state_counts[state] = int(suggested_state_counts.get(state, 0)) + 1
+    candidates = snapshot.candidates
+    project_snapshots = snapshot.projects
+    suggested_state_counts = snapshot.counts("suggested_tracking_state")
 
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         raise ValueError("--interactive requires a TTY")
@@ -67,45 +72,16 @@ def _cmd_review_stalled_interactive(args: argparse.Namespace) -> int:
             "review_stalled_count": len(candidates),
             **item,
         }, ensure_ascii=False, indent=2))
-        print("[y]=apply, [n]=skip, [j]=full json, [q]=quit", file=sys.stderr)
-        while True:
-            try:
-                answer = input().strip().lower()
-            except EOFError:
-                answer = "q"
-            if answer in {"", "y", "yes"}:
-                break
-            if answer in {"n", "no"}:
-                item = None
-                break
-            if answer == "j":
-                project = project_record.fetch_project(conn, str(item.get("project_key") or ""))
-                if project is not None:
-                    print(json.dumps(
-                        runtime_view.sanitize_runtime_snapshot(project),
-                        ensure_ascii=False,
-                        indent=2,
-                        sort_keys=True,
-                    ))
-                continue
-            if answer in {"q", "quit"}:
-                candidates = []
-                item = None
-                break
-        if item is None:
-            if answer in {"q", "quit"}:
-                break
+        answer = _prompt_review_candidate(conn, item, "apply")
+        if answer == "quit":
+            break
+        if answer == "skip":
             continue
         project = project_snapshots.get(str(item.get("project_key") or ""))
         if not project:
             continue
-        project["tracking_state"] = str(
-            item.get("suggested_tracking_state") or project.get("tracking_state") or "active"
-        )
-        if note and not str(project.get("tracking_note") or "").strip():
-            project["tracking_note"] = note
         try:
-            project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+            services.apply_review_candidate(conn, project, item, note=note)
         except project_record.StaleProjectWriteError as exc:
             conflicts.append({"project_key": str(project["project_key"]), "error": str(exc)})
             print(f"[retry_wait] {exc}", file=sys.stderr)
@@ -130,6 +106,7 @@ def _cmd_review_stalled_interactive(args: argparse.Namespace) -> int:
 
 
 def _cmd_review_classification_interactive(
+    conn: sqlite3.Connection,
     args: argparse.Namespace,
     *,
     review_name: str,
@@ -140,25 +117,16 @@ def _cmd_review_classification_interactive(
     build_note: Callable[[dict[str, Any], str, str], str],
     default_tracking_states: set[str] | None = None,
 ) -> int:
-    conn = core.open_db()
     tracking_states = (
         {str(item).strip() for item in (args.tracking_states or []) if str(item).strip()}
         or set(default_tracking_states or {"active", "stable", "stalled"})
     )
-    project_list = [
-        project_record.ensure_project_shape(project)
-        for project in project_record.list_projects(conn, tracking_states=tracking_states)
-    ]
-    candidates = [entry for project in project_list if (entry := entry_builder(project))]
-    candidates.sort(key=lambda item: (
-        str(item.get("kind") or ""),
-        str(item.get("project_key") or ""),
-    ))
-    project_snapshots = {str(project["project_key"]): project for project in project_list}
-    kind_counts: dict[str, int] = {}
-    for item in candidates:
-        kind = str(item.get("kind") or "")
-        kind_counts[kind] = int(kind_counts.get(kind, 0)) + 1
+    snapshot = services.classification_review_snapshot(
+        conn, tracking_states=tracking_states, entry_builder=entry_builder,
+    )
+    candidates = snapshot.candidates
+    project_snapshots = snapshot.projects
+    kind_counts = snapshot.counts("kind")
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         raise ValueError("--interactive requires a TTY")
     effective_limit = max(1, int(args.limit)) if args.limit is not None else None
@@ -176,40 +144,14 @@ def _cmd_review_classification_interactive(
             f"{review_name.replace('-', '_')}_count": len(candidates),
             **item,
         }, ensure_ascii=False, indent=2))
-        print(f"[y]={target_state}, [n]=skip, [j]=full json, [q]=quit", file=sys.stderr)
-        while True:
-            try:
-                answer = input().strip().lower()
-            except EOFError:
-                answer = "q"
-            if answer in {"", "y", "yes"}:
-                break
-            if answer in {"n", "no"}:
-                item = None
-                break
-            if answer == "j":
-                project = project_record.fetch_project(conn, str(item.get("project_key") or ""))
-                if project is not None:
-                    print(json.dumps(
-                        runtime_view.sanitize_runtime_snapshot(project),
-                        ensure_ascii=False,
-                        indent=2,
-                        sort_keys=True,
-                    ))
-                continue
-            if answer in {"q", "quit"}:
-                candidates = []
-                item = None
-                break
-        if item is None:
-            if answer in {"q", "quit"}:
-                break
+        answer = _prompt_review_candidate(conn, item, target_state)
+        if answer == "quit":
+            break
+        if answer == "skip":
             continue
         project = project_snapshots.get(str(item.get("project_key") or ""))
         if not project:
             continue
-        next_state = str(item.get("suggested_tracking_state") or target_state)
-        project["tracking_state"] = next_state
         reason_key = default_reason_key or default_note_reason(item)
         extra_note = static_note
         if not default_reason_key:
@@ -237,12 +179,8 @@ def _cmd_review_classification_interactive(
                 except EOFError:
                     extra_note = ""
         note = build_note(item, reason_key, extra_note)
-        if next_state == "active" and str(item.get("kind") or "") == "owned_protocol_surface_detected":
-            project["tracking_note"] = "reactivated after owned protocol surface detection"
-        elif note and not str(project.get("tracking_note") or "").strip():
-            project["tracking_note"] = note
         try:
-            project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
+            services.apply_review_candidate(conn, project, item, note=note, default_state=target_state)
         except project_record.StaleProjectWriteError as exc:
             conflicts.append({"project_key": str(project["project_key"]), "error": str(exc)})
             print(f"[retry_wait] {exc}", file=sys.stderr)
@@ -351,10 +289,10 @@ def cmd_promotion_queue(args: argparse.Namespace) -> int:
 
 
 def cmd_review_stalled(args: argparse.Namespace) -> int:
-    if bool(getattr(args, "interactive", False)):
-        return _cmd_review_stalled_interactive(args)
     conn = core.open_db()
     try:
+        if bool(getattr(args, "interactive", False)):
+            return _cmd_review_stalled_interactive(conn, args)
         return _print(services.stalled(
             conn,
             execute=bool(args.execute),
@@ -367,18 +305,18 @@ def cmd_review_stalled(args: argparse.Namespace) -> int:
 
 
 def cmd_review_ignore(args: argparse.Namespace) -> int:
-    if bool(getattr(args, "interactive", False)):
-        return _cmd_review_classification_interactive(
-            args,
-            review_name="review-ignore",
-            target_state="ignore",
-            entry_builder=core.ignore_review_entry,
-            note_reason_choices=core.IGNORE_REVIEW_NOTE_REASONS,
-            default_note_reason=core.default_ignore_review_note_reason,
-            build_note=core.build_ignore_review_note,
-        )
     conn = core.open_db()
     try:
+        if bool(getattr(args, "interactive", False)):
+            return _cmd_review_classification_interactive(
+                conn, args,
+                review_name="review-ignore",
+                target_state="ignore",
+                entry_builder=core.ignore_review_entry,
+                note_reason_choices=core.IGNORE_REVIEW_NOTE_REASONS,
+                default_note_reason=core.default_ignore_review_note_reason,
+                build_note=core.build_ignore_review_note,
+            )
         tracking_states = {
             str(item).strip() for item in (args.tracking_states or []) if str(item).strip()
         } or None
@@ -395,19 +333,19 @@ def cmd_review_ignore(args: argparse.Namespace) -> int:
 
 
 def cmd_review_out_of_scope(args: argparse.Namespace) -> int:
-    if bool(getattr(args, "interactive", False)):
-        return _cmd_review_classification_interactive(
-            args,
-            review_name="review-out-of-scope",
-            target_state="out_of_scope",
-            entry_builder=core.out_of_scope_review_entry,
-            note_reason_choices=core.OUT_OF_SCOPE_REVIEW_NOTE_REASONS,
-            default_note_reason=core.default_out_of_scope_review_note_reason,
-            build_note=core.build_out_of_scope_review_note,
-            default_tracking_states={"active", "stable", "stalled", "out_of_scope"},
-        )
     conn = core.open_db()
     try:
+        if bool(getattr(args, "interactive", False)):
+            return _cmd_review_classification_interactive(
+                conn, args,
+                review_name="review-out-of-scope",
+                target_state="out_of_scope",
+                entry_builder=core.out_of_scope_review_entry,
+                note_reason_choices=core.OUT_OF_SCOPE_REVIEW_NOTE_REASONS,
+                default_note_reason=core.default_out_of_scope_review_note_reason,
+                build_note=core.build_out_of_scope_review_note,
+                default_tracking_states={"active", "stable", "stalled", "out_of_scope"},
+            )
         tracking_states = {
             str(item).strip() for item in (args.tracking_states or []) if str(item).strip()
         } or None
