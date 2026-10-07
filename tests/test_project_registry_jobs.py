@@ -81,7 +81,8 @@ class _ProjectRegistryJobFixtures:
 
 class ProjectRegistryJobUnitTest(_ProjectRegistryJobFixtures, ProjectRecordTestCase):
     def test_running_job_estimates_eta_from_latest_progress(self) -> None:
-        started = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=100)).isoformat()
+        now = dt.datetime(2026, 10, 1, tzinfo=dt.timezone.utc)
+        started = (now - dt.timedelta(seconds=100)).isoformat()
         record = JobRecord(
             job_id="job:eta",
             request=OperationRequest.create("enrich"),
@@ -89,13 +90,15 @@ class ProjectRegistryJobUnitTest(_ProjectRegistryJobFixtures, ProjectRecordTestC
             started_at=started,
             events=[{"kind": "progress", "data": {"progress": {"current": 2, "total": 10}}}],
         )
-        snapshot = record.snapshot()
-        self.assertGreaterEqual(snapshot["elapsed_seconds"], 99)
-        self.assertGreaterEqual(snapshot["eta_seconds"], 396)
-        self.assertLessEqual(snapshot["eta_seconds"], 404)
+        with mock.patch("project_registry_web.jobs.dt.datetime", wraps=dt.datetime) as clock:
+            clock.now.return_value = now
+            snapshot = record.snapshot()
+        self.assertEqual(snapshot["elapsed_seconds"], 100)
+        self.assertEqual(snapshot["eta_seconds"], 400)
 
     def test_resumed_enrich_eta_uses_only_items_observed_after_resume(self) -> None:
-        started = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=100)).isoformat()
+        now = dt.datetime(2026, 10, 1, tzinfo=dt.timezone.utc)
+        started = (now - dt.timedelta(seconds=100)).isoformat()
         record = JobRecord(
             job_id="job:resumed-eta",
             request=OperationRequest.create("enrich", parameters={"resume_run": "run:original"}),
@@ -109,10 +112,10 @@ class ProjectRegistryJobUnitTest(_ProjectRegistryJobFixtures, ProjectRecordTestC
             }}}],
         )
 
-        snapshot = record.snapshot()
-
-        self.assertGreaterEqual(snapshot["eta_seconds"], 297)
-        self.assertLessEqual(snapshot["eta_seconds"], 303)
+        with mock.patch("project_registry_web.jobs.dt.datetime", wraps=dt.datetime) as clock:
+            clock.now.return_value = now
+            snapshot = record.snapshot()
+        self.assertEqual(snapshot["eta_seconds"], 300)
 
     def test_resumed_enrich_eta_waits_for_one_observed_item(self) -> None:
         started = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=100)).isoformat()

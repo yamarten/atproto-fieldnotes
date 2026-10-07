@@ -8,6 +8,7 @@ import subprocess
 import sys
 import unittest
 import urllib.error
+from functools import partial
 from pathlib import Path
 from unittest import mock
 
@@ -24,6 +25,7 @@ from project_registry_core import relations as relation_core
 from project_registry_core import repository_analysis
 from project_registry_core import repository_material
 from project_registry_core import repository_sources
+from project_registry_core import reliability
 from project_registry_core import runtime_view
 from project_registry_core import service as service_core
 from project_registry_core import storage as storage_core
@@ -405,16 +407,18 @@ class ProjectRegistryResearchPipelineTest(ProjectRecordTestCase):
         class RateLimitError(RuntimeError):
             code = 429
 
-        dependencies = self.search_dependencies(
-            search_github_repositories=lambda *args, **kwargs: (_ for _ in ()).throw(RateLimitError("limited")),
-        )
+        search = mock.Mock(side_effect=RateLimitError("limited"))
+        dependencies = self.search_dependencies(search_github_repositories=search)
+        sleep = mock.Mock()
+        with mock.patch.object(investigation_core, "run_with_retry", partial(reliability.run_with_retry, sleep=sleep)):
+            bundle = investigation_core.collect_investigation_evidence(
+                self.make_project("proj:researchratelimit"),
+                {"repo_search_queries": ["Example App"]},
+                dependencies,
+            )
 
-        bundle = investigation_core.collect_investigation_evidence(
-            self.make_project("proj:researchratelimit"),
-            {"repo_search_queries": ["Example App"]},
-            dependencies,
-        )
-
+        self.assertEqual(search.call_count, 3)
+        self.assertEqual(sleep.call_args_list, [mock.call(0.25), mock.call(0.5)])
         self.assertEqual(bundle.failures[0].category, "rate_limit")
         self.assertTrue(bundle.failures[0].retryable)
         self.assertEqual(bundle.collector_results[0].status, "rate_limited")
@@ -907,17 +911,21 @@ class ProjectRegistryResearchPipelineTest(ProjectRecordTestCase):
             },
         ]
 
+        sleep = mock.Mock()
         with (
             mock.patch.object(registry, "search_github_repositories", return_value=repo_results) as github_search,
             mock.patch.object(registry, "github_repo_relevance", side_effect=[9, 7]),
             mock.patch.object(registry, "repo_candidate_allowed_for_project", return_value=True),
-            mock.patch.object(registry, "search_bsky_actors", side_effect=TimeoutError("actor timeout")),
+            mock.patch.object(registry, "search_bsky_actors", side_effect=TimeoutError("actor timeout")) as actor_search,
             mock.patch.object(registry, "search_bsky_posts", return_value=[]),
+            mock.patch.object(investigation_core, "run_with_retry", partial(reliability.run_with_retry, sleep=sleep)),
         ):
             bundle = registry.collect_investigation_evidence(project, plan)
             registry.apply_investigation_evidence(project, bundle)
 
         self.assertEqual(github_search.call_count, 1)
+        self.assertEqual(actor_search.call_count, 3)
+        self.assertEqual(sleep.call_args_list, [mock.call(0.25), mock.call(0.5)])
         self.assertEqual(project["candidate_project_repository_urls"], ["https://github.com/example/app"])
         self.assertIn("https://example.com", project["service_url_candidates"])
         self.assertTrue(any("actor timeout" in item for item in project["_run_errors"]))
