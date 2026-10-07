@@ -10,6 +10,10 @@ from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, captured_stdout, registry
 
+from project_registry_core.commands import maintenance as maintenance_commands
+from project_registry_core.maintenance import registry_audit
+from project_registry_core.maintenance import source_config
+
 from project_registry_core import project_review
 from project_registry_core.application import review as application_review
 
@@ -697,7 +701,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             }]
             project_record.save_project(conn, project)
 
-            executed = registry.refresh_current_same_site_evidence(conn)
+            executed = registry_audit.refresh_current_same_site_evidence(conn)
             self.assertEqual(executed["repaired_result_count"], 1)
             self.assertEqual(executed["aggregate_evidence_change_count"], 1)
             repaired = project_record.fetch_project(conn, project["project_key"])
@@ -707,7 +711,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(repaired["service_status_evidence"], ["http_200"])
             self.assertEqual(repaired["service_urls"], ["https://pages.dev"])
             self.assertEqual(repaired["service_status"], "live")
-            self.assertEqual(registry.refresh_current_same_site_evidence(conn)["changed_project_count"], 0)
+            self.assertEqual(registry_audit.refresh_current_same_site_evidence(conn)["changed_project_count"], 0)
         finally:
             conn.close()
 
@@ -2089,7 +2093,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project_record.save_project(conn, project)
             conn.commit()
 
-            suggestions = registry.build_source_config_split_suggestions(conn, suffixes=["example.com"])
+            suggestions = source_config.build_source_config_split_suggestions(conn, suffixes=["example.com"])
 
             self.assertEqual(len(suggestions), 1)
             self.assertEqual(suggestions[0]["source_project_key"], "proj:tenanttenant")
@@ -2111,7 +2115,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project_record.save_project(conn, project)
             conn.commit()
 
-            result = registry.split_project_tenant_group(
+            result = merge_services.split_project_tenant_group(
                 conn,
                 "proj:tenanttenant",
                 "bar.example.com",
@@ -2149,19 +2153,19 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project_record.save_project(conn, project)
             conn.commit()
 
-            initial_suggestions = registry.build_source_config_split_suggestions(conn, suffixes=["example.com"])
+            initial_suggestions = source_config.build_source_config_split_suggestions(conn, suffixes=["example.com"])
             with (
                 mock.patch("builtins.input", side_effect=["1", "1"]),
                 mock.patch("sys.stdout", new=io.StringIO()),
             ):
-                result = registry.review_source_config_split_suggestions(
+                result = maintenance_commands.review_source_config_split_suggestions(
                     conn,
                     ["example.com"],
                     initial_suggestions=initial_suggestions,
                 )
 
             source = project_record.fetch_project(conn, "proj:threetenants")
-            remaining_groups = registry.project_split_identifiers_by_tenant(source, "example.com")
+            remaining_groups = source_config.project_split_identifiers_by_tenant(source, "example.com")
             self.assertEqual(result["split_count"], 2)
             self.assertEqual(
                 [item["tenant"] for item in result["split_results"]],
@@ -2340,7 +2344,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             second["service_url_candidates"] = ["https://two.example"]
             project_record.save_project(conn, second)
 
-            summary = registry.build_url_field_audit(conn)
+            summary = registry_audit.build_url_field_audit(conn)
             aliases = {(item["left"], item["right"]): item for item in summary["alias_relationships"]}
             anomalies = {item["kind"]: item for item in summary["anomalies"]}
             website_only_services = conn.execute(
@@ -2401,7 +2405,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project_record.save_project(conn, target)
             conn.commit()
 
-            summary = registry.audit_and_repair_identifiers(conn)
+            summary = registry_audit.audit_and_repair_identifiers(conn)
             self.assertGreaterEqual(summary["refreshed_derived_project_count"], 1)
             self.assertEqual(summary["mode"], "dry_run")
 
@@ -2409,7 +2413,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             self.assertEqual(repaired["duplicate_candidates"], [])
             self.assertEqual(repaired["merge_recommendation"], {})
 
-            executed = registry.audit_and_repair_identifiers(conn, execute=True)
+            executed = registry_audit.audit_and_repair_identifiers(conn, execute=True)
             self.assertEqual(executed["mode"], "execute")
 
             repaired = project_record.fetch_project(conn, "proj:cccccccccccc")
@@ -2451,7 +2455,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             )
             conn.commit()
 
-            summary = registry.audit_and_repair_identifiers(conn, execute=True)
+            summary = registry_audit.audit_and_repair_identifiers(conn, execute=True)
             self.assertEqual(summary["mode"], "execute")
 
             row = conn.execute("SELECT state_json FROM projects WHERE project_key = ?", ("proj:legacycontri",)).fetchone()
@@ -2650,7 +2654,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project_record.save_project(conn, second)
             conn.commit()
 
-            summary = registry.audit_and_repair_identifiers(conn)
+            summary = registry_audit.audit_and_repair_identifiers(conn)
             collisions = {
                 (item["identifier_type"], item["identifier_value"]): set(item["project_keys"])
                 for item in summary["collisions"]
@@ -2678,7 +2682,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project_record.save_project(conn, second)
             conn.commit()
 
-            summary = registry.audit_and_repair_identifiers(conn)
+            summary = registry_audit.audit_and_repair_identifiers(conn)
             matching = [
                 item
                 for item in summary["collisions"]
@@ -2724,7 +2728,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             with self.assertRaises(json.JSONDecodeError):
                 project_record.fetch_project(conn, "proj:badbadbadbad")
             with self.assertRaises(json.JSONDecodeError):
-                registry.audit_and_repair_identifiers(conn)
+                registry_audit.audit_and_repair_identifiers(conn)
         finally:
             conn.close()
 

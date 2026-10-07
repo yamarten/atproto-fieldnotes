@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from project_registry_core.application import merge as merge_services
+from project_registry_core.maintenance import source_config
+
 import argparse
 import collections
 import hashlib
 import json
 import sys
+import sqlite3
 from pathlib import Path
+from typing import Any
 
 from .. import registry as core
 from project_registry_core.maintenance import collector_relation_shadow
@@ -693,7 +698,7 @@ def cmd_audit_source_config(args: argparse.Namespace) -> int:
         suffix_update = services.configure_multi_tenant_suffix(conn, requested_suffix) if should_configure else None
         added_suffix = bool(suffix_update and suffix_update["added"])
         same_site_refresh = suffix_update["same_site_refresh"] if suffix_update else None
-        suggestions = core.build_source_config_split_suggestions(conn, suffixes=suffixes)
+        suggestions = source_config.build_source_config_split_suggestions(conn, suffixes=suffixes)
         payload = {
             "mode": "interactive" if interactive else "dry_run",
             "requested_suffix": requested_suffix,
@@ -706,8 +711,94 @@ def cmd_audit_source_config(args: argparse.Namespace) -> int:
         if not interactive:
             print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
             return 0
-        review_result = core.review_source_config_split_suggestions(conn, suffixes, initial_suggestions=suggestions)
+        review_result = review_source_config_split_suggestions(conn, suffixes, initial_suggestions=suggestions)
     finally:
         conn.close()
     print(json.dumps({**{key: value for key, value in payload.items() if key != "split_suggestions"}, **review_result}, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
+
+
+def source_config_suggestion_key(suggestion: dict[str, Any]) -> tuple[str, str]:
+    return (
+        str(suggestion.get("source_project_key") or ""),
+        str(suggestion.get("trigger") or ""),
+    )
+
+
+def review_source_config_split_suggestions(
+    conn: sqlite3.Connection,
+    suffixes: list[str],
+    *,
+    initial_suggestions: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    suggestions = (
+        initial_suggestions
+        if initial_suggestions is not None
+        else source_config.build_source_config_split_suggestions(conn, suffixes=suffixes)
+    )
+    skipped: set[tuple[str, str]] = set()
+    preferred_key: tuple[str, str] | None = None
+    split_results: list[dict[str, Any]] = []
+    quit_requested = False
+
+    while True:
+        available = [
+            suggestion
+            for suggestion in suggestions
+            if source_config_suggestion_key(suggestion) not in skipped
+        ]
+        if preferred_key is not None:
+            available.sort(key=lambda suggestion: source_config_suggestion_key(suggestion) != preferred_key)
+        if not available:
+            break
+
+        suggestion = available[0]
+        suggestion_key = source_config_suggestion_key(suggestion)
+        print(json.dumps(
+            {"remaining": len(available), **suggestion},
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        ))
+        answer = input("split which tenant group? [number]/[Enter]next/[q]uit: ").strip().lower()
+        if answer in {"q", "quit"}:
+            quit_requested = True
+            break
+        if not answer:
+            skipped.add(suggestion_key)
+            preferred_key = None
+            continue
+        try:
+            selected_index = int(answer)
+        except ValueError:
+            print(json.dumps({"warning": "invalid_tenant_group_selection", "answer": answer}, ensure_ascii=False))
+            continue
+        tenant_groups = suggestion.get("tenant_groups", [])
+        if selected_index < 1 or selected_index > len(tenant_groups):
+            print(json.dumps({"warning": "tenant_group_selection_out_of_range", "answer": answer}, ensure_ascii=False))
+            continue
+        selected = tenant_groups[selected_index - 1]
+        result = merge_services.split_project_tenant_group(
+            conn,
+            str(suggestion.get("source_project_key") or ""),
+            str(selected.get("tenant") or ""),
+            dict(selected.get("identifiers") or {}),
+        )
+        split_results.append(result)
+        print(json.dumps({"split_applied": True, **result}, ensure_ascii=False, indent=2, sort_keys=True))
+
+        preferred_key = suggestion_key
+        suggestions = source_config.build_source_config_split_suggestions(conn, suffixes=suffixes)
+
+    remaining = [
+        suggestion
+        for suggestion in suggestions
+        if source_config_suggestion_key(suggestion) not in skipped
+    ]
+    return {
+        "split_count": len(split_results),
+        "split_results": split_results,
+        "skipped_count": len(skipped),
+        "remaining_suggestion_count": len(remaining),
+        "quit_requested": quit_requested,
+    }

@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 
 from helpers import registry, TempRegistryDbTestCase
+
+from project_registry_core.maintenance import registry_audit
 from project_registry_core.evidence import EvidenceBundle, EvidenceRecord
 from project_registry_core import trust_graph
 from project_registry_core import project_record
@@ -629,7 +631,7 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
             downgrade["service_urls"] = ["https://unrelated.example.com"]
             project_record.save_project(conn, downgrade)
 
-            audit = registry.build_trust_graph_audit(conn, example_limit=10)
+            audit = registry_audit.build_trust_graph_audit(conn, example_limit=10)
         finally:
             conn.close()
 
@@ -655,10 +657,10 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
             ]
             project_record.save_project(conn, project)
 
-            dry_run = registry.repair_trust_graph(conn, execute=False)
+            dry_run = registry_audit.repair_trust_graph(conn, execute=False)
             self.assertEqual(dry_run["changed_project_count"], 1)
 
-            executed = registry.repair_trust_graph(conn, execute=True)
+            executed = registry_audit.repair_trust_graph(conn, execute=True)
             fetched = project_record.fetch_project(conn, "proj:repairtrust")
         finally:
             conn.close()
@@ -678,9 +680,9 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
             project_record.save_project(conn, project)
 
             with self.assertRaises(ValueError):
-                registry.repair_trust_graph(conn, execute=False, downgrade_unsupported=True)
+                registry_audit.repair_trust_graph(conn, execute=False, downgrade_unsupported=True)
 
-            executed = registry.repair_trust_graph(conn, execute=True, downgrade_unsupported=True)
+            executed = registry_audit.repair_trust_graph(conn, execute=True, downgrade_unsupported=True)
             fetched = project_record.fetch_project(conn, "proj:trustdowngrade")
         finally:
             conn.close()
@@ -705,7 +707,7 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
             }]
             project_record.save_project(conn, project)
 
-            executed = registry.repair_trust_graph(conn, execute=True, downgrade_unsupported=True)
+            executed = registry_audit.repair_trust_graph(conn, execute=True, downgrade_unsupported=True)
             fetched = project_record.fetch_project(conn, "proj:trustnsiddowngrade")
         finally:
             conn.close()
@@ -726,7 +728,7 @@ class TrustGraphAuditRepairTest(TempRegistryDbTestCase):
             project["developer_accounts"] = [{"handle": "dev.example.com", "did": "did:plc:dev", "source": "manual"}]
             project_record.save_project(conn, project)
 
-            executed = registry.repair_trust_graph(conn, execute=True, downgrade_unsupported=True)
+            executed = registry_audit.repair_trust_graph(conn, execute=True, downgrade_unsupported=True)
             fetched = project_record.fetch_project(conn, "proj:trustdiddowngrade")
         finally:
             conn.close()

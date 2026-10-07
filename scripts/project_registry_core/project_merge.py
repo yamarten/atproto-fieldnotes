@@ -995,3 +995,36 @@ def combine_records(target: dict[str, Any], source: dict[str, Any]) -> dict[str,
     merged["input_nsids"] = [value for value in merged.get("input_nsids", []) if value not in confirmed_nsids]
     runtime_view.merge_identifier_rows(merged, target, source)
     return merged
+
+
+def project_split_identifiers_by_authority_domain(project: dict[str, Any], authority_domain: str) -> dict[str, list[str]]:
+    normalized_domain = str(authority_domain or "").strip().lower().rstrip(".")
+    group: dict[str, list[str]] = {"service_urls": [], "nsids": [], "authority_domains": []}
+    if not normalized_domain:
+        return group
+
+    service_urls = project_record.unique_list(
+        list(project.get("service_urls", []))
+        + project_record.manual_seed_values(project, "service_url")
+    )
+    for service_url in service_urls:
+        normalized_url = identifier_core.normalize_url(str(service_url or ""))
+        if urllib.parse.urlparse(normalized_url).netloc.lower() == normalized_domain:
+            group["service_urls"] = project_record.add_unique(group["service_urls"], normalized_url)
+
+    nsids = project_record.unique_list(
+        list(project.get("input_nsids", []))
+        + list(project.get("resolved_nsids", []))
+        + project_record.manual_seed_values(project, "nsid")
+    )
+    for nsid in nsids:
+        normalized_nsid = identifier_core.normalize_nsid(str(nsid or ""))
+        if identifier_core.derive_authority_domain(normalized_nsid) == normalized_domain:
+            group["nsids"] = project_record.add_unique(group["nsids"], normalized_nsid)
+
+    authority_domains = project_record.unique_list(list(project.get("authority_domains", [])) + project_record.manual_seed_values(project, "domain"))
+    for domain in authority_domains:
+        normalized = str(domain or "").strip().lower().rstrip(".")
+        if normalized == normalized_domain:
+            group["authority_domains"] = project_record.add_unique(group["authority_domains"], normalized)
+    return group

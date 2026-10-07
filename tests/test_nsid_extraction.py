@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 
 from helpers import TempRegistryDbTestCase, registry
+
+from project_registry_core.maintenance import registry_audit
 from project_registry_core.identity import identifiers
 from project_registry_core import investigation, project_record, relations
 from project_registry_core.repositories import repository_material
@@ -97,17 +99,17 @@ class NsidRelationRepairTest(TempRegistryDbTestCase):
             conn.commit()
             history_before = tuple(conn.execute("SELECT * FROM investigation_runs WHERE run_id=?", (run_id,)).fetchone())
             relations_before = [tuple(row) for row in conn.execute("SELECT * FROM project_relations")]
-            report = registry.audit_and_repair_identifiers(conn, execute=False)
+            report = registry_audit.audit_and_repair_identifiers(conn, execute=False)
             self.assertEqual(report["normalized_child_change_count"], 1)
             self.assertEqual([tuple(row) for row in conn.execute("SELECT * FROM project_relations")], relations_before)
-            registry.audit_and_repair_identifiers(conn, execute=True)
+            registry_audit.audit_and_repair_identifiers(conn, execute=True)
             current = project_record.fetch_project(conn, project["project_key"])
             self.assertEqual([row[0] for row in conn.execute("SELECT object_value FROM project_relations ORDER BY ordinal")], [
                 "cn.8.lex.Record", "dev.my-app.Record",
             ])
             self.assertEqual(tuple(conn.execute("SELECT * FROM investigation_runs WHERE run_id=?", (run_id,)).fetchone()), history_before)
-            self.assertEqual(registry.audit_and_repair_identifiers(conn, execute=False)["normalized_child_change_count"], 0)
-            self.assertEqual(registry.audit_and_repair_identifiers(conn, execute=False)["pruned_project_count"], 0)
+            self.assertEqual(registry_audit.audit_and_repair_identifiers(conn, execute=False)["normalized_child_change_count"], 0)
+            self.assertEqual(registry_audit.audit_and_repair_identifiers(conn, execute=False)["pruned_project_count"], 0)
             replayed = registry.replay_core.replay_bundle(copy.deepcopy(project), bundle, registry.replay_dependencies())
             self.assertEqual([item["relation"]["object"]["value"] for item in replayed["relation_evidence"]], [
                 "cn.8.lex.Record", "dev.my-app.Record",

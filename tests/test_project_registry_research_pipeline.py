@@ -13,6 +13,8 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
+
+from project_registry_core.maintenance import registry_audit
 from project_registry_core.identity import identifiers as identifier_core
 from project_registry_core.transport import atproto
 
@@ -2231,10 +2233,10 @@ class ProjectRegistryResearchStorageTest(TempRegistryDbTestCase):
         try:
             project_record.save_project(conn, project, enriched=True)
             conn.commit()
-            dry_run = registry.audit_and_repair_identifiers(conn, execute=False)
-            executed = registry.audit_and_repair_identifiers(conn, execute=True)
+            dry_run = registry_audit.audit_and_repair_identifiers(conn, execute=False)
+            executed = registry_audit.audit_and_repair_identifiers(conn, execute=True)
             repaired = project_record.fetch_project(conn, project["project_key"])
-            after_repair = registry.audit_and_repair_identifiers(conn, execute=False)
+            after_repair = registry_audit.audit_and_repair_identifiers(conn, execute=False)
         finally:
             conn.close()
 
@@ -2267,13 +2269,13 @@ class ProjectRegistryResearchStorageTest(TempRegistryDbTestCase):
         conn = registry.open_db()
         try:
             project_record.save_project(conn, project)
-            dry_run = registry.audit_and_repair_identifiers(conn, execute=False)
-            registry.audit_and_repair_identifiers(conn, execute=True)
+            dry_run = registry_audit.audit_and_repair_identifiers(conn, execute=False)
+            registry_audit.audit_and_repair_identifiers(conn, execute=True)
             row = conn.execute(
                 "SELECT predicate, classification FROM project_relations WHERE project_key = ?",
                 (project["project_key"],),
             ).fetchone()
-            after = registry.audit_and_repair_identifiers(conn, execute=False)
+            after = registry_audit.audit_and_repair_identifiers(conn, execute=False)
         finally:
             conn.close()
 
@@ -2511,7 +2513,7 @@ class ProjectRegistryResearchStorageTest(TempRegistryDbTestCase):
         }]
         try:
             project_record.save_project(conn, project)
-            registry.audit_and_repair_identifiers(conn, execute=True)
+            registry_audit.audit_and_repair_identifiers(conn, execute=True)
             repaired = project_record.fetch_project(conn, project["project_key"])
         finally:
             conn.close()

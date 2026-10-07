@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from project_registry_core.maintenance import registry_audit
+
 import datetime as dt
 import json
 import os
@@ -9,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from ..identity import domain_policy
-from .. import registry as core
 from ..persistence import storage
 from ..maintenance import storage_cleanup
 from project_registry_core import project_record
@@ -331,7 +332,7 @@ def compress_investigation_history(
 def configure_multi_tenant_suffix(conn: sqlite3.Connection, suffix: str) -> dict[str, Any]:
     normalized = domain_policy.normalize_multi_tenant_suffix(suffix)
     added = domain_policy.add_configured_multi_tenant_suffix(normalized)
-    same_site_refresh = core.refresh_current_same_site_evidence(conn)
+    same_site_refresh = registry_audit.refresh_current_same_site_evidence(conn)
     return {
         "suffix": normalized,
         "added": added,
@@ -341,15 +342,15 @@ def configure_multi_tenant_suffix(conn: sqlite3.Connection, suffix: str) -> dict
 
 
 def repair_database(conn: sqlite3.Connection, *, execute: bool = False) -> dict[str, Any]:
-    return core.audit_and_repair_identifiers(conn, execute=execute)
+    return registry_audit.audit_and_repair_identifiers(conn, execute=execute)
 
 
 def audit_urls(conn: sqlite3.Connection, *, example_limit: int = 20) -> dict[str, Any]:
-    return core.build_url_field_audit(conn, example_limit=max(0, example_limit))
+    return registry_audit.build_url_field_audit(conn, example_limit=max(0, example_limit))
 
 
 def audit_trust_graph(conn: sqlite3.Connection, *, example_limit: int = 20) -> dict[str, Any]:
-    return core.build_trust_graph_audit(conn, example_limit=max(0, example_limit))
+    return registry_audit.build_trust_graph_audit(conn, example_limit=max(0, example_limit))
 
 
 def repair_trust_graph(
@@ -359,7 +360,7 @@ def repair_trust_graph(
     downgrade_unsupported: bool = False,
     example_limit: int = 20,
 ) -> dict[str, Any]:
-    return core.repair_trust_graph(
+    return registry_audit.repair_trust_graph(
         conn,
         execute=execute,
         downgrade_unsupported=downgrade_unsupported,

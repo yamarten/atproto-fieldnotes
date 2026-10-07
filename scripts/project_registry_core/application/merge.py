@@ -187,7 +187,7 @@ def split_identifier(
     if not identifier_value:
         raise ValueError("identifier value is required")
     if identifier_type == "domain":
-        return core.split_project_authority_domain(
+        return split_project_authority_domain(
             conn,
             source["project_key"],
             identifier_value,
@@ -453,3 +453,161 @@ def register_project_merge_alias(
         """,
         (target_project_key, source_project_key, target_project_key),
     )
+
+
+def split_project_identifier_group(
+    conn: sqlite3.Connection,
+    source_project_key: str,
+    *,
+    split_label: str,
+    group: dict[str, list[str]],
+    discovery_source: str,
+    seed_source: str,
+    note: str = "",
+    execute: bool = True,
+) -> dict[str, Any]:
+    source = project_record.fetch_project(conn, source_project_key)
+    if source is None:
+        raise ValueError(f"source project not found: {source_project_key}")
+    source = project_record.ensure_project_shape(source)
+    identifiers = [
+        (identifier_type, str(value))
+        for identifier_type, values in (
+            ("service_url", group.get("service_urls", [])),
+            ("nsid", group.get("nsids", [])),
+            ("domain", group.get("authority_domains", [])),
+        )
+        for value in values
+        if str(value).strip()
+    ]
+    if not identifiers:
+        raise ValueError(f"split group has no movable identifiers: {split_label}")
+
+    target_key = project_record.allocate_new_project_key(conn)
+    first_type, first_value = identifiers[0]
+    target = project_record.default_project_record(target_key, first_type, first_value)
+    if first_type == "nsid":
+        target["resolved_nsids"] = []
+    target["tracking_state"] = source.get("tracking_state", "active")
+    target["status"] = source.get("status", "draft")
+    target["discovery_sources"] = project_record.unique_list(list(source.get("discovery_sources", [])) + [discovery_source])
+    target["tracking_note"] = f"split {split_label} from {source['project_key']}"
+
+    blocked = project_record.normalize_blocked_identifiers(list(source.get("blocked_identifiers", [])))
+    for identifier_type, identifier_value in identifiers:
+        if identifier_type == "service_url":
+            core.confirm_service_seed(target, identifier_value, source=seed_source)
+        elif identifier_type == "nsid":
+            source_confirmed = identifier_value in source.get("resolved_nsids", [])
+            field = "resolved_nsids" if source_confirmed else "input_nsids"
+            target[field] = project_record.add_unique(target.get(field, []), identifier_value)
+        else:
+            core.add_manual_seed(target, identifier_type, identifier_value, source=seed_source)
+        core.remove_identifier_from_project(source, identifier_type, identifier_value)
+        block_key = (identifier_type, identifier_value)
+        if not any((str(item.get("type") or ""), str(item.get("value") or "")) == block_key for item in blocked):
+            blocked.append(
+                {
+                    "type": identifier_type,
+                    "value": identifier_value,
+                    "note": note.strip() or f"split {split_label} to {target_key}",
+                    "added_at": project_record.iso_now(),
+                }
+            )
+    source["blocked_identifiers"] = blocked
+    source["separate_project_keys"] = project_record.unique_list(list(source.get("separate_project_keys", [])) + [target_key])
+    target["separate_project_keys"] = project_record.unique_list(list(target.get("separate_project_keys", [])) + [source["project_key"]])
+    note_line = f"split {split_label} -> {target_key}"
+    if note:
+        note_line = f"{note_line} ({note.strip()})"
+    project_record.append_system_note(source, note_line)
+
+    source = core.finalize_project_shape(source)
+    target = core.finalize_project_shape(target)
+    source["duplicate_candidates"] = project_merge.compute_duplicate_candidates(conn, source)
+    source["merge_recommendation"] = project_merge.compute_merge_recommendation(source)
+    target["duplicate_candidates"] = project_merge.compute_duplicate_candidates(conn, target)
+    target["merge_recommendation"] = project_merge.compute_merge_recommendation(target)
+    if execute:
+        with concurrency.write_transaction(conn):
+            concurrency.check_projects(conn, [source, target])
+            project_record.save_project(conn, source, enriched=bool(source.get("last_enriched_at")), preserve_timestamps=True, commit=False)
+            project_record.save_project(conn, target, enriched=False, preserve_timestamps=True, commit=False)
+    return {
+        "mode": "execute" if execute else "dry_run",
+        "source_project_key": source["project_key"],
+        "target_project_key": target["project_key"],
+        "split_label": split_label,
+        "moved_identifiers": [
+            {"type": identifier_type, "value": identifier_value}
+            for identifier_type, identifier_value in identifiers
+        ],
+        "source_name": source.get("name", ""),
+        "target_name": target.get("name", ""),
+        "source_seed_type": source.get("seed_type", ""),
+        "source_seed_value": source.get("seed_value", ""),
+        "target_seed_type": target.get("seed_type", ""),
+        "target_seed_value": target.get("seed_value", ""),
+        "source_blocked_identifiers": source.get("blocked_identifiers", []),
+        "source_input_nsids": source.get("input_nsids", []),
+        "source_service_urls": source.get("service_urls", []),
+        "source_authority_domains": source.get("authority_domains", []),
+        "source_project_repository_urls": source.get("project_repository_urls", []),
+        "target_input_nsids": target.get("input_nsids", []),
+        "target_service_urls": target.get("service_urls", []),
+        "target_authority_domains": target.get("authority_domains", []),
+        "target_project_repository_urls": target.get("project_repository_urls", []),
+        "target_merge_recommendation": target.get("merge_recommendation", {}),
+    }
+
+
+def split_project_authority_domain(
+    conn: sqlite3.Connection,
+    source_project_key: str,
+    authority_domain: str,
+    *,
+    note: str = "",
+    execute: bool = False,
+) -> dict[str, Any]:
+    source = project_record.fetch_project(conn, source_project_key)
+    if source is None:
+        raise ValueError(f"source project not found: {source_project_key}")
+    source = project_record.ensure_project_shape(source)
+    normalized_domain = str(authority_domain or "").strip().lower().rstrip(".")
+    if not normalized_domain:
+        raise ValueError("authority domain is required")
+    group = project_merge.project_split_identifiers_by_authority_domain(source, normalized_domain)
+    return split_project_identifier_group(
+        conn,
+        source["project_key"],
+        split_label=f"authority domain {normalized_domain}",
+        group=group,
+        discovery_source="split_from_authority_domain",
+        seed_source="authority_domain_split",
+        note=note,
+        execute=execute,
+    )
+
+
+def split_project_tenant_group(
+    conn: sqlite3.Connection,
+    source_project_key: str,
+    tenant: str,
+    group: dict[str, list[str]],
+) -> dict[str, Any]:
+    result = split_project_identifier_group(
+        conn,
+        source_project_key,
+        split_label=f"tenant {tenant}",
+        group=group,
+        discovery_source="split_from_source_config_audit",
+        seed_source="source_config_audit_split",
+        execute=True,
+    )
+    return {
+        "source_project_key": result["source_project_key"],
+        "target_project_key": result["target_project_key"],
+        "tenant": tenant,
+        "moved_identifiers": result["moved_identifiers"],
+        "target_merge_recommendation": result.get("target_merge_recommendation", {}),
+    }
