@@ -1,0 +1,29 @@
+#!/bin/sh
+set -eu
+case "${1:-}" in
+  -h|--help|help|'')
+    cat <<'USAGE'
+Standalone manual Luna client (no project DB or scheduled jobs).
+  luna catalog OUTPUT.json
+  luna request OUTPUT.json INPUT.json
+  luna batch OUTPUT.json INPUT.json
+  luna authorize OUTPUT.json
+request INPUT: {"model":"gpt-6-luna","reasoningEffort":"high","prompt":"...","timeoutMs":180000}
+batch INPUT: {"parallel":1|2,"items":[{"id":"A","model":"gpt-6-luna","reasoningEffort":"high","prompt":"Return JSON only: ..."},{"id":"B",...}]}
+LUNA_STATE_DIR: private state (default: ~/Library/Application Support/atproto-survey/luna-client)
+LUNA_SDK_DIR: prepared official SDK (default: $LUNA_STATE_DIR/devkit)
+authorize is only needed when the existing connection requires reauthorization.
+USAGE
+    exit 0 ;;
+  catalog|request|batch|authorize) ;;
+  *) echo 'Unknown mode; use --help.' >&2; exit 2 ;;
+esac
+luna_source_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+luna_state_dir=${LUNA_STATE_DIR:-"$HOME/Library/Application Support/atproto-survey/luna-client"}
+luna_sdk_dir=${LUNA_SDK_DIR:-"$luna_state_dir/devkit"}
+luna_electron="$luna_sdk_dir/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+if [ ! -x "$luna_electron" ]; then
+  echo 'Prepared Electron runtime not found; see extras/luna-client/README.md.' >&2
+  exit 2
+fi
+exec "$luna_electron" "$luna_source_dir" "$@"

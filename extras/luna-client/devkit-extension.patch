@@ -1,0 +1,40 @@
+diff --git a/packages/local/src/responses.ts b/packages/local/src/responses.ts
+index dd9f6f6..3d33f94 100644
+--- a/packages/local/src/responses.ts
++++ b/packages/local/src/responses.ts
+@@ -42,6 +42,8 @@ export async function streamResponse(
+       model: options.model,
+       input: input.map((message) => ({ role: message.role, content: message.content })),
+       ...(options.instructions !== undefined ? { instructions: options.instructions } : {}),
++      // Local evaluation extension, 2026-10-09. No output cap or sampling override.
++      ...(options.reasoningEffort !== undefined ? { reasoning: { effort: options.reasoningEffort } } : {}),
+       store: false,
+       stream: true,
+     }, { signal: requestSignal, headers: { accept: "text/event-stream" } }).withResponse();
+@@ -69,6 +71,12 @@ export async function streamResponse(
+       } else if (event.type === "response.incomplete") {
+         throw new ChatGPTError("response_incomplete", "ChatGPT stopped before completing the response. You can keep the partial text or try again.", true);
+       } else if (event.type === "response.completed") {
++        options.onCompleted?.({
++          model: event.response.model,
++          reasoning: event.response.reasoning,
++          usage: event.response.usage,
++          requestId: result.request_id,
++        });
+         completed = true;
+         break;
+       }
+diff --git a/packages/local/src/types.ts b/packages/local/src/types.ts
+index e80f3d2..ec5b7ef 100644
+--- a/packages/local/src/types.ts
++++ b/packages/local/src/types.ts
+@@ -73,6 +73,9 @@ export interface ResponseInputMessage {
+ }
+
+ export interface StreamResponseOptions {
++  // Local evaluation extension, 2026-10-09: expose request effort and completed metadata.
++  reasoningEffort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
++  onCompleted?: (metadata: { model?: string; reasoning?: unknown; usage?: unknown; requestId?: string | null }) => void;
+   model: string;
+   input: string | ResponseInputMessage[];
+   instructions?: string;

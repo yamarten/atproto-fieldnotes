@@ -55,6 +55,7 @@ bin/project-registry-web --host 127.0.0.1 --port 8765 --db-path data/dev/survey.
 | 目的と開発上の残件を知りたい | [Brief](docs/brief.md)・[TODO](docs/developer/todo.md) |
 | 実装の構成と機能の契約を知りたい | [Architecture](docs/developer/architecture.md)・[仕様一覧](docs/documentation-policy.md#開発仕様) |
 | 開発・文書保守に参加したい | [AGENTS](AGENTS.md)・[文書管理方針](docs/documentation-policy.md)・[変更の受入](docs/developer/workflows/change-acceptance.md) |
+| 通常処理と独立した手動ツールを使いたい | [補助ツール](extras/README.md) |
 
 開発時の全unit testは`bin/project-registry-test`です。外部API、正本DB、実LLMへ接続せず、一時DBで実行します。
 
