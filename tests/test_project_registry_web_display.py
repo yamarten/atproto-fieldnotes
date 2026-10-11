@@ -83,6 +83,49 @@ renderSettings().then(() => {
 }).catch(error => { console.error(error); process.exitCode = 1; });
 ''')
 
+    def test_context_help_escapes_content_and_survives_schedule_refresh(self):
+        self.run_javascript(r'''
+const nodes = new Map();
+document.getElementById = id => {
+  if (!nodes.has(id)) nodes.set(id, {innerHTML:"", textContent:"", style:{},
+    matches() { return Boolean(this.open); }, hidePopover() { this.open = false; },
+    showPopover(options) { this.open = true; this.source = options.source; },
+    getBoundingClientRect: () => ({width:380, height:120})});
+  return nodes.get(id);
+};
+document.querySelector = () => null;
+document.querySelectorAll = () => [];
+const window = {innerWidth:1280, innerHeight:720};
+const unsafe = '<img src=x onerror=alert(1)>';
+const html = renderSchedules({items:[{preset_id:"example", label:'A"&B', description:unsafe,
+  steps:[{label:unsafe}]}]});
+assert.match(html, /aria-label="A&quot;&amp;Bの処理内容の説明"/);
+assert.ok(!html.includes(unsafe));
+assert.match(html, /<template><p>&lt;img/);
+assert.ok(!html.includes("<details"));
+const attributes = {};
+const button = {dataset:{helpTitle:"Example"}, isConnected:false,
+  nextElementSibling:{innerHTML:"<p>Explanation</p>"},
+  setAttribute(name, value) { attributes[name] = value; }};
+showContextHelp(button);
+const popup = nodes.get("context-help-popover");
+const replacement = {...button, isConnected:true,
+  getBoundingClientRect: () => ({left:100, top:100, bottom:132}), focus() {}};
+document.querySelectorAll = selector => selector === ".context-help-trigger" ? [replacement] : [];
+assert.equal(popup.open, true);
+assert.equal(attributes["aria-expanded"], "true");
+assert.equal(nodes.get("context-help-title").textContent, "Example");
+bindJobActions = () => {};
+state.screen = "operations";
+api = async path => path === "/api/job-schedules" ? {items:[{preset_id:"example", label:"Example"}]} : {items:[]};
+loadJobs().then(() => {
+  assert.equal(popup.open, true);
+  assert.equal(popup.source, replacement);
+  assert.equal(nodes.get("context-help-body").innerHTML, "<p>Explanation</p>");
+  assert.match(nodes.get("schedule-list").innerHTML, /data-schedule-field="enabled"/);
+}).catch(error => { console.error(error); process.exitCode = 1; });
+''')
+
     def test_detail_and_metrics_render_data_and_bind_project_enrichment(self):
         self.run_javascript(r'''
 const nodes = new Map();

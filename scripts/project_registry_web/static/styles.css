@@ -207,3 +207,17 @@ dialog input, dialog textarea { min-width: 0; max-width: 100%; }
   .suffix-suggestion .actions { justify-content: stretch; }
   .suffix-suggestion .actions button { width: 100%; }
 }
+
+.title-with-help { display: inline-flex; align-items: center; }
+.details-with-help { position: relative; }
+.details-with-help > details > summary { min-height: 32px; margin-right: 40px; align-content: center; }
+.details-with-help > .context-help { position: absolute; top: 0; right: 0; margin-left: 0; }
+.context-help { display: inline-flex; vertical-align: middle; margin-left: 4px; }
+.context-help-trigger { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; width: 32px; padding: 4px; border: 0; border-radius: 50%; background: transparent; color: var(--accent); flex-shrink: 0; }
+.context-help-trigger:hover, .context-help-trigger[aria-expanded="true"] { background: var(--accent-soft); }
+.context-help-trigger svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.context-help-popover { position: fixed; inset: auto; top: 12px; left: 12px; margin: 0; width: min(380px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); box-shadow: 0 6px 24px rgb(0 0 0 / 18%); overflow: auto; }
+.context-help-popover .card-title { align-items: center; }
+.context-help-popover h3 { margin: 0; font-size: 14px; }
+.context-help-popover p { margin: 10px 0 0; }
+.context-help-popover #context-help-close { flex-shrink: 0; width: 30px; padding: 0; font-size: 20px; }

@@ -373,6 +373,73 @@ const $ = (id) => document.getElementById(id);
 // esc(), link(), pill(), or json() before it reaches innerHTML/outerHTML.
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
 const list = (value) => Array.isArray(value) ? value : [];
+// body is trusted template HTML; escape external values before passing it here.
+function helpButton(title, body) {
+  return `<span class="context-help"><button type="button" class="context-help-trigger" data-help-title="${esc(title)}" aria-label="${esc(title)}の説明" aria-controls="context-help-popover" aria-expanded="false" title="${esc(title)}の説明"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v1"/></svg></button><template>${body}</template></span>`;
+}
+let helpInvoker = null;
+function positionContextHelp() {
+  const popup = $("context-help-popover");
+  if (!popup.matches(":popover-open") || !helpInvoker?.isConnected) return;
+  const anchor = helpInvoker.getBoundingClientRect();
+  const bounds = popup.getBoundingClientRect();
+  const gap = 8, edge = 12;
+  const left = Math.max(edge, Math.min(anchor.left, window.innerWidth - bounds.width - edge));
+  const preferredTop = anchor.bottom + gap + bounds.height <= window.innerHeight - edge
+    ? anchor.bottom + gap : anchor.top - bounds.height - gap;
+  const top = Math.max(edge, Math.min(preferredTop, window.innerHeight - bounds.height - edge));
+  popup.style.left = `${left}px`;
+  popup.style.top = `${top}px`;
+}
+function showContextHelp(button) {
+  const popup = $("context-help-popover");
+  const wasOpen = popup.matches(":popover-open");
+  const sameInvoker = helpInvoker === button;
+  if (wasOpen) popup.hidePopover();
+  helpInvoker?.setAttribute("aria-expanded", "false");
+  if (wasOpen && sameInvoker) return;
+  helpInvoker = button;
+  $("context-help-title").textContent = button.dataset.helpTitle;
+  $("context-help-body").innerHTML = button.nextElementSibling.innerHTML;
+  button.setAttribute("aria-expanded", "true");
+  popup.showPopover({source: button});
+  positionContextHelp();
+}
+function restoreContextHelpInvoker() {
+  const popup = $("context-help-popover");
+  if (!popup.matches(":popover-open") || helpInvoker?.isConnected) return;
+  const button = [...document.querySelectorAll(".context-help-trigger")]
+    .find((item) => item.dataset.helpTitle === helpInvoker?.dataset.helpTitle);
+  if (!button) return;
+  // The schedule refresh replaced the invoker. Keep the explanation visible and
+  // reconnect native keyboard navigation and Escape focus restoration.
+  popup.hidePopover();
+  helpInvoker = button;
+  button.setAttribute("aria-expanded", "true");
+  popup.showPopover({source: button});
+  if (document.activeElement === document.body) button.focus({preventScroll: true});
+  positionContextHelp();
+}
+function bindContextHelp() {
+  const popup = $("context-help-popover");
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest(".context-help-trigger");
+    if (button) showContextHelp(button);
+  });
+  popup.addEventListener("toggle", (event) => {
+    if (event.newState === "closed") helpInvoker?.setAttribute("aria-expanded", "false");
+  });
+  $("context-help-close").addEventListener("click", () => {
+    popup.hidePopover();
+    const title = helpInvoker?.dataset.helpTitle;
+    const button = helpInvoker?.isConnected ? helpInvoker
+      : [...document.querySelectorAll(".context-help-trigger")].find((item) => item.dataset.helpTitle === title);
+    button?.focus({preventScroll: true});
+  });
+  window.addEventListener("resize", positionContextHelp);
+  document.addEventListener("scroll", positionContextHelp, true);
+}
+
 const resetDetailScroll = () => { if ($("detail")) $("detail").scrollTop = 0; window.scrollTo({top:0, left:0}); };
 const backToListButton = () => `<button class="mobile-back secondary" data-detail-back>一覧へ戻る</button>`;
 function contextualBackButton() {
@@ -674,6 +741,7 @@ function syncUrl({replace = false} = {}) {
 }
 
 function setScreen(screen, {updateUrl = true, preserveSelection = false} = {}) {
+  $("context-help-popover").hidePopover();
   cancelDetailRequests();
   if (state.operationTimer) clearTimeout(state.operationTimer);
   state.operationTimer = null;
@@ -997,7 +1065,7 @@ function renderAtprotoUsage(usage = {}) {
   return `<p>${usage.source === "operator" ? `${pill(promotionLabel(atprotoUsageLabels, usage.role || "unknown"))} · 手動判断` : "未評価"}</p>
     ${usage.source === "operator" && usage.reason ? `<p>${esc(usage.reason)}</p>` : ""}
     ${list(usage.sources).length ? `<ul>${usage.sources.map((s) => `<li>${esc(displayLabel(s.type))}: ${esc(s.locator)}</li>`).join("")}</ul>` : ""}
-    <details><summary>利用範囲の判断を記録</summary><p class="muted">OAuth宣言と関連記述を参考に記入してください。手動判断は自動調査で上書きされません。</p>
+    <details><summary>利用範囲の判断を記録</summary><p class="muted">手動判断は自動調査で上書きされません。</p>
     <label>主機能での利用<select id="atproto-usage-role">${selectOptions(Object.entries(atprotoUsageLabels), usage.role || "unknown")}</select></label>
     <label>判断根拠<input id="atproto-usage-reason" value="${esc(usage.source === "operator" ? usage.reason : "")}" placeholder="主機能とatprotoが担う部分を記入"></label>
     <div class="actions"><button id="save-atproto-usage">判断を保存</button>${usage.source === "operator" ? `<button id="clear-atproto-usage" class="secondary">手動判断を解除</button>` : ""}</div></details>`;
@@ -1051,7 +1119,7 @@ function renderIntroducedList(data) {
   state.introducedItems = list(data.items);
   const scopes = list(data.scopes);
   const coverage = scopes.map((scope) => `<p class="muted">${esc(scope.query)} · 前回の取得: ${scope.last_scan_at ? esc(formatTimestamp(scope.last_scan_at)) : "記録なし"} · ${scope.last_scan_complete === false ? "取得未完走" : scope.last_scan_complete === true ? "設定範囲の走査完了" : "完走状態の記録なし"} · ${esc(scope.last_scan_fetched_posts)}投稿 / ${esc(scope.last_scan_pages)}ページ · watermark ${esc(scope.watermark || "なし")}</p>`).join("");
-  $("list").innerHTML = `<div class="notice"><strong>要確認 ${esc(data.open_count)}件</strong><p>${esc(data.coverage_note)}</p>${coverage || "<p>同期記録はありません。</p>"}</div>
+  $("list").innerHTML = `<div class="notice"><strong>要確認 ${esc(data.open_count)}件</strong>${helpButton("紹介済み投稿の取得範囲", `<p>${esc(data.coverage_note)}</p>`)}${coverage || "<p>同期記録はありません。</p>"}</div>
     <div class="meta-row">表示 ${state.introducedItems.length ? `${esc(data.offset + 1)}〜${esc(data.offset + state.introducedItems.length)}` : "0"} / ${esc(data.count)}件</div>
     ${state.introducedItems.length ? state.introducedItems.map((item) => `<button class="card ${state.selected === item.id ? "selected" : ""}" data-introduced-id="${esc(item.id)}">
       <span class="card-title"><strong>${esc(item.label || item.url || item.post_text?.slice(0, 65) || "URLなしの投稿")}</strong>${pill(introducedStatusLabels[item.status] || item.status, item.status === "open" ? "candidate" : "")}</span>
@@ -1064,7 +1132,7 @@ function renderIntroducedList(data) {
   document.querySelectorAll("[data-introduced-id]").forEach((button) => button.onclick = () => selectIntroducedItem(button.dataset.introducedId));
   const selected = state.introducedItems.find((item) => item.id === state.selected) || state.introducedItems[0];
   if (selected) selectIntroducedItem(selected.id, {updateUrl:false});
-  else $("detail").innerHTML = `<div class="empty-state"><h2>紹介投稿の確認</h2><p>取得済み投稿に残った要確認項目を表示します。</p></div>`;
+  else $("detail").innerHTML = `<div class="empty-state"><h2>紹介投稿の確認</h2></div>`;
 }
 
 function selectIntroducedItem(id, {updateUrl = true} = {}) {
@@ -1290,7 +1358,7 @@ function skipReviewItem(sourceKey = state.selected, targetKey = "") {
 function clearDetailSelection() {
   cancelDetailRequests();
   state.selected = "";
-  $("detail").innerHTML = `<div class="empty-state"><h2>登録プロジェクトを選択</h2><p>識別子・調査根拠・手動判断を確認できます。</p></div>`;
+  $("detail").innerHTML = `<div class="empty-state"><h2>登録プロジェクトを選択</h2></div>`;
 }
 
 function cancelDetailRequests() {
@@ -1537,7 +1605,7 @@ function renderIdentifier(item) {
         return `<div class="identifier-entry"><div>${pill(entry.classification, entry.classification)} <strong>${esc(displayLabel(entry.role_label || entry.role))}</strong>${entry.is_primary ? ` ${pill("primary")}` : ""}</div><div class="muted">${esc(uniqueValues([displayLabel(entry.kind), entryValueLabel, entry.provider, formatTimestamp(entry.observed_at)]).join(" · "))}</div>${entryActions ? `<div class="actions">${entryActions}</div>` : ""}</div>`;
       }).join("") || `<div class="identifier-summary">${classifications.map((value) => pill(value, value)).join("")}<span class="identifier-roles">${esc(item.role_labels.map(displayLabel).join(" · "))}</span></div>`}</div>
     </div>
-    ${actions ? `<details class="identifier-actions"><summary>識別子全体への操作</summary><div class="actions"><p class="muted">この識別子の値全体に適用します。</p>${actions}</div></details>` : ""}
+    ${actions ? `<details class="identifier-actions"><summary>識別子全体への操作</summary><div class="actions">${actions}</div></details>` : ""}
   </div>`;
 }
 
@@ -1602,7 +1670,7 @@ function renderOAuthClient(item) {
   const status = {parsed: "解析済み", partial: "一部未解釈", empty: "scope が空", missing: "scope の記載なし", invalid_type: "scope の形式不正", too_large: "scope が上限超過", unavailable: "解析できませんでした"}[analysis.status] || analysis.status;
   return `<div class="collector"><div>${link(item.metadata_url)} · ${esc(formatTimestamp(item.observed_at))} ${pill(status)}</div>
     ${item.declared_client_uri ? `<div class="muted">申告されたサービスURL: ${link(item.declared_client_uri)}</div>` : ""}
-    ${analysis.atproto_only ? `<p>認証用の atproto scope のみ。公開データの読取りは可能です。</p>` : ""}
+    ${analysis.atproto_only ? `<p>atproto scope のみ（公開読取りは可能）</p>` : ""}
     ${list(analysis.permissions).map((p) => {
       const target = list(p.collection || p.lxm || p.accept).join(", ") || p.nsid || p.attr || p.raw;
       return `<div class="relation"><strong>${esc(displayLabel(p.kind))}: ${esc(displayLabel(target))}</strong>${p.kind === "include" ? pill("権限セット・未解決", "candidate") : ""}<div class="muted">${p.action ? `操作: ${esc(p.action.map(displayLabel).join("、"))}` : ""}${p.aud ? ` · 宛先: ${esc(p.aud)}` : ""}${p.kind === "transition" ? "移行用の権限。これだけでは用途を特定できません。" : ""}</div></div>`;
@@ -1616,28 +1684,27 @@ function renderUsageMaterial(material = {}) {
   const sources = list(material.sources);
   const coverage = {collected_html:"取得時のHTML本文から抽出", saved_html_excerpt:"保存済みHTMLの範囲のみ", saved_excerpt:"保存済み画面本文の範囲のみ", saved_readme_excerpt:"保存済みREADME抜粋の範囲のみ", saved_description:"保存済みページ説明文"};
   return `${renderCollectionMaterial(material.collections)}<details><summary>atproto利用の関連記述 (${sources.length})</summary>
-    ${sources.length ? `<p class="muted">用語で抽出した原文（否定・予定・他サービスの記述を含む）。主機能での実利用は未判定です。</p>` : ""}
+    ${sources.length ? `<p class="muted">用語一致の抜粋（主機能との関係は未判定）</p>` : ""}
     ${sources.length ? sources.map((source) => `<div class="collector"><strong>${esc(displayLabel(source.kind))}</strong> ${link(source.url || source.locator)}${source.url ? `<div class="muted">${esc(source.locator)}</div>` : ""}<div class="muted">${esc(coverage[source.coverage] || source.coverage)}${source.observed_at ? ` · ${esc(formatTimestamp(source.observed_at))}` : " · 観測時刻不明"}${source.input_truncated || source.matches_omitted ? " · 検索範囲／表示の省略あり" : ""}</div>
       ${source.literal_collections?.length ? `<p>観測済みコレクションと同じ表記: ${esc(source.literal_collections.join(", "))}（意味上の対応は未判定）</p>` : ""}
-      ${list(source.passages).map((p) => `<div class="relation"><div class="muted">本文位置 ${esc(p.start)}–${esc(p.end)} · 検索語: ${esc(list(p.matches).join(", "))}</div>${p.before_omitted ? `<div class="muted">前略</div>` : ""}<pre>${esc(p.text)}</pre>${p.after_omitted ? `<div class="muted">後略</div>` : ""}</div>`).join("")}</div>`).join("") : `<p>${material.status === "no_matches" ? "保存済みの材料に検索語が見つかりませんでした。atprotoを使わないという意味ではありません。" : material.status === "text_unavailable" ? "HTMLの観測はありますが、検索できる本文を取り出せませんでした。" : "検索できる本文の観測がありません。"}</p>`}
+      ${list(source.passages).map((p) => `<div class="relation"><div class="muted">本文位置 ${esc(p.start)}–${esc(p.end)} · 検索語: ${esc(list(p.matches).join(", "))}</div>${p.before_omitted ? `<div class="muted">前略</div>` : ""}<pre>${esc(p.text)}</pre>${p.after_omitted ? `<div class="muted">後略</div>` : ""}</div>`).join("")}</div>`).join("") : `<p>${material.status === "no_matches" ? "保存範囲に一致する記述なし" : material.status === "text_unavailable" ? "HTMLから検索可能な本文を取得できず" : "検索可能な本文は未観測"}</p>`}
     ${material.sources_omitted ? `<p>ほか ${esc(material.sources_omitted)} 件の資料を省略しています。</p>` : ""}
     </details>`;
 }
 
 function renderCollectionMaterial(catalog = {}) {
   const rows = list(catalog.rows);
-  return `<details><summary>コレクションごとの材料 (${rows.length})</summary>
-    ${rows.length ? `<p class="muted">同名のコレクションに関する観測です。作成アプリ・所有・主機能との関係は未確認です。</p>` : ""}
+  return `<div class="details-with-help"><details><summary>コレクションごとの材料 (${rows.length})</summary>
     ${rows.map((row) => `<div class="collector"><h4>${esc(row.collection)}</h4>
-      <strong>要求する操作（権限の宣言）</strong>${row.permissions.length ? row.permissions.map((p) => `<p>${esc(p.actions.map(displayLabel).join("、"))} · ${link(p.metadata_url)} · ${esc(p.observed_at ? formatTimestamp(p.observed_at) : "観測時刻不明")}</p>`).join("") : "<p>このコレクション名の個別のリポジトリ権限の宣言は未観測</p>"}
+      <strong>要求する操作（権限の宣言）</strong>${row.permissions.length ? row.permissions.map((p) => `<p>${esc(p.actions.map(displayLabel).join("、"))} · ${link(p.metadata_url)} · ${esc(p.observed_at ? formatTimestamp(p.observed_at) : "観測時刻不明")}</p>`).join("") : "<p>個別のリポジトリ権限宣言は未観測</p>"}
       <strong>Lexiconの定義</strong>${row.schemas.length ? row.schemas.map((s) => `<div class="relation"><p>${esc(s.description || s.record_description || "説明文は未保存")}</p>${s.description && s.record_description ? `<p>${esc(s.record_description)}</p>` : ""}<p>レコードキー: ${esc(s.key || "未保存")}</p>
         ${s.fields_status === "saved" ? `<ul>${s.fields.map((f) => `<li>${esc(f.name)}${f.type ? ` (${esc(f.type)})` : ""}${f.description ? ` — ${esc(f.description)}` : ""}</li>`).join("")}</ul>${s.fields_omitted || s.fields_compacted ? `<p>フィールド一覧の一部は省略されています。</p>` : ""}` : "<p>フィールド一覧は保存時に省略、または未保存</p>"}
         <p class="muted">${esc(s.observed_at ? formatTimestamp(s.observed_at) : "観測時刻不明")}</p></div>`).join("") : "<p>レコード型のスキーマは未観測</p>"}
       <strong>レコードの観測</strong>${row.record_observations.map((o) => `<p>観測時の集計: ${esc(o.count ?? "不明")} 件 / 直近 ${esc(o.recent_count ?? "不明")} 件 · ${esc(o.observed_at ? formatTimestamp(o.observed_at) : "観測時刻不明")}</p>`).join("")}
-      ${row.record_samples.length ? `<p>保存済みサンプル ${row.record_samples.length} 件</p>${row.record_samples.map((r) => `<div class="relation"><p>${esc(r.did || "DID未保存")} / ${esc(r.rkey || "レコードキー未保存")}</p><p>観測フィールド: ${esc(r.fields.join(", ") || "なし／未保存")}${r.fields_omitted ? "（一部省略）" : ""}</p>${r.declared_type && r.declared_type !== row.collection ? `<p>レコード内の$typeはコレクション名と不一致: ${esc(r.declared_type)}</p>` : ""}</div>`).join("")}` : "<p>保存済みレコードのサンプルなし（レコードが存在しないという意味ではありません）</p>"}
+      ${row.record_samples.length ? `<p>保存済みサンプル ${row.record_samples.length} 件</p>${row.record_samples.map((r) => `<div class="relation"><p>${esc(r.did || "DID未保存")} / ${esc(r.rkey || "レコードキー未保存")}</p><p>観測フィールド: ${esc(r.fields.join(", ") || "なし／未保存")}${r.fields_omitted ? "（一部省略）" : ""}</p>${r.declared_type && r.declared_type !== row.collection ? `<p>レコード内の$typeはコレクション名と不一致: ${esc(r.declared_type)}</p>` : ""}</div>`).join("")}` : "<p>保存済みレコードのサンプルなし</p>"}
       </div>`).join("") || "<p>個別のコレクションを照合できる観測がありません。</p>"}
-    ${rows.length ? `<p class="muted">公開読取りに個別の権限宣言は不要です。ワイルドカード・権限セット・未解釈のscopeは「OAuth scope の宣言」で確認できます。</p>` : ""}
-    ${catalog.omitted ? `<p>ほか ${esc(catalog.omitted)} コレクションを省略しています。</p>` : ""}</details>`;
+    ${catalog.omitted ? `<p>ほか ${esc(catalog.omitted)} コレクションを省略しています。</p>` : ""}</details>
+    ${rows.length ? helpButton("コレクション材料の読み方", "<p>同名のコレクションの観測を集めています。作成アプリ・所有・主機能との関係は未確認です。権限宣言や保存済みサンプルがなくても、非利用・レコードの不在を意味しません。</p><p>公開読取りに個別の権限宣言は不要です。ワイルドカード・権限セット・未解釈のscopeは「OAuth scope の宣言」で確認できます。</p>") : ""}</div>`;
 }
 
 function renderServiceOwnership(data, serviceUrls = []) {
@@ -1650,11 +1717,11 @@ function renderServiceOwnership(data, serviceUrls = []) {
   const targets = uniqueValues(serviceUrls);
   const browserControls = targets.length
     ? `<div class="controls"><label>匿名ブラウザーでの確認対象<select id="browser-service-url">${targets.map((url) => `<option value="${esc(url)}">${esc(url)}</option>`).join("")}</select></label><button id="verify-service-browser" class="primary">匿名ブラウザーで確認</button></div>`
-    : `<p class="muted">ブラウザー確認には採用済みまたは候補のサービスURLが必要です。</p>`;
+    : `<p class="muted">ブラウザー確認の対象URLなし</p>`;
   return `<dl class="kv"><dt>保存済みサービス観測</dt><dd>${pill(data.current_service_status)} ${esc(displayLabel(data.current_service_status_confidence || "none"))}</dd><dt>確認履歴</dt><dd>${esc(displayLabel(data.service_verification_status || "not_observed"))}</dd><dt>帰属の根拠</dt><dd>${esc(displayLabel(data.ownership_signal || "unknown"))}</dd><dt>OAuthメタデータ</dt><dd>${esc(displayLabel(data.oauth_status || "not_observed"))}</dd><dt>URLの別名</dt><dd>${esc(displayLabel(data.url_alias_status || "not_observed"))}</dd></dl>${browserControls}
     ${service.length ? `<details><summary>サービス確認の比較 (${service.length})</summary>${service.map((item) => `<div class="collector">${pill(item.status, item.status)} ${item.application_status === "unapplied" ? pill("未反映（競合）", "candidate") : ""} ${esc(formatTimestamp(item.completed_at))} · ${esc(displayLabel(item.source))}</div>`).join("")}</details>` : ""}
     ${ownership.length ? `<details><summary>NSIDの帰属 (${ownership.length})</summary>${ownership.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.classification, item.classification)}<div class="muted">${esc(displayLabel(item.evidence_status))} · ${esc(item.evidence.map((entry) => `${displayLabel(entry.predicate)}: ${displayLabel(entry.source)}`).join(", ") || "保存済みの帰属関係なし")}</div></div>`).join("")}</details>` : ""}
-    ${clients.length ? `<details><summary>OAuth scope の宣言 (${clients.length})</summary><p class="muted">要求権限の宣言です。実際の許可・利用・所有は未確認です。</p>${clients.map(renderOAuthClient).join("")}</details>` : ""}
+    ${clients.length ? `<details><summary>OAuth scope の宣言 (${clients.length})</summary><p class="muted">要求権限（許可・実利用・所有は未確認）</p>${clients.map(renderOAuthClient).join("")}</details>` : ""}
     ${renderUsageMaterial(data.atproto_material)}
     ${historicalPermissions.length ? `<details><summary>OAuth権限・従来の保存情報 (${historicalPermissions.length})</summary>${historicalPermissions.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.method)}${item.include_unresolved ? pill("権限セット・未解決", "candidate") : ""}<div class="muted">${esc(displayLabel(item.source))}</div></div>`).join("")}</details>` : ""}
     ${aliases.length ? `<details><summary>URLの別名 (${aliases.length})</summary>${aliases.map((item) => `<div class="identifier ${esc(item.confidence || "candidate")}"><div>${link(item.alias)} → ${link(item.canonical)}</div><div class="muted">${esc(item.reason || "観測された別名")}</div><div class="actions">${actionButton("別名URLを除外", "block-identifier", {type:"service_url", value:item.alias}, "small danger")}${actionButton("別名URLを保留", "defer-identifier", {type:"service_url", value:item.alias})}</div></div>`).join("")}</details>` : ""}`;
@@ -1673,7 +1740,7 @@ function renderExplanations(topics) {
 function renderMergeIdentifierMatches(matches, projectLabel = "このプロジェクト", otherLabel = "候補側") {
   const items = list(matches);
   if (!items.length) return "";
-  return `<span class="merge-identifier-matches"><strong>候補と採用済みの識別子が一致</strong>${items.map((item) => `<span class="merge-identifier-match"><span class="muted">${esc(displayLabel(item.kind))} · ${esc(displayLabel(item.role))}</span><span class="identifier-value">${esc(item.value)}</span><span>${esc(projectLabel)}: ${pill(item.project_classification, item.project_classification)} / ${esc(otherLabel)}: ${pill(item.other_classification, item.other_classification)}</span></span>`).join("")}<span class="muted">識別子を共有する別プロジェクトの場合もあります。比較して判断してください。</span></span>`;
+  return `<span class="merge-identifier-matches"><strong>候補と採用済みの識別子が一致</strong>${items.map((item) => `<span class="merge-identifier-match"><span class="muted">${esc(displayLabel(item.kind))} · ${esc(displayLabel(item.role))}</span><span class="identifier-value">${esc(item.value)}</span><span>${esc(projectLabel)}: ${pill(item.project_classification, item.project_classification)} / ${esc(otherLabel)}: ${pill(item.other_classification, item.other_classification)}</span></span>`).join("")}</span>`;
 }
 
 async function loadMergeAnalysis(projectKey, revision, explanations) {
@@ -1773,7 +1840,7 @@ function renderProfileChanges(changes) {
 
 function renderServiceObservations(observations) {
   if (!list(observations).length) return `<p class="muted">保存済みの確認記録はありません。</p>`;
-  return `<p class="muted">保存時点の観測です。現在の利用可否や認証後の機能は未確認です。</p>${list(observations).some((item) => item.fetch_error) ? `<p class="muted">取得失敗は提供終了を示しません。</p>` : ""}${list(observations).map((item) => `<div class="collector"><strong>${link(item.requested_url)}</strong> · ${esc(displayLabel(item.lane))}<dl class="kv"><dt>最新の試行</dt><dd>${esc(formatTimestamp(item.observed_at) || "時点未記録")} · ${esc(item.fetch_error ? "取得失敗" : item.surface_confirmed ? "利用面を確認" : "利用面は未確認")}${item.status_code ? ` (HTTP ${esc(item.status_code)})` : ""}</dd><dt>最後に利用面を確認</dt><dd>${esc(item.last_success?.observed_at ? formatTimestamp(item.last_success.observed_at) : "時点未記録／成功記録なし")}</dd>${item.content_changed ? `<dt>ページの変化</dt><dd>保存範囲の内容が変化しました。説明への影響は未確認です。</dd>` : ""}${item.surface_change ? `<dt>観測の変化</dt><dd>${esc(item.surface_change === "surface_reached" ? "利用面へ到達。説明や追跡方針の見直し材料です。" : "以前の利用面を今回確認できませんでした。")}</dd>` : ""}</dl></div>`).join("")}`;
+  return `${list(observations).some((item) => item.fetch_error) ? `<p class="muted">取得失敗は提供終了を示しません。</p>` : ""}${list(observations).map((item) => `<div class="collector"><strong>${link(item.requested_url)}</strong> · ${esc(displayLabel(item.lane))}<dl class="kv"><dt>最新の試行</dt><dd>${esc(formatTimestamp(item.observed_at) || "時点未記録")} · ${esc(item.fetch_error ? "取得失敗" : item.surface_confirmed ? "利用面を確認" : "利用面は未確認")}${item.status_code ? ` (HTTP ${esc(item.status_code)})` : ""}</dd><dt>最後に利用面を確認</dt><dd>${esc(item.last_success?.observed_at ? formatTimestamp(item.last_success.observed_at) : "時点未記録／成功記録なし")}</dd>${item.content_changed ? `<dt>ページの変化</dt><dd>保存範囲の内容が変化（説明への影響は未確認）</dd>` : ""}${item.surface_change ? `<dt>観測の変化</dt><dd>${esc(item.surface_change === "surface_reached" ? "利用面へ到達" : "以前の利用面へ今回は到達できず")}</dd>` : ""}</dl></div>`).join("")}`;
 }
 
 function editProfile(project, profile) {
@@ -1971,8 +2038,8 @@ async function loadMergeDetail(source, target, options = {}) {
       return `<article class="merge-project"><div class="card-title"><strong>${esc(project.name || project.project_key)}</strong>${pill(project.tracking_state)}</div><div class="muted">${esc(project.project_key)}</div><dl class="kv"><dt>公式サイト</dt><dd>${project.website_url ? link(project.website_url) : "なし"}</dd><dt>状態</dt><dd>${pill(project.service_status)} ${pill(project.atproto_contribution_level)}</dd><dt>シード</dt><dd>${esc(`${displayLabel(project.seed?.type || "")}: ${project.seed?.value || ""}`)}</dd>${projectTimestampRows(project)}</dl><div class="merge-identifiers"><strong>採用済み識別子</strong>${mergeIdentifierRows(identifiers, "confirmed")}<strong>候補</strong>${mergeIdentifierRows(identifiers, "candidate")}</div><button class="small" data-merge-view="${esc(side)}">詳細を開く</button></article>`;
     };
     const firstCreatorBody = data.first_creator_details_included
-      ? `<dl class="kv"><dt>一致</dt><dd>${json(data.first_creator_overlap || {})}</dd><dt>マージ元の初回作成者DID</dt><dd>${json(data.source_collection_first_creator_dids || {})}</dd><dt>マージ先の初回作成者DID</dt><dd>${json(data.target_collection_first_creator_dids || {})}</dd><dt>マージ元の照会結果</dt><dd>${json(data.source_collection_first_creator_details || {})}</dd><dt>マージ先の照会結果</dt><dd>${json(data.target_collection_first_creator_details || {})}</dd></dl><p class="muted">補足情報です。この比較画面の主要な候補判定には混ぜません。listReposByCollectionから初回作成者が得られない場合、照会結果にnot_foundまたはerrorを表示します。</p>`
-      : `<p class="muted">未取得です。listReposByCollectionへ照会するため、時間がかかる場合があります。</p><div class="actions"><button id="load-first-creator-heuristic" class="secondary">初回作成者の情報を取得</button></div>`;
+      ? `<dl class="kv"><dt>一致</dt><dd>${json(data.first_creator_overlap || {})}</dd><dt>マージ元の初回作成者DID</dt><dd>${json(data.source_collection_first_creator_dids || {})}</dd><dt>マージ先の初回作成者DID</dt><dd>${json(data.target_collection_first_creator_dids || {})}</dd><dt>マージ元の照会結果</dt><dd>${json(data.source_collection_first_creator_details || {})}</dd><dt>マージ先の照会結果</dt><dd>${json(data.target_collection_first_creator_details || {})}</dd></dl><p class="muted">候補判定には使わない補足情報です。not_foundは作成者を取得できず、errorは照会失敗を示します。</p>`
+      : `<div class="actions"><button id="load-first-creator-heuristic" class="secondary">初回作成者の情報を取得（外部通信）</button></div>`;
     const mergeActions = `<div class="actions"><button id="skip-review-item" class="secondary">今回は先送り</button><button id="mark-separate">別プロジェクトとして保持</button><button id="execute-merge" class="danger">プロジェクトをマージ</button></div>`;
     $("detail").innerHTML = `${backToListButton()}${contextualBackButton()}<p class="eyebrow">マージ候補の比較</p><h2>${esc(data.source?.name || source)} → ${esc(data.target?.name || target)}</h2><div class="actions"><button id="reverse-merge-direction" class="secondary">マージ元とマージ先を入れ替える</button></div><div class="merge-comparison">${snapshot(data.source, "source")}${snapshot(data.target, "target")}</div>${renderMergeIdentifierMatches(data.source_pair_candidate?.identifier_matches, "マージ元", "マージ先")}${section("候補と判断された理由", `<dl class="kv"><dt>マージの制限</dt><dd>${data.merge_blocked ? pill("blocked", "failed") : "別プロジェクト指定なし"}</dd><dt>厳密な一致</dt><dd>${json(data.strict_overlap || {})}</dd><dt>標準条件での一致</dt><dd>${json(data.moderate_overlap || {})}</dd><dt>マージ元の判定材料</dt><dd>${json(data.source_pair_candidate || {})}</dd><dt>マージ先の判定材料</dt><dd>${json(data.target_pair_candidate || {})}</dd></dl>`)}${renderMultiTenantSuffixSuggestions(data.suggested_multi_tenant_suffixes)}${section("初回作成者による推測", firstCreatorBody)}${section("マージ結果のプレビュー", `<dl class="kv"><dt>名前</dt><dd>${esc(data.merged_preview?.merged_name || "")}</dd><dt>公式サイト</dt><dd>${link(data.merged_preview?.merged_website_url || "")}</dd><dt>サービス状態</dt><dd>${pill(data.merged_preview?.merged_service_status || "unknown")}</dd><dt>リポジトリ</dt><dd>${list(data.merged_preview?.merged_project_repository_urls).map(link).join("<br>") || "なし"}</dd><dt>サービス</dt><dd>${list(data.merged_preview?.merged_service_urls).map(link).join("<br>") || "なし"}</dd></dl>`)}${mergeActions}<div class="detail-footer">${backToListButton()}${contextualBackButton()}</div>`;
     bindBackToListButtons();
@@ -2045,7 +2112,7 @@ function renderOperations() {
       </div></details>
       <button id="start-enrich" class="primary">調査を開始</button>
     </div><code>project-registry enrich --all</code></article>
-    <article class="operation-card"><h3>外部情報の取り込み</h3><p>候補の確認にも外部通信を行います。保存は下のチェックで指定します。</p><div class="controls">
+    <article class="operation-card"><h3>外部情報の取り込み</h3><p>外部通信あり。保存は任意。</p><div class="controls">
       <label>情報源<select id="sync-source"><option value="introduced">紹介済み投稿</option><option value="github">GitHubのリポジトリ検索</option><option value="collections">コレクション一覧</option><option value="lexicons">Lexicon公開情報</option><option value="semble">Sembleのコレクション</option><option value="tangled">Tangledのリポジトリ</option></select></label>
       <label>初回に遡る日数<input id="sync-lookback" type="number" min="1" max="3650" value="10"></label>
       <div class="check-options" role="group" aria-label="取り込みオプション">
@@ -2056,7 +2123,7 @@ function renderOperations() {
       </div>
       <button id="start-sync" class="primary">取り込みを開始</button>
     </div><code>project-registry sync-&lt;source&gt; [--execute]</code></article>
-    <article class="operation-card"><h3>追跡状態の見直し</h3><p>保存済みの情報から変更候補を確認します（通信なし）。</p><div class="controls">
+    <article class="operation-card"><h3>追跡状態の見直し</h3><p>保存済み情報で確認（通信なし）</p><div class="controls">
       <label>レビュー<select id="review-kind"><option value="stalled">活動停滞・安定稼働</option><option value="out_of_scope">調査範囲外</option><option value="ignore">無関係・対象を特定できないもの</option></select></label>
       <label>候補の件数上限<input id="review-limit" type="number" min="1" max="500" value="50"></label>
       <label id="review-inactivity-label">活動なしとする日数<input id="review-inactivity" type="number" min="1" max="3650" value="45"></label>
@@ -2064,7 +2131,7 @@ function renderOperations() {
       <label>追跡状態のメモ<input id="review-note" placeholder="変更時のメモ（任意）"></label>
       <button id="start-review" class="primary">変更候補を確認</button>
     </div><code>project-registry review-&lt;kind&gt; [--execute]</code></article>
-    <article class="operation-card"><h3>調査の再評価</h3><p>保存済みの根拠を使い、通信せず再評価・比較できます。</p><code>project-registry replay-investigation -p proj:...</code><code>project-registry benchmark-investigation</code></article>
+    <article class="operation-card"><h3>調査の再評価</h3><p>保存済みの根拠を再評価・比較（通信なし）</p><code>project-registry replay-investigation -p proj:...</code><code>project-registry benchmark-investigation</code></article>
   </div>${section("定期実行", `<div id="schedule-list"><p class="muted">読込中…</p></div>`)}${section("保存済みの再開地点", `<div id="checkpoint-list"><p class="muted">読込中…</p></div>`)}${section("最近のジョブ", `<div id="job-list"><p class="muted">読込中…</p></div>`)}`;
   $("enrich-target").onchange = () => { $("enrich-project-label").hidden = $("enrich-target").value !== "project"; };
   $("sync-source").onchange = updateSyncControls;
@@ -2213,7 +2280,7 @@ function renderJobs(items) {
         ${job.can_resume ? `<button class="small" data-job-resume="${esc(job.job_id)}">再開</button>` : ""}
         ${plan?.candidates?.length ? `<button class="small primary" data-review-plan="${esc(job.job_id)}">${esc(plan.candidates.length)}件の変更候補を確認</button>` : ""}
       </div><details class="job-details" data-job-details="${esc(job.job_id)}" ${state.openJobDetails.has(job.job_id) ? "open" : ""}>
-        <summary>詳細（JSON）</summary>${plan?.candidates?.length ? "" : `<div class="actions"><button class="small" data-job-detail-refresh="${esc(job.job_id)}">詳細を再読込</button></div>`}<div id="job-detail-${esc(job.job_id.replaceAll(":", "-"))}">${plan?.candidates?.length ? renderReviewPlan(job) : state.jobDetailCache.has(job.job_id) ? json(state.jobDetailCache.get(job.job_id)) : `<p class="muted">開くと詳細を読み込みます。</p>`}</div>
+        <summary>${plan?.candidates?.length ? "変更候補の選択・適用" : "詳細（JSON）"}</summary>${plan?.candidates?.length ? "" : `<div class="actions"><button class="small" data-job-detail-refresh="${esc(job.job_id)}">詳細を再読込</button></div>`}<div id="job-detail-${esc(job.job_id.replaceAll(":", "-"))}">${plan?.candidates?.length ? renderReviewPlan(job) : state.jobDetailCache.has(job.job_id) ? json(state.jobDetailCache.get(job.job_id)) : `<p class="muted">開くと詳細を読み込みます。</p>`}</div>
       </details></article>`;
   }).join("");
 }
@@ -2253,9 +2320,7 @@ function renderSchedules(data) {
     const steps = list(item.steps).map((step) => esc(displayLabel(step.label || step.operation))).join(" → ");
     const statusLine = [displayLabel(item.last_status), scheduleMessage(item.last_message), item.last_started_at ? `開始 ${formatTimestamp(item.last_started_at)}` : "", item.last_completed_at ? `完了 ${formatTimestamp(item.last_completed_at)}` : ""].filter(Boolean).join(" · ");
     return `<article class="operation-card schedule-card" data-schedule-card="${esc(item.preset_id)}">
-      <div class="card-title"><strong>${esc(displayLabel(item.label))}</strong>${schedule.enabled ? pill("enabled", "confirmed") : pill("disabled")}</div>
-      <p class="muted">${esc(displayLabel(item.description))}</p>
-      <p class="muted">${steps}</p>
+      <div class="card-title"><span class="title-with-help"><strong>${esc(displayLabel(item.label))}</strong>${helpButton(`${displayLabel(item.label)}の処理内容`, `<p>${esc(displayLabel(item.description))}</p><p>${steps}</p>`)}</span>${schedule.enabled ? pill("enabled", "confirmed") : pill("disabled")}</div>
       <div class="controls">
         <label><span><input type="checkbox" data-schedule-field="enabled" data-preset-id="${esc(item.preset_id)}" ${schedule.enabled ? "checked" : ""}> 有効</span></label>
         <label>週<select data-schedule-field="week_of_month" data-preset-id="${esc(item.preset_id)}">${scheduleWeekOptions(schedule.week_of_month)}</select></label>
@@ -2302,6 +2367,7 @@ async function loadJobs() {
     $("job-list").innerHTML = renderJobs(list(data.items));
     $("checkpoint-list").innerHTML = renderCheckpoints(list(checkpoints.items));
     $("schedule-list").innerHTML = renderSchedules(schedules);
+    restoreContextHelpInvoker();
     bindJobActions();
     if (anchor && anchorTop !== undefined) {
       const replacement = document.querySelector(`[data-job-details="${CSS.escape(anchor.dataset.jobDetails)}"]`);
@@ -2456,6 +2522,7 @@ async function waitForServerReload(previousInstance, deadline) {
 }
 
 document.querySelectorAll(".primary-nav [data-screen]").forEach((button) => button.addEventListener("click", () => setScreen(button.dataset.screen)));
+bindContextHelp();
 $("refresh").addEventListener("click", () => setScreen(state.screen, {updateUrl: false, preserveSelection: true}));
 window.addEventListener("popstate", () => {
   restoreStateFromUrl();
