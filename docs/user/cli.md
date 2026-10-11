@@ -244,7 +244,7 @@ project-registry --db-path data/dev/survey.db repair-registration-origins --proj
 
 `--project-key`は複数指定できます。省略したpreviewは補正候補を全件確認しますが、executeには対象とplanの明示が必要です。同じ対象集合でpreviewし、状態が変わってplanが一致しなくなったら再確認します。公開Lexiconだけから発見され、過去の判断・採用来歴がなく、現在の公開観測と候補が整合するprojectのNSIDを一つ採用します。collection側は保存済みの割当観測に対応し、判断・採用来歴の無いconfirmed NSIDへ理由を補います。
 
-merge済み、複数情報源、過去の判断・取消し、公開削除などは自動補正せず除外理由を返します。補正によるadoptionは補正時刻として記録し、過去の登録時刻を推測しません。projectの観測・調査時刻は保持します。正本への適用には上記の保守手順を使ってください。
+merge済み、複数情報源、過去の判断・取消し、公開削除などは自動補正せず除外理由を返します。補正によるadoptionは補正時刻として記録し、過去の登録時刻を推測しません。projectの観測・調査時刻と保存済みLexicon件数は保持します。正本への適用には上記の保守手順を使ってください。
 
 ## 調査・開発補助
 

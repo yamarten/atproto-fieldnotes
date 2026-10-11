@@ -175,6 +175,16 @@ class RegistrationOriginsTest(TempRegistryDbTestCase):
         self.assertEqual(self.conn.execute('SELECT classification FROM project_identifiers WHERE kind="nsid"').fetchone()[0], 'confirmed')
         self.assertEqual(self.conn.execute('SELECT count(*) FROM project_identifier_adoptions').fetchone()[0], 1)
 
+    def test_repair_preserves_persisted_lexicon_count_with_empty_legacy_lexicons(self):
+        key = self.legacy_publication()
+        self.conn.execute("UPDATE projects SET state_json=json_set(state_json, '$.evidence.lexicon_count', 7) WHERE project_key=?", (key,))
+        self.conn.commit()
+        plan = registration_origins.repair(self.conn, project_keys=[key])
+        registration_origins.repair(self.conn, project_keys=[key], execute=True, expected_plan=plan['plan_id'])
+        state = json.loads(self.conn.execute('SELECT state_json FROM projects WHERE project_key=?', (key,)).fetchone()[0])
+        self.assertEqual(state['evidence']['lexicon_count'], 7)
+        self.assertTrue(registration.projection(project_record.fetch_project(self.conn, key))['has_identity'])
+
     def test_repair_refuses_unscoped_stale_or_unreviewed_execute(self):
         key = self.legacy_publication()
         plan = registration_origins.repair(self.conn, project_keys=[key])

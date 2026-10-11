@@ -104,6 +104,9 @@ def repair(conn: sqlite3.Connection, *, project_keys: list[str] | None = None,
         if execute:
             for entry in changes:
                 project = projects[entry["project_key"]]
+                original_state = json.loads(conn.execute(
+                    "SELECT state_json FROM projects WHERE project_key=?", (entry["project_key"],)
+                ).fetchone()[0])
                 for item in entry["changes"]:
                     if item["action"] == "adopt_publication_origin":
                         publication_registry.adopt_registration_origin(project, current[item["value"]], repair=True)
@@ -114,6 +117,20 @@ def repair(conn: sqlite3.Connection, *, project_keys: list[str] | None = None,
                             policy_version="registration-repair-v1")
                 project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")),
                                             preserve_timestamps=True, commit=False)
+                # This repair does not recount Lexicons. The normal save path can
+                # otherwise replace the persisted count with an empty legacy list.
+                saved_state = json.loads(conn.execute(
+                    "SELECT state_json FROM projects WHERE project_key=?", (entry["project_key"],)
+                ).fetchone()[0])
+                original_evidence = original_state.get("evidence", {})
+                saved_evidence = saved_state.setdefault("evidence", {})
+                if "lexicon_count" in original_evidence:
+                    saved_evidence["lexicon_count"] = original_evidence["lexicon_count"]
+                else:
+                    saved_evidence.pop("lexicon_count", None)
+                serialized = project_record.dump_json(saved_state, sort_keys=False)
+                conn.execute("UPDATE projects SET state_json=? WHERE project_key=? AND state_json!=?",
+                             (serialized, entry["project_key"], serialized))
         return {"mode": "execute" if execute else "dry_run", "plan_id": plan_id,
                 "project_count": len(changes), "changes": changes, "skipped": skipped,
                 "adoption_time": "repair_time_not_original_registration_time"}
