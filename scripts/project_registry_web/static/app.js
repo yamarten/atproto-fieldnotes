@@ -226,6 +226,8 @@ const displayLabels = {
   "verify_service": "匿名ブラウザー確認",
   "monitor_services": "サービス観測",
   "lexicon_publication_changed": "Lexiconの発行根拠・帰属の確認",
+  "missing_project_identity": "プロジェクトが表す対象の確認",
+  "review_project_identity_and_tracking": "対象の採用・プロジェクト自体の追跡判断",
   "sync lexicons": "Lexicon公開情報の取得",
   "service_status": "サービス状態",
   "ownership": "帰属",
@@ -1344,6 +1346,37 @@ function actionButton(label, action, data = {}, style = "small") {
   return `<button class="${style}" data-action="${action}" ${attrs}>${esc(label)}</button>`;
 }
 
+const registrationSourceLabels = {
+  lexicon_publication: "Lexicon公開情報", collection_inventory_import: "コレクション一覧",
+  collection_observation_repair: "コレクション観測の補正", bluesky_official_lexicons: "Bluesky公式Lexicon",
+  github_repo_search_sync: "GitHub検索", tangled_jetstream: "Tangledのリポジトリ",
+  semble_collection_sync: "Sembleの収集対象", operator_add_seed: "利用者によるシード登録",
+  manual_seed: "シード登録", web_ui: "利用者の採用操作", text_seed_list_import: "シード一覧の取り込み",
+  bsky_introduced_sync: "紹介済み投稿",
+};
+function registrationSourceLabel(source) {
+  return registrationSourceLabels[source] || displayLabel(source);
+}
+function renderProjectIdentity(identity = {}) {
+  const components = list(identity.components);
+  const origins = components.filter((item) => item.registration_origin);
+  const targets = origins.length ? origins : components;
+  const rows = targets.map((item) => {
+    const reasons = list(item.adoptions).map((adoption) => {
+      const reason = adoption.registration_origin
+        ? adoption.adoption_kind === "operator" ? "利用者が登録起点として採用" : "収集入口の規則で登録起点として採用"
+        : adoption.adoption_kind === "operator" ? "利用者が採用" : adoption.adoption_kind === "trust_policy" ? "信頼規則で採用" : "収集入口の規則で採用";
+      return `${reason}（${registrationSourceLabel(adoption.source)}）${adoption.review_required ? "・根拠の再確認が必要" : ""}`;
+    });
+    return `<div class="identifier confirmed"><div>${identifierValueLink({...item, kinds:[item.kind]})} ${pill("confirmed", "confirmed")}</div><div class="muted">${esc(displayLabel(item.role))}</div><div>${esc(uniqueValues(reasons).join(" / ") || "採用理由は未記録です。現在の識別子から表示しています。")}</div></div>`;
+  });
+  return `${identity.has_identity
+    ? `<p>${origins.length ? "この対象を起点として調べる登録プロジェクトです。" : "現在、次の対象を採用している登録プロジェクトです。登録起点は記録から確認できません。"}</p>${rows.slice(0, 6).join("")}${rows.length > 6 ? `<details><summary>ほかの対象 (${rows.length - 6})</summary>${rows.slice(6).join("")}</details>` : ""}`
+    : `<p class="notice">この登録プロジェクトが表す対象が未採用です。候補から対象を明示的に採用するか、プロジェクト自体の追跡状態を見直してください。除外・保留した起点を別の候補で自動的に置き換えることはありません。</p><div class="actions"><button id="review-project-identifiers">識別子を確認</button><button id="ignore-unidentified-project" class="secondary">プロジェクトを追跡対象外にする</button></div>`}
+    <p class="muted">対象の採用は、その対象を中心に調査するという判断です。発行元の検証や、サービス・リポジトリ等の帰属は、それぞれの根拠で確認します。</p>
+    ${list(identity.discovery_sources).length ? `<p class="muted">発見・取り込みの経路: ${esc(uniqueValues(identity.discovery_sources.map(registrationSourceLabel)).join(" / "))}</p>` : ""}`;
+}
+
 function renderDetail(data) {
   const project = data.project;
   state.selected = project.project_key;
@@ -1386,6 +1419,7 @@ function renderDetail(data) {
     ${hasPromotionHold ? `<p>保留: ${esc(promotionPolicy.active_deferral.reason || "理由なし")} · ${esc(formatTimestamp(promotionPolicy.active_deferral.expires_at))}まで</p>` : ""}</div>`;
   const tab = (key, label, body) => `<section class="detail-tab-panel" data-detail-panel="${key}" ${state.detailTab === key ? "" : "hidden"}>${body}</section>`;
   const overviewBody = `
+    ${data.identity ? section("このプロジェクトが表す対象", renderProjectIdentity(data.identity)) : ""}
     ${section("紹介情報", `<dl class="kv"><dt>公式サイト</dt><dd>${project.website_url ? link(project.website_url) : "なし"}</dd><dt>採用済みサービス</dt><dd>${list(overview.confirmed_services).map(link).join("<br>") || "なし"}</dd><dt>リポジトリ</dt><dd>${list(overview.repositories).map(link).join("<br>") || "なし"}</dd><dt>アカウント</dt><dd>${esc(overview.account || "なし")}</dd><dt>紹介済み</dt><dd>${project.introduced_url ? link(project.introduced_url) : "なし"}</dd><dt>短い説明</dt><dd>${esc(profileValue(profile, "tagline")) || "なし"}</dd><dt>説明</dt><dd>${esc(profileValue(profile, "summary")) || "なし"}</dd><dt>メモ</dt><dd>${esc(profileValue(profile, "notes")) || "なし"}</dd><dt>システム履歴</dt><dd>${renderSystemNotes(project)}</dd>${projectTimestampRows(project)}</dl><div class="actions"><button id="edit-profile">編集</button></div>`)}
     ${project.features?.length ? section("特徴", `<ul>${project.features.map((value) => `<li>${esc(value)}</li>`).join("")}</ul>`) : ""}
     ${project.editorial?.proposal ? `<p class="notice">根拠付きの説明更新案があります。紹介情報の「編集」から確認できます。</p>` : ""}
@@ -1428,6 +1462,10 @@ function renderDetail(data) {
     $("browser-service-url")?.value || "",
   ));
   $("add-project-seed")?.addEventListener("click", () => addProjectSeed(project.project_key));
+  $("review-project-identifiers")?.addEventListener("click", () => document.querySelector('[data-detail-tab="identifiers"]')?.click());
+  $("ignore-unidentified-project")?.addEventListener("click", () => confirmMutation(
+    "プロジェクトを追跡対象外にする", "この登録プロジェクト自体を追跡対象外にします。保存済みの観測と判断履歴は残ります。",
+    `/api/projects/${encodeURIComponent(project.project_key)}/tracking-state`, {tracking_state:"ignore"}, false));
   $("edit-profile")?.addEventListener("click", () => editProfile(project, profile));
   $("skip-review-item")?.addEventListener("click", () => skipReviewItem(project.project_key));
   $("load-investigation-history")?.addEventListener("click", () => loadInvestigationHistory(project.project_key));
@@ -1548,6 +1586,7 @@ function decisionNote(item) {
         "repository accepted by the configured trust policy": "設定された信頼規則でリポジトリを採用",
       },
       operator_add_seed: {"identifier added by operator": "利用者がシードとして識別子を追加"},
+      lexicon_publication: {"Lexicon accepted as the project registration origin": "Lexiconを登録プロジェクトの起点として採用"},
       web_ui: {"candidate confirmed by operator": "利用者が候補を採用"},
       "trust_policy:accepted_lexicon_publisher": {
         "collection accepted through authority-scoped publication evidence": "同じ管理範囲の公開根拠によりコレクションを採用",

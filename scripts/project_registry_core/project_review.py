@@ -10,7 +10,7 @@ from project_registry_core import service as service_core
 import datetime as dt
 from typing import Any
 
-from project_registry_core import project_record
+from project_registry_core import project_record, registration
 
 
 DEFAULT_PROMOTION_DEFER_DAYS = 30
@@ -282,6 +282,10 @@ def compute_review_signals(
     if apply_promotion:
         shaped = apply_promotion_state(shaped)
     signals: list[dict[str, Any]] = []
+    if shaped.get("tracking_state") in {"active", "stable", "stalled"} and not registration.confirmed_components(shaped):
+        signals.append({"kind": "missing_project_identity", "priority": 9,
+                        "reason": "登録プロジェクトが表す対象を採用するか、プロジェクト自体の追跡状態を見直してください。",
+                        "details": {"action_basis": ["review_project_identity_and_tracking"]}})
     dismissed_kinds = {str(item).strip() for item in shaped.get("dismissed_review_kinds", []) if str(item).strip()}
     proposal = (shaped.get("editorial") or {}).get("proposal")
     if proposal:

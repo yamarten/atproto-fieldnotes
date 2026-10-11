@@ -108,6 +108,30 @@ def publisher_only_adoption(project: Mapping[str, Any], nsid: str) -> bool:
     return bool(rows) and all(row.get("source") == ADOPTION_SOURCE for row in rows)
 
 
+def unverified_publication_origin(project: Mapping[str, Any], nsid: str) -> bool:
+    """Registration alone does not authenticate an NSID for project merging."""
+    from .publications import publication_registry
+    rows = [row for row in project.get(runtime_view.RUNTIME_ADOPTION_ROWS, project.get("identifier_adoptions", []))
+            if row.get("kind") == "nsid" and row.get("value") == nsid
+            and row.get("role") == "owned_nsid" and not row.get("cleared_at")]
+    rows += [item for item in project.get("confirmed_identifiers", [])
+             if item.get("type") == "nsid" and item.get("value") == nsid and not item.get("cleared_at")]
+    if not rows or any(row.get("source") != publication_registry.SOURCE for row in rows):
+        return False
+    if any(row.get("review_required") for row in rows):
+        return True
+    for item in project.get("publication_schemas", []):
+        if item.get("schema_id") != nsid or item.get("status") != "verified" or item.get("attribution_conflict"):
+            continue
+        try:
+            expires = datetime.fromisoformat(str(item.get("next_verification_at") or "").replace("Z", "+00:00"))
+            if expires > datetime.now(timezone.utc):
+                return False
+        except (TypeError, ValueError):
+            pass
+    return True
+
+
 def publication_matches_catalog(project: Mapping[str, Any], nsid: str, entry: Mapping[str, Any]) -> bool:
     for item in project.get("publication_schemas", []):
         if item.get("schema_id") != nsid:

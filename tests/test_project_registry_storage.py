@@ -1984,6 +1984,10 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         self.assertIn("github_repo_search_sync", projects[0]["discovery_sources"])
         self.assertEqual(projects[0]["manual_seeds"], [])
         self.assertIn(repo_url, projects[0]["project_repository_urls"])
+        from project_registry_core.persistence import runtime_view
+        origins = [item for item in projects[0][runtime_view.RUNTIME_ADOPTION_ROWS] if item["registration_origin"]]
+        self.assertEqual([(item["value"], item["source"], item["adoption_kind"]) for item in origins],
+                         [(repo_url, "github_repo_search_sync", "bootstrap")])
 
     def test_github_screen_failure_does_not_advance_watermark(self) -> None:
         conn = registry.open_db()

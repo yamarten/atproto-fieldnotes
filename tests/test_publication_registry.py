@@ -167,8 +167,12 @@ class PublicationRegistryTest(_PublicationRegistryFixtures, TempRegistryDbTestCa
         result = self.run_sync([space, query])
         self.assertEqual(result['created'], 1)
         p = project_record.list_projects(self.conn)[0]
-        self.assertEqual(set(p['input_nsids']), {'com.example.space', 'com.example.getPosts'})
-        self.assertEqual(p['resolved_nsids'], [])
+        self.assertEqual(p['input_nsids'], ['com.example.space'])
+        self.assertEqual(p['resolved_nsids'], ['com.example.getPosts'])
+        adoption = self.conn.execute('SELECT * FROM project_identifier_adoptions').fetchone()
+        self.assertEqual((adoption['value'], adoption['adoption_kind'], adoption['registration_origin']),
+                         ('com.example.getPosts', 'bootstrap', 1))
+        self.assertEqual(p['publication_schemas'][0]['status'], 'pending')
         self.assertEqual(len(p['publication_schemas']), 2)
         self.assertEqual(lexicon_types.record_sample_nsids(p), [])
         self.assertNotIn('net.third.post', p['input_nsids'])

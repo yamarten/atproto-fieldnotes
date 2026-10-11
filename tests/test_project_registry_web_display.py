@@ -7,6 +7,27 @@ import unittest
 
 @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web display checks")
 class WebDisplayTest(unittest.TestCase):
+    def test_registration_target_reason_and_missing_identity_actions(self):
+        self.run_javascript(r'''
+const target = {kind:"nsid", value:"org.example.post", role:"owned_nsid", registration_origin:true,
+  adoptions:[{adoption_kind:"bootstrap", source:"lexicon_publication", registration_origin:true}]};
+const html = renderProjectIdentity({has_identity:true, components:[target], discovery_sources:["lexicon_publication"]});
+assert.match(html, /収集入口の規則で登録起点として採用（Lexicon公開情報）/);
+assert.match(html, /org.example.post/);
+assert.match(html, /発行元の検証/);
+const legacy = renderProjectIdentity({has_identity:true, components:[{...target, registration_origin:false, adoptions:[]}]});
+assert.match(legacy, /登録起点は記録から確認できません/);
+assert.match(legacy, /採用理由は未記録/);
+const missing = renderProjectIdentity({has_identity:false});
+assert.match(missing, /id="review-project-identifiers"/);
+assert.match(missing, /id="ignore-unidentified-project"/);
+assert.match(missing, /自動的に置き換えることはありません/);
+const escaped = renderProjectIdentity({has_identity:true, components:[{...target, value:'<img src=x>',
+  adoptions:[{source:'<script>bad</script>'}]}]});
+assert.ok(!escaped.includes('<img'));
+assert.ok(!escaped.includes('<script>bad'));
+''')
+
     def run_javascript(self, checks):
         path = Path(__file__).resolve().parents[1] / "scripts/project_registry_web/static/app.js"
         # Run the real render helpers; omit only page startup and supply browser storage.
@@ -100,6 +121,7 @@ renderDetail({project:{project_key:"proj:display", name:"Example"},
   overview:{confirmed_services:["https://example.com/app"]}});
 const html = nodes.get("detail").innerHTML;
 assert.match(html, /最新の調査実行記録/);
+assert.ok(!html.includes('このプロジェクトが表す対象'));
 assert.match(html, /<dt>採用済みサービス<\/dt><dd><a[^>]*href="https:\/\/example.com\/app"/);
 assert.match(html, /id="enrich-project"/);
 nodes.get("enrich-project").listeners.click();

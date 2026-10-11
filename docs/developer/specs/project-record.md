@@ -241,7 +241,7 @@ DB列にclassificationのenum制約はなく、runtime codecは既存rowの無�
 
 `source_repository_record`はrepoを調査した観測記録であり、`state_json.evidence.source_repo_records`に保存します。`authority_domain`はconfirmed `owned_nsid`からruntimeで導出し、identifier rowとして保存しません。いずれもproject構成要素、exact attribution、trusted anchorにはしません。
 
-現行の`add-seed` / Web `Add seed`は、NSID、service URL、repo URLをそれぞれconfirmed `owned_nsid` / `service` / `project_repository`へ投影し、`confirm_identifier` decisionを記録します。明示的にservice URLを追加し、Websiteが空の場合だけ、同じURLをWebsiteの初期値にも使います。candidate confirmや自動sourceではWebsiteを設定しません。`seed_type` / `seed_value` scalarは初期入力の由来・検索用でありidentifier roleやtrust anchorではありません。自動sourceの由来は`discovery_sources`、採用根拠はdecisionまたはsource assignmentとして分離します。
+現行の`add-seed` / Web `Add seed`は、NSID、service URL、repo URLをそれぞれconfirmed `owned_nsid` / `service` / `project_repository`へ投影し、`confirm_identifier` decisionを記録します。明示的にservice URLを追加し、Websiteが空の場合だけ、同じURLをWebsiteの初期値にも使います。candidate confirmや自動sourceではWebsiteを設定しません。`seed_type` / `seed_value` scalarは現在の識別子から再選択する代表値・検索用であり、歴史上の登録起点、identifier roleやtrust anchorを保証しません。自動sourceの由来は`discovery_sources`、採用根拠はdecisionまたはsource assignmentとして分離します。
 
 NSIDには代表値を置きません。runtime上の`resolved_nsids`はconfirmed、`input_nsids`はcandidateの`owned_nsid` viewです。NSIDのname部を含め大小文字を保持します。`project_site_urls`と`project_site_url_candidates`は`site_url` / `project_site`のruntime viewです。人間向けの代表公開URLは引き続き`projects.website_url`を正本とし、Website値だけからidentifier、classification、採用理由を導出しません。同じURLのconfirmed `service`がWebsiteを兼ねる場合は`project_site`を二重登録せず、独立した代表siteが構成要素として必要な場合だけ`project_site`を保存します。既存のproject siteを後からserviceとしても確定する場合は、以前のsite採用を自動撤回しません。
 
@@ -334,6 +334,10 @@ snapshotは直近1件で、全event・順位・session履歴は保存しませ�
 読込みはDB更新もrevision変更も行いません。変換したdecisionは一覧・詳細・解除・mergeで同じ通常経路を通り、次の保存時に旧fieldの除去とdecisionの保存を同じtransactionで行います。繰返し読込み／保存で増殖せず、一括migrationは不要です。旧Deferとの併存時は両方を残し、有効なものが一つでもあれば保留とします。表示する期限は有効な期限の最大値です。解除・再保留は期限内の全entryをclearし、期限切れ・解除済みentryも履歴として保持します。fingerprintのない旧Deferへ現在の根拠を推測補完しません。
 
 ## 非現行identifier、採用理由、移転、noise
+
+adoptionの`registration_origin`は、登録入口で対象として採用した理由を表します。発行元の真正性、現在の代表seedとの一致、歴史上の最初の入力時刻を保証する値ではありません。`seed_type` / `seed_value`は現在の識別子から再選択される代表値なので、登録起点の履歴をそこから復元しません。詳細APIの`identity`は現行confirmed構成要素と有効なadoptionから表示を組み立て、来歴が無い旧データは採用理由未記録として返します。
+
+`repair-registration-origins`は対象と確認済みplanを明示して不足を補います。`source_ref`に補正理由を残し、adoptionの時刻は補正時刻です。過去の登録時刻へ遡及せず、projectの観測・調査時刻も進めません。通常load/saveでは不足を自動補正しません。
 
 `project_noncurrent_identifiers`はprojectとの正の関係を保つが現行構成要素ではないclaimを保持します。`standing`は過去に現行だった`former`と、開発・試験用の`non_production`です。exact検索には現行claimより低い優先度で使えますが、trusted anchorにはしません。同一`project_key + kind + value + role`を`project_identifiers`と同時に保持せず、現行へ再採用した時は非現行rowを削除します。
 

@@ -42,7 +42,7 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 
 ### CLI・Webとapplication service
 
-`application/presentation.py`が検索・queue・詳細のpayloadを組み立てます。Web APIはDB schemaとは独立した`api_version: 2`を持ち、詳細は`project`、`identifiers`、`relations`、`decisions`、`evaluation`、`investigation`に分かれます。同値identifierをまとめた表示でも、`entries`にrole・classification・providerの対応を保持します。
+`application/presentation.py`が検索・queue・詳細のpayloadを組み立てます。Web APIはDB schemaとは独立した`api_version: 2`を持ち、詳細は`project`、`identity`、`identifiers`、`relations`、`decisions`、`evaluation`、`investigation`に分かれます。`registration.py`が`identity`の調査対象と採用理由を現行identifier・adoptionから投影します。同値identifierをまとめた表示でも、`entries`にrole・classification・providerの対応を保持します。
 
 `application/explain.py`はCLI/Web共通で、保存済み状態とrelationから結論、適用rule、支持・反証signalを返します。外部取得・LLM・DB更新は行いません。
 

@@ -212,6 +212,7 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 | `audit-url-fields` | URL項目の利用数と、保存時に満たすべき整合性条件への違反 | 問題と例のJSON | なし |
 | `audit-trust-graph` | 採用済み（`confirmed`）識別子のtrust根拠 | 問題と例のJSON | なし |
 | `repair-db` | 登録プロジェクトの保存データ正規化、派生値更新、衝突 | 変更予定件数のJSON | `--execute` |
+| `repair-registration-origins` | 公開Lexicon起点の対象未採用、collection割当の採用来歴不足 | 対象別変更・除外理由・`plan_id`のJSON | 既定read-only。明示したprojectと確認済みplanだけ`--execute` |
 | `migrate-repository-trust` | 旧ページ・repository信頼根拠の退避計画。`--db-path`と`--output`必須 | 分類付きJSON計画 | `--execute-plan <確認済み計画.json> --archive <退避.json>`で旧根拠全体を退避 |
 | `repair-trust-graph` | trust graph再計算。任意で根拠不足の採用済み識別子を降格 | 変更予定件数のJSON | `--execute` |
 | `cleanup-storage-payloads` | 現在の根拠と調査履歴への保存上限再適用 | byte・件数差分のJSON | `--execute`、任意の`--vacuum` |
@@ -233,6 +234,17 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 `repair-trust-graph --execute`は通常、信頼グラフの接続と評価結果だけを保存します。採用済み（`confirmed`）識別子の降格には`--downgrade-unsupported`も必要です。
 
 `audit-source-config`は既定で対話操作を行います。接尾辞の追加を確認した後、現在保存しているサービスの観測結果を新しいドメイン規則で再評価し、分割候補を表示します。ホストの利用者単位にまとめた候補群から、選んだ群だけを分割します。`--no-interactive`はJSONでの候補確認、`--execute --no-interactive`は接尾辞と現在状態の更新を行いますが、分割は適用しません。
+
+### 登録起点の不足を補正する
+
+```bash
+project-registry --db-path data/dev/survey.db repair-registration-origins --project-key proj:example
+project-registry --db-path data/dev/survey.db repair-registration-origins --project-key proj:example --expected-plan <確認したplan_id> --execute
+```
+
+`--project-key`は複数指定できます。省略したpreviewは補正候補を全件確認しますが、executeには対象とplanの明示が必要です。同じ対象集合でpreviewし、状態が変わってplanが一致しなくなったら再確認します。公開Lexiconだけから発見され、過去の判断・採用来歴がなく、現在の公開観測と候補が整合するprojectのNSIDを一つ採用します。collection側は保存済みの割当観測に対応し、判断・採用来歴の無いconfirmed NSIDへ理由を補います。
+
+merge済み、複数情報源、過去の判断・取消し、公開削除などは自動補正せず除外理由を返します。補正によるadoptionは補正時刻として記録し、過去の登録時刻を推測しません。projectの観測・調査時刻は保持します。正本への適用には上記の保守手順を使ってください。
 
 ## 調査・開発補助
 

@@ -61,7 +61,8 @@ def trusted_collection_nsids_for_merge(project: dict[str, Any]) -> set[str]:
     }
     trusted: set[str] = set()
     for nsid in candidates:
-        if collection_trust.publisher_only_adoption(project, nsid):
+        if (collection_trust.publisher_only_adoption(project, nsid)
+                or collection_trust.unverified_publication_origin(project, nsid)):
             continue
         if project_record.project_trusted_collection_nsid_from_state(project, nsid):
             trusted.add(nsid)

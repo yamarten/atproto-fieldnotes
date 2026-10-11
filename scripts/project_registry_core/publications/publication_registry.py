@@ -10,6 +10,28 @@ from ..identity import identifiers
 from . import lexicon_types
 
 SOURCE = "lexicon_publication"
+REGISTRATION_POLICY = "lexicon-registration-v1"
+
+
+def registration_evidence(item: dict[str, Any]) -> dict[str, Any]:
+    sid = item["schema_id"]
+    return {"schema_id": sid, "namespace": sid.rsplit(".", 1)[0],
+            "publication_status": item["status"], "publishers": item.get("publishers", [])}
+
+
+def adopt_registration_origin(project: dict[str, Any], item: dict[str, Any], *, repair: bool = False) -> None:
+    """Identify a new investigation target; do not authenticate its publisher."""
+    from .. import registry
+    sid = item["schema_id"]
+    evidence = registration_evidence(item)
+    if repair:
+        evidence["repair"] = "missing_registration_origin"
+    registry.add_collection_owned_nsid(
+        project, sid, source=SOURCE, registration_origin=True,
+        note="Lexicon accepted as the project registration origin",
+        source_ref=json.dumps(evidence, sort_keys=True),
+        policy_version=REGISTRATION_POLICY,
+    )
 
 
 def install_schema(conn: sqlite3.Connection) -> None:
@@ -169,8 +191,7 @@ def _import_projects(conn: sqlite3.Connection, observed: dict[str, dict[str, Any
         elif create_unmatched:
             key = records.allocate_new_project_key(conn)
             p = records.default_project_record(key, "nsid", sid)
-            p["resolved_nsids"] = []
-            p["input_nsids"] = []
+            adopt_registration_origin(p, item)
             p["name"] = namespace
             by_key[key] = p
             created_keys.add(key)

@@ -2,6 +2,20 @@
 
 外部情報源（source）から候補を発見し、既存projectへの照合または新規登録へ進める契約です。source設定、取得範囲、取り込み済みの境界を示すwatermark、未一致・曖昧な一致の扱いを定めます。処理は「設定されたsourceを取得する → identifierなどで既存projectへ照合する → 更新または新規登録する」です。未知候補を新規登録するsyncと、既存projectの紹介済み状態だけを更新するsyncを分けます。未一致・曖昧な一致は、sourceごとの進行位置とともに保留情報へ残します。取り込みの後に内容を詳しく調べる処理がenrichです。
 
+## 新規登録と既存projectへの追加
+
+新規projectの登録は調査対象の採用を伴います。`confirmed`と採用理由を同時に保存し、発見した情報源と採用理由を区別します。
+
+| 入口 | 新規projectが採用する対象 |
+| --- | --- |
+| `sync-lexicons` | 最初に受け入れた完全NSID一つ。公開Lexiconの各型に共通。残りは候補 |
+| `sync-collections` | 割当契約でまとめた全full collection。代表collectionにもadoptionを保存 |
+| GitHub / Tangled | 受入条件を通過したrepository URL |
+| Semble / seed list / 紹介済み投稿の新規登録 | 受け入れたseedのNSID、repository URL、service URL |
+| `add-seed` / Webのシード登録 | 利用者が指定した対象。operator adoptionとして記録 |
+
+既存projectへの追加には各入口の照合・帰属規則を使い、登録起点と同じ扱いで候補全体を採用しません。`sync-bluesky-lexicons`は既存の一意な対象だけを更新し、新規projectを作りません。`sync-introduced --mark-only`も新規登録しません。対象の採用と発行元の真正性・projectの追跡価値は[project境界](project-boundaries.md#登録時に対象を採用する)で区別します。
+
 ## source設定とpolicyの境界
 
 設計上、operatorが運用中に変更するsource URL、有効・無効、query、request数の上限、取得対象範囲はconfigへ置けます。一方、payloadの解釈、evidence抽出、同一性・所有の信頼条件、identifierやrelationのclassification、既存projectへの自動追加や紹介候補の選定条件はcodeとtestを正本とします。

@@ -6,6 +6,7 @@ from unittest import mock
 
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase, registry
 from project_registry_core import project_record, source_sync, tangled, tangled_identity
+from project_registry_core.persistence import runtime_view
 
 
 PARENT = "did:plc:o32gsn3jolddqna6w4kdzuv2"
@@ -100,6 +101,10 @@ class TangledForkSyncTest(_TangledForkSyncFixtures, TempRegistryDbTestCase):
         result = self.sync(entries, execute=True, truncated=True, progress=lambda *args: events.append(args[-1]))
         self.assertEqual((result["created"], result["skipped_forks"], result["unmatched"]), (3, 1, 0))
         self.assertEqual(len(registry.all_projects(self.conn)), 3)
+        for project in registry.all_projects(self.conn):
+            origins = [item for item in project[runtime_view.RUNTIME_ADOPTION_ROWS] if item["registration_origin"]]
+            self.assertEqual(len(origins), 1)
+            self.assertEqual((origins[0]["source"], origins[0]["adoption_kind"]), ("tangled_jetstream", "bootstrap"))
         self.assertEqual(self.state()["seq"], 104)
         self.assertTrue(any(e.get("outcome") == "skipped_fork" and e.get("reason") for e in events))
         self.assertTrue(all(r["fork"] is None for r in result["results"][1:]))

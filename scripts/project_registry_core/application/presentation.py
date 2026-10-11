@@ -13,7 +13,7 @@ import json
 import sqlite3
 from typing import Any, Callable
 
-from .. import evaluation, relations, registry as core
+from .. import evaluation, relations, registration, registry as core
 from ..persistence import runtime_view, storage
 from . import (
     decisions,
@@ -712,6 +712,7 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "revision": project_revision(conn, resolved),
         "project": raw_project,
         "identifiers": _identifier_rows(conn, resolved),
+        "identity": registration.projection(prepared),
         "relations": _relation_rows(conn, resolved),
         "decisions": _decision_rows(prepared),
         "evaluation": evaluation,

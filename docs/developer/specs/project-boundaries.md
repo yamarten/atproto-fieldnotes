@@ -11,6 +11,16 @@ repository、service、Lexiconなどの外部対象（resource）の帰属・採
 
 ## 判断モデル
 
+### 登録時に対象を採用する
+
+通常の新規projectは、調査対象を表す構成要素を少なくとも一つ`confirmed`として持ちます。登録入口が受け入れたNSID、repository、serviceを登録起点として採用し、その理由をadoptionへ保存します。これはそのresourceを中心に調査するという定義であり、発行元の真正性や他resourceの帰属を一括で保証しません。登録対象が騙りならproject自体の追跡判断を見直します。
+
+この契約はrecord型Lexiconに限らず、公開Lexicon各型、collection inventory、GitHub、Tangled、Semble、手動seedに共通です。[入口ごとの対象](discovery-and-sync.md#新規登録と既存projectへの追加)を参照してください。既存projectへの追加は従来の帰属・信頼規則で判定し、confirmedが無いことだけを理由に候補を自動昇格させません。
+
+最後の構成要素を除外・保留した場合や旧データに対象未採用のprojectがある場合は、保存を禁止せず、active / stable / stalledのprojectを`missing_project_identity`の要レビュー対象にします。候補の明示採用またはprojectの追跡判断が必要です。旧データの補正は明示した対象への保守操作とし、通常load/saveでは行いません。
+
+未検証・期限切れ・帰属競合のある公開Lexiconを登録起点として採用しただけでは、merge用のtrusted collectionを増やしません。現在有効な公開検証または独立した採用根拠が必要です。採用来歴が要再確認なら、その根拠だけでmergeを支持しません。
+
 ### 判断の流れ
 
 1. collectorが外部情報を観測する。

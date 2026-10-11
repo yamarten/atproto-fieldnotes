@@ -2475,6 +2475,9 @@ def add_collection_owned_nsid(
     *,
     source: str = "collection_observation",
     registration_origin: bool = False,
+    source_ref: str = "",
+    note: str = "collection accepted from an explicit collection source",
+    policy_version: str = "",
 ) -> bool:
     normalized = identifier_core.normalize_nsid(nsid)
     if not normalized or project_record.identifier_is_blocked(project, "nsid", normalized) or project_record.identifier_is_deferred(project, "nsid", normalized):
@@ -2490,17 +2493,22 @@ def add_collection_owned_nsid(
         project["authority_domains"] = project_record.add_unique(project.get("authority_domains", []), authority_domain)
         add_authority_service_candidates(project, authority_domain)
     changed = normalized not in before
-    if changed:
+    # default_project_record already contains the representative NSID. Its
+    # standing must not suppress the first adoption event.
+    needs_adoption = not identifier_has_active_confirm_decision(project, "nsid", normalized)
+    if changed or needs_adoption:
         add_confirmed_identifier_decision(
             project,
             "nsid",
             normalized,
             source=source,
-            note="collection accepted from an explicit collection source",
+            note=note,
             role="owned_nsid",
             registration_origin=registration_origin,
+            source_ref=source_ref,
+            policy_version=policy_version,
         )
-    return changed
+    return changed or needs_adoption
 
 
 def is_collection_inventory_source(source: str) -> bool:

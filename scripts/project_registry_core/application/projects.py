@@ -49,6 +49,7 @@ def add_seed(
         resolved_type,
         seed,
         project_key=project_key,
+        source="operator_add_seed",
         commit=False,
     )
     normalized_value = project_record.canonical_seed_value(resolved_type, seed)
