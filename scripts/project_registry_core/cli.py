@@ -500,12 +500,6 @@ def build_parser() -> argparse.ArgumentParser:
     repair_parser.add_argument("--execute", action="store_true", help="Apply normalization and derived-field refreshes. Without this flag, show a dry-run summary only.")
     repair_parser.set_defaults(func=maintenance_commands.cmd_repair_db)
 
-    registration_parser = subparsers.add_parser("repair-registration-origins", help="Preview missing project identities and registration adoption reasons.")
-    registration_parser.add_argument("-p", "--project-key", action="append", help="Limit to these exact project keys; repeat for multiple projects. Required for execute.")
-    registration_parser.add_argument("--execute", action="store_true", help="Apply only the explicitly selected and reviewed plan.")
-    registration_parser.add_argument("--expected-plan", help="Plan id returned by a preview with the same project keys.")
-    registration_parser.set_defaults(func=maintenance_commands.cmd_repair_registration_origins)
-
     audit_url_parser = subparsers.add_parser("audit-url-fields", help="Report URL field usage, aliases, and stored invariant violations without changing the DB.")
     audit_url_parser.add_argument("--example-limit", type=int, default=20, help="Maximum anomaly examples per kind. Default: 20.")
     audit_url_parser.set_defaults(func=maintenance_commands.cmd_audit_url_fields)

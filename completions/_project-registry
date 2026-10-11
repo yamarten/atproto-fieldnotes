@@ -46,7 +46,6 @@ subcommands=(
   'verify-service:Verify a service with static, deep-page, or browser checks'
   'monitor-services:Inspect or observe due confirmed services'
   'repair-db:Normalize stored data and refresh derived fields'
-  'repair-registration-origins:Preview or apply scoped registration identity repairs'
   'audit-url-fields:Report URL field usage and invariant violations'
   'audit-trust-graph:Report trust-graph confirmation issues'
   'migrate-repository-trust:Review or apply repository relation migration'
@@ -483,12 +482,6 @@ case "$cmd" in
   repair-db)
     _arguments -S \
       '--execute[Apply normalization and derived-field refreshes]'
-    ;;
-  repair-registration-origins)
-    _arguments -S \
-      '*'{-p,--project-key}'[Explicit target project key]:project key:' \
-      '--expected-plan[Reviewed preview plan id]:plan id:' \
-      '--execute[Apply the explicitly selected reviewed plan]'
     ;;
   audit-url-fields)
     _arguments -S \

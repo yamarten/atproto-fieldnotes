@@ -19,13 +19,11 @@ def registration_evidence(item: dict[str, Any]) -> dict[str, Any]:
             "publication_status": item["status"], "publishers": item.get("publishers", [])}
 
 
-def adopt_registration_origin(project: dict[str, Any], item: dict[str, Any], *, repair: bool = False) -> None:
+def adopt_registration_origin(project: dict[str, Any], item: dict[str, Any]) -> None:
     """Identify a new investigation target; do not authenticate its publisher."""
     from .. import registry
     sid = item["schema_id"]
     evidence = registration_evidence(item)
-    if repair:
-        evidence["repair"] = "missing_registration_origin"
     registry.add_collection_owned_nsid(
         project, sid, source=SOURCE, registration_origin=True,
         note="Lexicon accepted as the project registration origin",

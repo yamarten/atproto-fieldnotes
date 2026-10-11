@@ -337,7 +337,7 @@ snapshotは直近1件で、全event・順位・session履歴は保存しませ�
 
 adoptionの`registration_origin`は、登録入口で対象として採用した理由を表します。発行元の真正性、現在の代表seedとの一致、歴史上の最初の入力時刻を保証する値ではありません。`seed_type` / `seed_value`は現在の識別子から再選択される代表値なので、登録起点の履歴をそこから復元しません。詳細APIの`identity`は現行confirmed構成要素と有効なadoptionから表示を組み立て、来歴が無い旧データは採用理由未記録として返します。
 
-`repair-registration-origins`は対象と確認済みplanを明示して不足を補います。`source_ref`に補正理由を残し、adoptionの時刻は補正時刻です。過去の登録時刻へ遡及せず、projectの観測・調査時刻も進めません。通常load/saveでは不足を自動補正しません。
+採用理由を後から補ったadoptionの時刻は、その記録時刻です。`source_ref`には補正理由を保持する場合があります。過去の登録時刻へ遡及せず、projectの観測・調査時刻も進めません。通常load/saveでは不足を自動補正しません。
 
 `project_noncurrent_identifiers`はprojectとの正の関係を保つが現行構成要素ではないclaimを保持します。`standing`は過去に現行だった`former`と、開発・試験用の`non_production`です。exact検索には現行claimより低い優先度で使えますが、trusted anchorにはしません。同一`project_key + kind + value + role`を`project_identifiers`と同時に保持せず、現行へ再採用した時は非現行rowを削除します。
 

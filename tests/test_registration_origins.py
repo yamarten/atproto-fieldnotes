@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 from helpers import TempRegistryDbTestCase, registry
 from project_registry_core import project_record, project_merge, project_review, registration, source_sync
 from project_registry_core.application import decisions, presentation, projects
-from project_registry_core.maintenance import registration_origins
 from project_registry_core.persistence import runtime_view
 from project_registry_core.publications import publication_registry, lexicon_publication_catalog as catalog
 from test_lexicon_publication_catalog import event, summary
@@ -25,16 +23,6 @@ class RegistrationOriginsTest(TempRegistryDbTestCase):
         catalog.ingest_segment(self.conn, [event(seq, 'did:plc:author', sid)],
                                summary(state['watermark_seq'], seq, seq, truncated=False))
         return publication_registry.schemas(self.conn, now=project_record.iso_now())
-
-    def legacy_publication(self, key='proj:aaaaaaaaaaaa', sid='org.example.project.post'):
-        observed = self.publication(sid)
-        p = project_record.default_project_record(key, 'nsid', sid)
-        p['resolved_nsids'] = []
-        p['input_nsids'] = [sid]
-        p['discovery_sources'] = ['lexicon_publication']
-        p['publication_schemas'] = [observed[sid]]
-        project_record.save_project(self.conn, p)
-        return key
 
     def collection(self):
         result = registry.import_collection_inventory_payload(self.conn, [{
@@ -126,8 +114,6 @@ class RegistrationOriginsTest(TempRegistryDbTestCase):
         self.assertEqual(p['resolved_nsids'], [])
         self.assertIn('org.example.project.other', p['input_nsids'])
         self.assertIn('missing_project_identity', {item['kind'] for item in project_review.compute_review_signals(p)})
-        repair = registration_origins.repair(self.conn, project_keys=[key])
-        self.assertEqual(repair['changes'], [])
         projects.set_tracking_state(self.conn, project_key=key, tracking_state='ignore')
         p = project_record.fetch_project(self.conn, key)
         self.assertNotIn('missing_project_identity', {item['kind'] for item in project_review.compute_review_signals(p)})
@@ -148,65 +134,3 @@ class RegistrationOriginsTest(TempRegistryDbTestCase):
         self.assertEqual(project_merge.trusted_collection_nsids_for_merge(p), set())
         registry.add_confirmed_identifier_decision(p, 'nsid', 'org.example.project.post', source='web_ui', role='owned_nsid')
         self.assertEqual(project_merge.trusted_collection_nsids_for_merge(p), {'org.example.project.post'})
-
-    def test_publication_repair_is_read_only_until_scoped_approved_plan_and_preserves_times(self):
-        key = self.legacy_publication()
-        before = '\n'.join(self.conn.iterdump())
-        plan = registration_origins.repair(self.conn, project_keys=[key])
-        self.assertEqual('\n'.join(self.conn.iterdump()), before)
-        self.assertEqual(plan['project_count'], 1)
-        times = tuple(self.conn.execute('SELECT first_seen_at,last_seen_at,last_enriched_at FROM projects').fetchone())
-        registration_origins.repair(self.conn, project_keys=[key], execute=True, expected_plan=plan['plan_id'])
-        p = project_record.fetch_project(self.conn, key)
-        self.assertEqual(p['resolved_nsids'], ['org.example.project.post'])
-        self.assertEqual(tuple(self.conn.execute('SELECT first_seen_at,last_seen_at,last_enriched_at FROM projects').fetchone()), times)
-        evidence = json.loads(p[runtime_view.RUNTIME_ADOPTION_ROWS][0]['source_ref'])
-        self.assertEqual(evidence['repair'], 'missing_registration_origin')
-        self.assertEqual(registration_origins.repair(self.conn, project_keys=[key])['changes'], [])
-
-    def test_collection_repair_records_missing_reason_without_changing_standing(self):
-        key = self.collection()
-        self.conn.execute('DELETE FROM project_identifier_adoptions')
-        self.conn.execute('DELETE FROM project_decisions')
-        self.conn.commit()
-        plan = registration_origins.repair(self.conn, project_keys=[key])
-        self.assertEqual(plan['changes'][0]['changes'][0]['action'], 'record_collection_adoption')
-        registration_origins.repair(self.conn, project_keys=[key], execute=True, expected_plan=plan['plan_id'])
-        self.assertEqual(self.conn.execute('SELECT classification FROM project_identifiers WHERE kind="nsid"').fetchone()[0], 'confirmed')
-        self.assertEqual(self.conn.execute('SELECT count(*) FROM project_identifier_adoptions').fetchone()[0], 1)
-
-    def test_repair_preserves_persisted_lexicon_count_with_empty_legacy_lexicons(self):
-        key = self.legacy_publication()
-        self.conn.execute("UPDATE projects SET state_json=json_set(state_json, '$.evidence.lexicon_count', 7) WHERE project_key=?", (key,))
-        self.conn.commit()
-        plan = registration_origins.repair(self.conn, project_keys=[key])
-        registration_origins.repair(self.conn, project_keys=[key], execute=True, expected_plan=plan['plan_id'])
-        state = json.loads(self.conn.execute('SELECT state_json FROM projects WHERE project_key=?', (key,)).fetchone()[0])
-        self.assertEqual(state['evidence']['lexicon_count'], 7)
-        self.assertTrue(registration.projection(project_record.fetch_project(self.conn, key))['has_identity'])
-
-    def test_repair_refuses_unscoped_stale_or_unreviewed_execute(self):
-        key = self.legacy_publication()
-        plan = registration_origins.repair(self.conn, project_keys=[key])
-        for kwargs in ({'execute': True}, {'execute': True, 'project_keys': [key]}):
-            with self.assertRaises(ValueError):
-                registration_origins.repair(self.conn, **kwargs)
-        p = project_record.fetch_project(self.conn, key)
-        p['name'] = 'changed'
-        project_record.save_project(self.conn, p)
-        with self.assertRaises(project_record.StaleProjectWriteError):
-            registration_origins.repair(self.conn, project_keys=[key], execute=True, expected_plan=plan['plan_id'])
-        self.assertFalse(registration.projection(project_record.fetch_project(self.conn, key))['has_identity'])
-
-    def test_repair_does_not_promote_other_sources_or_reinstate_prior_decisions(self):
-        key = self.legacy_publication()
-        p = project_record.fetch_project(self.conn, key)
-        p['discovery_sources'].append('split_from_project')
-        project_record.save_project(self.conn, p)
-        self.assertEqual(registration_origins.repair(self.conn, project_keys=[key])['changes'], [])
-
-    def test_repair_uses_current_catalog_and_rejects_deleted_target(self):
-        key = self.legacy_publication()
-        self.conn.execute('UPDATE publication_catalog SET is_deleted=1')
-        self.conn.commit()
-        self.assertEqual(registration_origins.repair(self.conn, project_keys=[key])['changes'], [])

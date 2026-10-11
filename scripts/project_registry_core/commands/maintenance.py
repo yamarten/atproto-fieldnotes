@@ -61,23 +61,6 @@ def cmd_repair_db(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_repair_registration_origins(args: argparse.Namespace) -> int:
-    from ..maintenance import registration_origins
-    if args.execute:
-        conn = core.open_db()
-    else:
-        conn = sqlite3.connect(f"{Path(core.DB_PATH).resolve().as_uri()}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA query_only=ON")
-    try:
-        payload = registration_origins.repair(conn, project_keys=args.project_key,
-            execute=bool(args.execute), expected_plan=args.expected_plan or "")
-    finally:
-        conn.close()
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
-    return 0
-
-
 def cmd_audit_url_fields(args: argparse.Namespace) -> int:
     payload = _with_db(lambda conn: services.audit_urls(conn, example_limit=int(args.example_limit)))
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
