@@ -10,6 +10,7 @@ from project_registry_core import project_merge
 from project_registry_core import project_record
 from project_registry_core.persistence import runtime_view
 from project_registry_core import trust_graph
+from project_registry_core.publications import publication_registry
 from project_registry_core.application import presentation
 
 
@@ -77,6 +78,65 @@ class DuplicateProjectReadTest(TempRegistryDbTestCase):
                     project_record.save_project(conn, copy.deepcopy(slim))
             self.assertEqual(before, list(conn.iterdump()))
             self.assertFalse(conn.in_transaction)
+
+    def test_publication_verification_is_preserved_in_both_comparison_reads(self):
+        with contextlib.closing(registry.open_db()) as conn:
+            for number, verified in enumerate((True, False)):
+                p = self.make_project(f'proj:publication{number}', 'nsid', 'app.example.post')
+                p['confirmed_identifiers'] = [dict(type='nsid', value='app.example.post',
+                    role='owned_nsid', source=publication_registry.SOURCE, added_at='2026-10-01')]
+                p['publication_schemas'] = [dict(schema_id='app.example.post',
+                    status='verified' if verified else 'pending', next_verification_at='2999-01-01T00:00:00+00:00')]
+                project_record.save_project(conn, p)
+            conn.commit()
+            full = project_record.list_projects(conn)
+            self.assertTrue(project_merge.trusted_collection_nsids_for_merge(full[0]))
+            self.assertFalse(project_merge.trusted_collection_nsids_for_merge(full[1]))
+            self.assert_equivalent(conn, full, project_record.list_duplicate_projects(conn))
+            self.assert_equivalent(conn, full, project_record.list_batch_merge_projects(
+                conn, tracking_states=project_record.TRACKING_STATES))
+
+    def test_batch_projection_preserves_direction_modes_skips_and_unsavable_boundary(self):
+        with contextlib.closing(registry.open_db()) as conn:
+            self.seed(conn)
+            p = project_record.fetch_project(conn, 'proj:000000000001')
+            p.update(service_status='live', introduced_url='https://introduced.test/post',
+                     resource_url_records=[dict(url='https://resource.test/docs', role='docs', confidence='confirmed')])
+            project_record.save_project(conn, p)
+            ignored = project_record.fetch_project(conn, 'proj:000000000005')
+            ignored['tracking_state'] = 'ignore'
+            project_record.save_project(conn, ignored)
+            conn.commit()
+            before = list(conn.iterdump())
+            states = project_record.TRACKING_STATES - {'ignore'}
+            full = [project_record.ensure_project_shape(p) for p in project_record.list_projects(conn, tracking_states=states)]
+            slim = project_record.list_batch_merge_projects(conn, tracking_states=states)
+            self.assertEqual([p['project_key'] for p in full], [p['project_key'] for p in slim])
+            self.assertNotIn(ignored['project_key'], [p['project_key'] for p in slim])
+            for a, b in zip(full, slim):
+                self.assertEqual(project_merge.project_batch_merge_preference(a), project_merge.project_batch_merge_preference(b))
+                self.assertEqual(project_record.project_alias_tokens(a), project_record.project_alias_tokens(b))
+                with self.assertRaisesRegex(ValueError, 'complete runtime view'):
+                    project_record.save_project(conn, copy.deepcopy(b))
+            for mode in ('strict', 'moderate', 'broad'):
+                with mock.patch.object(project_record, 'list_batch_merge_projects', return_value=full):
+                    expected = project_merge.build_batch_merge_plan(conn, mode)
+                self.assertEqual(expected, project_merge.build_batch_merge_plan(conn, mode))
+            self.assertEqual(before, list(conn.iterdump()))
+            self.assertEqual(project_record.list_batch_merge_projects(conn, tracking_states=set()), [])
+
+    def test_supplied_lookup_does_not_replace_unsaved_target_with_indexed_record(self):
+        with contextlib.closing(registry.open_db()) as conn:
+            self.seed(conn)
+            projects = project_record.list_duplicate_projects(conn)
+            profiles, index = project_merge.build_duplicate_candidate_index(projects)
+            lookup = {p['project_key']: p for p in projects}
+            target = copy.deepcopy(projects[0])
+            target['name'] = 'Unsaved different name'
+            target['website_url'] = 'https://unsaved.test'
+            expected = project_merge.compute_duplicate_candidates(conn, target, projects=projects)
+            self.assertEqual(expected, project_merge.compute_duplicate_candidates(conn, target,
+                projects=projects, duplicate_profiles=profiles, duplicate_index=index, project_lookup=lookup))
 
     def test_bulk_reads_use_one_snapshot_across_concurrent_commit(self):
         with contextlib.closing(registry.open_db()) as conn, contextlib.closing(registry.open_db()) as writer:

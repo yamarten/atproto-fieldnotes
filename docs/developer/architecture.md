@@ -56,7 +56,7 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 
 紹介候補一覧は完全runtime viewを使い、読込み時の正規化結果をqueueとsignalで再利用します。先行絞込みとread snapshotの契約は[評価仕様](specs/project-evaluation.md#紹介候補の表示順位保留)に従います。
 
-詳細のマージ候補は`/api/projects/{key}/merge-analysis`で別途計算し、重複候補の計算結果を推薦とExplainで共有します。比較集合は`project_record.list_duplicate_projects`が同じread snapshotから識別情報・必要なstate・identifier・decision・adoptionを組み立てます。この部分的なviewは保存不可で、projectや候補のcacheは持ちません。呼出元が比較集合を渡す経路はその集合を使います。
+詳細のマージ候補は`/api/projects/{key}/merge-analysis`で別途計算し、重複候補の計算結果を推薦とExplainで共有します。比較集合は`project_record.list_duplicate_projects`が同じread snapshotから識別情報・必要なstate・identifier・decision・adoptionを組み立てます。一覧の`/api/merge-batch`は`list_batch_merge_projects`で`ignore`以外の比較入力と方向選択用のservice status・紹介URL・補助URLを読み、全件のprofile・索引・key辞書を一度作って一覧全体で共有します。これらの部分的なviewは保存不可で、requestをまたぐprojectや候補のcacheは持ちません。呼出元が比較集合を渡す経路はその集合を使います。
 
 画面遷移時はブラウザが詳細とマージ解析の通信を取り消し、request世代とproject/revisionを照合して古い結果を描画しません。`request_cancellation.py`が接続断を検知し、applicationの確認点とSQLite progress handlerで協調的に計算を止め、DB接続等を解放します。別タブへは作用せず、計算中にproject revisionが変わった結果も破棄します。中断は即時の強制終了ではなく、HTTPS中継経由では切断が上流へ伝わることが必要です。
 

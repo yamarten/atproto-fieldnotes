@@ -82,13 +82,19 @@ def project_merge_identity_hosts(project: dict[str, Any]) -> set[str]:
     return {host for host in hosts if host}
 
 
-def project_merge_authority_families(project: dict[str, Any]) -> set[str]:
-    return {domain_policy_core.root_domain(host) for host in project_merge_identity_hosts(project) if domain_policy_core.root_domain(host)}
+def project_merge_authority_families(
+    project: dict[str, Any], *, identity_hosts: set[str] | None = None,
+) -> set[str]:
+    hosts = project_merge_identity_hosts(project) if identity_hosts is None else identity_hosts
+    return {root for host in hosts if (root := domain_policy_core.root_domain(host))}
 
 
-def project_merge_domain_identity_tokens(project: dict[str, Any]) -> set[str]:
+def project_merge_domain_identity_tokens(
+    project: dict[str, Any], *, identity_hosts: set[str] | None = None,
+) -> set[str]:
     tokens: set[str] = set()
-    for host in project_merge_identity_hosts(project):
+    hosts = project_merge_identity_hosts(project) if identity_hosts is None else identity_hosts
+    for host in hosts:
         for value in (host, domain_policy_core.root_domain(host)):
             token = identifier_core.normalize_alias_token(value)
             if token:
@@ -275,15 +281,29 @@ def compute_duplicate_candidates(
     projects: list[dict[str, Any]] | None = None,
     duplicate_profiles: dict[str, dict[str, set[str]]] | None = None,
     duplicate_index: dict[str, dict[str, set[str]]] | None = None,
+    project_lookup: dict[str, dict[str, Any]] | None = None,
     check_cancelled: Callable[[], None] | None = None,
 ) -> list[dict[str, Any]]:
+    """Compare a target, optionally sharing an unchanged indexed snapshot.
+
+    project_lookup must refer to the same records used to build the supplied
+    profiles/index, with no edits since indexing. Separate unsaved targets still
+    get a fresh profile; ordinary callers need not supply a lookup.
+    """
     candidates: list[dict[str, Any]] = []
     if check_cancelled:
         check_cancelled()
     all_projects = projects if projects is not None else project_record.list_duplicate_projects(conn, check_cancelled=check_cancelled)
     if duplicate_profiles is None or duplicate_index is None:
         duplicate_profiles, duplicate_index = build_duplicate_candidate_index(all_projects, check_cancelled=check_cancelled)
-    target_profile = duplicate_profile(project)
+    # A caller-supplied target may contain unsaved edits. Only reuse its indexed
+    # profile when it is the very same record used to build the comparison set.
+    key = str(project.get("project_key") or "")
+    target_profile = (
+        duplicate_profiles.get(key)
+        if project_lookup is not None and project_lookup.get(key) is project
+        else None
+    ) or duplicate_profile(project)
     candidate_keys: set[str] = set()
     for field, values in target_profile.items():
         opposite_field = {
@@ -295,11 +315,12 @@ def compute_duplicate_candidates(
             candidate_keys.update(field_index.get(str(value), set()))
     candidate_keys.discard(str(project.get("project_key") or ""))
 
-    project_lookup = {
-        str(item.get("project_key") or ""): item
-        for item in all_projects
-        if str(item.get("project_key") or "")
-    }
+    if project_lookup is None:
+        project_lookup = {
+            str(item.get("project_key") or ""): item
+            for item in all_projects
+            if str(item.get("project_key") or "")
+        }
     for other_key in sorted(candidate_keys):
         if check_cancelled:
             check_cancelled()
@@ -372,6 +393,7 @@ def identifier_match_values(matches: list[dict[str, str]]) -> list[str]:
 
 
 def duplicate_profile(project: dict[str, Any]) -> dict[str, set[str]]:
+    identity_hosts = project_merge_identity_hosts(project)
     return {
         **component_identifier_profile(project),
         "project_repository_urls": set(project_record.project_repository_url_values(project)),
@@ -381,8 +403,8 @@ def duplicate_profile(project: dict[str, Any]) -> dict[str, set[str]]:
         "website_urls": {str(project.get("website_url") or "")} if project.get("website_url") else set(),
         "recorded_lexicon_namespaces": set(project.get("recorded_lexicon_namespaces", [])),
         "record_creators": set(project.get("record_creators", [])),
-        "authority_service_families": project_merge_authority_families(project),
-        "domain_identity_tokens": project_merge_domain_identity_tokens(project),
+        "authority_service_families": project_merge_authority_families(project, identity_hosts=identity_hosts),
+        "domain_identity_tokens": project_merge_domain_identity_tokens(project, identity_hosts=identity_hosts),
         "merge_aliases": project_record.project_merge_aliases(project),
     }
 
@@ -523,6 +545,8 @@ def batch_moderate_overlap(
     project_b: dict[str, Any],
     *,
     first_creator_lookup: Callable[[dict[str, Any]], set[str]] | None = None,
+    project_profile: dict[str, set[str]] | None = None,
+    other_profile: dict[str, set[str]] | None = None,
 ) -> dict[str, list[str]]:
     if merge_is_blocked(project_a, project_b):
         return {}
@@ -547,7 +571,9 @@ def batch_moderate_overlap(
         reasons["record_creators_and_namespace_lineage"] = namespace_lineage
         return reasons
 
-    domain_token_overlap = sorted(project_merge_domain_identity_tokens(project_a) & project_merge_domain_identity_tokens(project_b))
+    domain_tokens_a = project_profile["domain_identity_tokens"] if project_profile is not None else project_merge_domain_identity_tokens(project_a)
+    domain_tokens_b = other_profile["domain_identity_tokens"] if other_profile is not None else project_merge_domain_identity_tokens(project_b)
+    domain_token_overlap = sorted(domain_tokens_a & domain_tokens_b)
     if domain_token_overlap and alias_overlap:
         reasons["domain_identity_tokens"] = domain_token_overlap
         reasons["alias_overlap"] = alias_overlap
@@ -561,7 +587,9 @@ def batch_moderate_overlap(
                 reasons["alias_overlap"] = alias_overlap
             return reasons
 
-    family_overlap = sorted(project_merge_authority_families(project_a) & project_merge_authority_families(project_b))
+    families_a = project_profile["authority_service_families"] if project_profile is not None else project_merge_authority_families(project_a)
+    families_b = other_profile["authority_service_families"] if other_profile is not None else project_merge_authority_families(project_b)
+    family_overlap = sorted(families_a & families_b)
     if family_overlap and domain_token_overlap:
         reasons["authority_service_families"] = family_overlap
         reasons["domain_identity_tokens"] = domain_token_overlap
@@ -592,8 +620,10 @@ def batch_broad_overlap(
     project_a: dict[str, Any],
     project_b: dict[str, Any],
     recommendation: dict[str, Any],
+    *, project_profile: dict[str, set[str]] | None = None,
+    other_profile: dict[str, set[str]] | None = None,
 ) -> dict[str, list[str]]:
-    reasons = batch_moderate_overlap(project_a, project_b)
+    reasons = batch_moderate_overlap(project_a, project_b, project_profile=project_profile, other_profile=other_profile)
     if reasons:
         return reasons
     if merge_is_blocked(project_a, project_b):
@@ -671,7 +701,7 @@ def build_batch_merge_plan(
     mode: str = "strict",
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     merge_tracking_states = project_record.TRACKING_STATES - {"ignore"}
-    project_list = [project_record.ensure_project_shape(project) for project in project_record.list_projects(conn, tracking_states=merge_tracking_states)]
+    project_list = project_record.list_batch_merge_projects(conn, tracking_states=merge_tracking_states)
     duplicate_profiles, duplicate_index = build_duplicate_candidate_index(project_list)
     projects = {project["project_key"]: project for project in project_list}
     skipped: list[dict[str, Any]] = []
@@ -685,6 +715,7 @@ def build_batch_merge_plan(
             projects=project_list,
             duplicate_profiles=duplicate_profiles,
             duplicate_index=duplicate_index,
+            project_lookup=projects,
         )
         analyzed[project_key] = {
             "project": project,
@@ -720,9 +751,15 @@ def build_batch_merge_plan(
         if mode == "strict":
             safe_reasons = batch_strict_overlap(project, target)
         elif mode == "moderate":
-            safe_reasons = batch_moderate_overlap(project, target)
+            safe_reasons = batch_moderate_overlap(
+                project, target, project_profile=duplicate_profiles[project_key],
+                other_profile=duplicate_profiles[target_key],
+            )
         else:
-            safe_reasons = batch_broad_overlap(project, target, recommendation)
+            safe_reasons = batch_broad_overlap(
+                project, target, recommendation, project_profile=duplicate_profiles[project_key],
+                other_profile=duplicate_profiles[target_key],
+            )
         if not safe_reasons:
             skipped.append(
                 attach_batch_entry_seed_fields(

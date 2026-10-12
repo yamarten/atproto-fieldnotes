@@ -426,7 +426,14 @@ def upsert_evaluation(project: dict[str, Any], evaluation: Mapping[str, Any], *,
 
 def confirmed_by_trust_policy(project: Mapping[str, Any], kind: str, value: str) -> bool:
     key = (kind, value)
-    for item in graph(project).get("evaluations", []):
+    # Confirmation reads saved evaluations. Rebuilding edges neither changes
+    # those evaluations nor validates collection claims; URL claims separately
+    # validate their current graph digest and anchor below.
+    saved = project.get(TRUST_GRAPH_FIELD)
+    evaluations = saved.get("evaluations", []) if isinstance(saved, Mapping) else []
+    for item in evaluations:
+        if not isinstance(item, Mapping):
+            continue
         candidate = item.get("candidate") if isinstance(item.get("candidate"), Mapping) else {}
         if node_key(candidate) == key and bool(item.get("auto_confirm")) and item.get("policy_version") == TRUST_POLICY_VERSION:
             if kind in URL_NODE_KINDS and item.get("inputs_digest") != evaluation_inputs_digest(project):

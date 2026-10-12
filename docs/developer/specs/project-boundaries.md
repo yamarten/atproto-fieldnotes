@@ -637,7 +637,7 @@ merge実行時の統合後`duplicate_candidates`は、削除予定sourceと置�
 
 ### duplicate candidate の作り方
 
-DBから比較集合を読む単発計算では、名前・Website・status、record creator・trust graph、現行identifier・decision・adoptionだけを同一snapshotから復元します。完全なproject読込みと同じ正規化・identifier解釈で下記profileを作り、候補の順位・根拠・採用抑止を評価します。保存済み説明や収集結果、relation全体は比較入力に含めません。既に比較集合が渡された場合はその集合を使い、未保存の変更やmerge時のsource除外を維持します。profileと索引は計算ごとに作り直し、結果をcacheしません。
+DBから比較集合を読む単発計算では、名前・Website・status、record creator・保存済みtrust評価・公開Lexiconの検証状態、現行identifier・decision・adoptionを同一snapshotから復元します。collectionの保存済みtrust評価を読む際にgraphのedgeを再構築しません。URLのtrust評価では引き続き現在のgraph digestとconfirmed anchorを検査します。完全なproject読込みと同じ正規化・identifier解釈で下記profileを作り、候補の順位・根拠・採用抑止を評価します。保存済み説明や収集結果、relation全体は比較入力に含めません。既に比較集合が渡された場合はその集合を使い、未保存の変更やmerge時のsource除外を維持します。profileと索引は計算ごとに作り直し、結果をcacheしません。
 
 - まず各 project から duplicate profile を作ります
   - `project_repository_urls`
@@ -735,6 +735,7 @@ DBから比較集合を読む単発計算では、名前・Website・status、re
 ### merge候補planの追加安全策
 
 - Webのmerge候補planは`duplicate_candidates`をそのままactionへ適用しません
+- 一覧計算は`ignore`以外の全projectを軽量入力から比較します。方向選択に必要な`service_status`・`introduced_url`・`resource_url_records`も読み、保存用の完全runtime viewとは区別します。全件のprofile・索引・key辞書はその一覧計算内で共有し、全pairの選択とソートを終えてから表示件数を制限します
 - 候補 pair ごとに mutual recommendation を要求します
   - A の top が B
   - B の top も A

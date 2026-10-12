@@ -1411,19 +1411,45 @@ def list_projects(
     return projects
 
 
-@concurrency.consistent_read
 def list_duplicate_projects(
     conn: sqlite3.Connection, *, check_cancelled: Callable[[], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Read-only inputs for duplicate matching, never a saveable runtime view.
 
-    Keep the scalar identity, creator evidence, trust policy, current identifier
-    rows and operator decisions. Descriptions, observations and relation evidence
+    Keep scalar identity, creator evidence, trust evaluations, publication
+    verification, current identifier rows and operator decisions.
+    Descriptions, other observations and relation evidence
     do not participate in duplicate_profile or duplicate_candidate_for_pair.
     All tables are read in one snapshot, including caller-owned transactions.
     """
+    return _list_merge_comparison_projects(conn, check_cancelled=check_cancelled)
+
+
+def list_batch_merge_projects(
+    conn: sqlite3.Connection, *, tracking_states: set[str],
+) -> list[dict[str, Any]]:
+    """Unsavable comparison inputs plus the fields used to choose merge direction."""
+    return _list_merge_comparison_projects(conn, tracking_states=tracking_states, batch=True)
+
+
+@concurrency.consistent_read
+def _list_merge_comparison_projects(
+    conn: sqlite3.Connection, *, tracking_states: set[str] | None = None,
+    batch: bool = False, check_cancelled: Callable[[], None] | None = None,
+) -> list[dict[str, Any]]:
     if check_cancelled:
         check_cancelled()
+    where = ""
+    params: list[str] = []
+    if tracking_states is not None:
+        params = sorted(normalize_tracking_state(item) for item in tracking_states if item)
+        if not params:
+            return []
+        where = f"WHERE tracking_state IN ({', '.join('?' for _ in params)})"
+    extra_fields = ""
+    if batch:
+        extra_fields = """, service_status, introduced_url, tracking_state,
+            json_extract(state_json, '$.evidence.resource_url_records') AS resource_url_records"""
     children: dict[str, dict[str, list[sqlite3.Row]]] = {}
     for table in ("project_identifiers", "project_decisions", "project_identifier_adoptions"):
         grouped: dict[str, list[sqlite3.Row]] = {}
@@ -1434,13 +1460,15 @@ def list_duplicate_projects(
             grouped.setdefault(str(row["project_key"]), []).append(row)
         children[table] = grouped
     projects = []
-    rows = conn.execute("""
+    rows = conn.execute(f"""
         SELECT project_key, name, website_url,
                json_extract(state_json, '$.ops.status') AS status,
                json_extract(state_json, '$.evidence.record_creators') AS record_creators,
-               json_extract(state_json, '$.evidence.trust_graph') AS trust_graph
-        FROM projects ORDER BY last_seen_at DESC, project_key ASC
-    """)
+               json_extract(state_json, '$.evidence.trust_graph.evaluations') AS trust_evaluations,
+               json_extract(state_json, '$.evidence.publication_schemas') AS publication_schemas
+               {extra_fields}
+        FROM projects {where} ORDER BY last_seen_at DESC, project_key ASC
+    """, params)
     for row in rows:
         if check_cancelled:
             check_cancelled()
@@ -1460,7 +1488,11 @@ def _duplicate_project_from_rows(
 ) -> dict[str, Any]:
     payload = dict(row)
     payload["record_creators"] = load_json(row["record_creators"] or "[]")
-    payload["trust_graph"] = load_json(row["trust_graph"] or "{}")
+    payload["trust_graph"] = {"evaluations": load_json(row["trust_evaluations"] or "[]")}
+    payload.pop("trust_evaluations", None)
+    payload["publication_schemas"] = load_json(row["publication_schemas"] or "[]")
+    if "resource_url_records" in payload:
+        payload["resource_url_records"] = load_json(row["resource_url_records"] or "[]")
     payload = runtime_view.hydrate(
         payload, identifier_rows=identifier_rows, decision_rows=decision_rows,
         adoption_rows=adoption_rows, relation_rows=(), load_json=registry_database._load_json,

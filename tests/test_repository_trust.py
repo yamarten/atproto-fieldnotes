@@ -27,6 +27,19 @@ def edge(*, classification="confirmed", source="service_page", method="bounded_f
 
 
 class RepositoryTrustTest(unittest.TestCase):
+    def test_saved_collection_confirmation_ignores_edges_and_preserves_policy(self):
+        verdict = dict(candidate=dict(kind='collection', value='app.example.post'),
+                       auto_confirm=True, policy_version=trust_graph.TRUST_POLICY_VERSION)
+        project = {'trust_graph': {'evaluations': [None, verdict]}}
+        before = copy.deepcopy(project)
+        with mock.patch.object(trust_graph, 'graph', side_effect=AssertionError('collection verdict needs no graph rebuild')):
+            self.assertTrue(trust_graph.confirmed_by_trust_policy(project, 'collection', 'app.example.post'))
+            self.assertFalse(trust_graph.confirmed_by_trust_policy(project, 'collection', 'app.example.other'))
+            verdict['policy_version'] = 'expired-policy'
+            self.assertFalse(trust_graph.confirmed_by_trust_policy(project, 'collection', 'app.example.post'))
+        verdict['policy_version'] = trust_graph.TRUST_POLICY_VERSION
+        self.assertEqual(before, project)
+
     def test_known_lexrpc_candidate_cannot_admit_repository_probe(self):
         service = "https://lexrpc.readthedocs.io"
         repo = "https://github.com/bluesky-social/atproto"
@@ -99,6 +112,7 @@ class RepositoryTrustTest(unittest.TestCase):
         repository_trust.record_observation(project, edge())
         repository_trust.record_observation(project, edge(reverse=True))
         self.assertTrue(registry.trust_auto_confirm_identifier(project, "repo_url", REPO)["auto_confirm"])
+        self.assertTrue(trust_graph.confirmed_by_trust_policy(project, "repo_url", REPO))
         project["relation_evidence"] = []
         self.assertFalse(registry.url_has_current_trust(project, "repo_url", REPO))
         self.assertFalse(trust_graph.confirmed_by_trust_policy(project, "repo_url", REPO))
