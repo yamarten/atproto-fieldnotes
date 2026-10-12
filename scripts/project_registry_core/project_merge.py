@@ -19,6 +19,7 @@ from project_registry_core import editorial
 from project_registry_core.persistence import identifier_storage
 from project_registry_core.identity import identifiers as identifier_core
 from project_registry_core import oauth_metadata
+from project_registry_core import operator_feedback
 from project_registry_core.repositories import repo_urls as repo_url_core
 from project_registry_core.repositories import repository_analysis as repository_analysis_core
 from project_registry_core.persistence import runtime_view
@@ -879,6 +880,17 @@ def combine_records(target: dict[str, Any], source: dict[str, Any]) -> dict[str,
         list(merged.get("promotion_priority_adjustments", [])),
         list(source.get("promotion_priority_adjustments", [])),
     )
+    for field in ("introduction_plans", "service_usage_decisions"):
+        entries = operator_feedback.merge_history(merged.get(field, []), source.get(field, []))
+        active_targets = set()
+        for entry in entries:
+            if entry.get("cleared_at"):
+                continue
+            feedback_target = "plan" if field == "introduction_plans" else (entry["service_url"], entry["nsid"])
+            if feedback_target in active_targets:
+                entry["cleared_at"] = project_record.iso_now()
+            active_targets.add(feedback_target)
+        merged[field] = entries
     merged["dismissed_review_kinds"] = project_record.unique_list(
         list(merged.get("dismissed_review_kinds", [])) + list(source.get("dismissed_review_kinds", []))
     )

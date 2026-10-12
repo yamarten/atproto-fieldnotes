@@ -25,7 +25,7 @@ from . import (
     review,
     review_targets,
 )
-from project_registry_core import project_record, promotion_attention
+from project_registry_core import project_record, promotion_attention, operator_feedback
 
 
 WEB_API_VERSION = 2
@@ -43,6 +43,8 @@ RELATION_ENTITY_TYPES = (
     "website",
 )
 DECISION_KINDS = (
+    "plan_introduction",
+    "confirm_service_usage",
     "assess_atproto_usage",
     "block_identifier",
     "confirm_identifier",
@@ -717,6 +719,10 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "decisions": _decision_rows(prepared),
         "evaluation": evaluation,
         "promotion_policy": promotion_policy,
+        "operator_feedback": {
+            "introduction_plan": operator_feedback.active_plan(prepared),
+            "service_usage": [item for item in prepared.get("service_usage_decisions", []) if not item.get("cleared_at")],
+        },
         "promotion_signals": promotion_signals,
         "investigation": _investigation_summary(conn, resolved),
         "review": review.build_review_queue_item(conn, resolved),
@@ -803,6 +809,7 @@ def confirm_candidate(
     project_key: str,
     identifier_type: str,
     value: str,
+    note: str = "",
 ) -> dict[str, Any]:
     project = core.resolve_single_project(conn, project_key=project_key)
     # An explicit operator confirmation supersedes an exact block/defer. If the
@@ -849,7 +856,7 @@ def confirm_candidate(
         identifier_type,
         confirmed,
         source="web_ui",
-        note="candidate confirmed by operator",
+        note=note.strip() or "candidate confirmed by operator",
         role={
             "service_url": "service",
             "repo_url": "project_repository",

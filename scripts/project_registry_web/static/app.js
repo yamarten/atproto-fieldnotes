@@ -179,6 +179,9 @@ const displayLabels = {
   "defer_identifier": "識別子の保留",
   "defer_promotion": "紹介候補の保留",
   "lower_promotion_priority": "紹介候補の優先度を下げる",
+  "plan_introduction": "紹介予定の取り置き",
+  "confirm_service_usage": "サービスのLexicon利用の確認",
+  "operator_service_usage": "利用者の確認",
   "promotion_priority": "紹介候補の優先度",
   "defer_review_target": "個別のレビュー対象を保留",
   "dismiss_review": "要レビューの種類を除外",
@@ -481,6 +484,11 @@ const decisionTargetOptionLabels = {
   promotion_priority: "紹介候補の優先度",
 };
 const state = {
+  pageUrl: "",
+  browserQuery: "",
+  browserSeed: "",
+  plannedQuery: "",
+  plannedOffset: 0,
   screen: "review",
   reviewView: "queue",
   introducedStatus: "open",
@@ -668,9 +676,13 @@ async function api(path, options = {}) {
 
 function restoreStateFromUrl(query = new URLSearchParams(location.search)) {
   const screen = query.get("screen");
-  if (["review", "projects", "operations", "settings"].includes(screen)) state.screen = screen;
+  if (["review", "projects", "browser", "operations", "settings"].includes(screen)) state.screen = screen;
+  state.pageUrl = query.get("url") || "";
+  state.browserQuery = query.get("browser_q") || "";
+  state.plannedQuery = query.get("planned_q") || "";
+  state.plannedOffset = Math.max(0, Number(query.get("planned_offset")) || 0);
   const view = query.get("view");
-  if (["queue", "promotion", "merge", "introduced"].includes(view)) state.reviewView = view;
+  if (["queue", "promotion", "planned", "merge", "introduced"].includes(view)) state.reviewView = view;
   state.introducedStatus = query.get("introduced_status") === "all" ? "all" : "open";
   state.introducedOffset = Math.max(0, Number(query.get("introduced_offset")) || 0);
   state.reviewSignalKind = query.get("review_kind") || "";
@@ -736,6 +748,14 @@ function syncUrl({replace = false} = {}) {
     Object.entries(values).forEach(([key, value]) => { if (value) query.set(key, value); });
   }
   if (state.selected) query.set("project", state.selected);
+  if (state.screen === "browser") {
+    if (state.pageUrl) query.set("url", state.pageUrl);
+    if (state.browserQuery) query.set("browser_q", state.browserQuery);
+  }
+  if (state.screen === "review" && state.reviewView === "planned") {
+    if (state.plannedQuery) query.set("planned_q", state.plannedQuery);
+    if (state.plannedOffset) query.set("planned_offset", state.plannedOffset);
+  }
   if (state.selected && state.detailTab !== "overview") query.set("tab", state.detailTab);
   const url = location.pathname + (query.toString() ? `?${query}` : "");
   (replace ? history.replaceState : history.pushState).call(history, null, "", url);
@@ -751,10 +771,10 @@ function setScreen(screen, {updateUrl = true, preserveSelection = false} = {}) {
   if (!preserveSelection) clearDetailSelection();
   document.body.dataset.screen = screen;
   document.body.classList.remove("detail-open");
-  document.querySelectorAll(".primary-nav [data-screen]").forEach((button) => button.classList.toggle("active", button.dataset.screen === screen));
+  document.querySelectorAll(".primary-nav [data-screen]").forEach((button) => button.classList.toggle("active", button.dataset.screen === (screen === "browser" ? "projects" : screen)));
   const workspace = $("workspace");
   const single = $("single-pane");
-  if (["review", "projects"].includes(screen)) {
+  if (["review", "projects", "browser"].includes(screen)) {
     workspace.hidden = false; single.hidden = true; loadList().then(() => {
       if (state.selected && !(state.screen === "review" && state.reviewView === "introduced")) loadDetail(state.selected, {updateUrl: false});
     });
@@ -768,6 +788,11 @@ function setScreen(screen, {updateUrl = true, preserveSelection = false} = {}) {
 const reviewSignalKinds = ["missing_project_identity", "editorial_refresh", "service_observation_changed", "lexicon_publication_changed", "llm_manual_review_recommended", "service_candidate_needs_confirmation", "candidate_repo_needs_confirmation", "service_now_usable_but_needs_editorial_review", "more_evidence_than_current_classification", "stale_metadata_with_recent_activity", "service_status_unverified_but_promising", "category_recheck_needed", "external_lexicon_dependency_needs_review", "high_information_density", "many_identity_candidates"];
 
 function listControls() {
+  if (state.screen === "browser") return `<div class="controls"><h2>サイトから記録</h2>
+    <label>見ていたサイトのURL<input id="browser-url" type="url" value="${esc(state.pageUrl)}" placeholder="https://example.com/app"></label>
+    <div class="actions"><button id="resolve-browser-url" class="primary">登録状況を確認</button><button id="browser-new-seed" disabled>このURLで登録</button></div>
+    <p class="muted">URLだけで見つからない場合や、OAuth画面から来た場合は、元のサービスを検索してください。</p>
+    <div class="toolbar"><input id="browser-query" type="search" value="${esc(state.browserQuery)}" placeholder="サービス名・NSID・URLを検索"><button id="browser-search">検索</button></div></div>`;
   if (state.screen === "review") {
     const explicitMerge = state.reviewView === "merge"
       ? renderExplicitMergePairForm()
@@ -781,17 +806,19 @@ function listControls() {
       <button id="apply-promotion-filter">検索</button><button id="clear-promotion-filter" class="secondary">条件を解除</button>
       </div><div id="promotion-reasons" class="actions"></div>` : "";
     const introducedFilter = state.reviewView === "introduced" ? `<div class="toolbar"><label>表示<select id="introduced-status">${selectOptions([["open", "要確認"], ["all", "判断済みを含むすべて"]], state.introducedStatus)}</select></label></div>` : "";
+    const plannedFilter = state.reviewView === "planned" ? `<div class="toolbar"><input id="planned-query" type="search" value="${esc(state.plannedQuery)}" placeholder="名前・紹介予定の理由を検索"><button id="search-planned">検索</button></div>` : "";
     return `<div class="controls"><div class="subnav">
       <button data-review-view="queue" class="${state.reviewView === "queue" ? "active" : ""}">要レビュー一覧</button>
       <button data-review-view="introduced" class="${state.reviewView === "introduced" ? "active" : ""}">紹介確認</button>
       <button data-review-view="promotion" class="${state.reviewView === "promotion" ? "active" : ""}">紹介候補一覧</button>
+      <button data-review-view="planned" class="${state.reviewView === "planned" ? "active" : ""}">紹介予定</button>
       <button data-review-view="merge" class="${state.reviewView === "merge" ? "active" : ""}">マージ</button>
       <button id="refresh-review-list" class="secondary">再読込</button>
-    </div>${reviewFilter}${introducedFilter}${promotionFilter}${explicitMerge}</div>`;
+    </div>${reviewFilter}${introducedFilter}${promotionFilter}${plannedFilter}${explicitMerge}</div>`;
   }
   const relationSources = filterOptionValues("relation_sources");
   return `<div class="controls">
-    <div class="toolbar"><input id="project-query" type="search" placeholder="名前・説明・NSID・アカウント・URLを検索" value="${esc(state.projectSearch.query)}"><button id="search-projects" class="primary">検索</button><button id="new-seed">シードを登録</button></div>
+    <div class="toolbar"><input id="project-query" type="search" placeholder="名前・説明・NSID・アカウント・URLを検索" value="${esc(state.projectSearch.query)}"><button id="search-projects" class="primary">検索</button><button id="new-seed">シードを登録</button><button id="open-browser-entry">サイトURLから探す</button></div>
     <details><summary>絞り込み</summary><p class="muted">複数選択可。未選択ならすべて対象。</p><div class="filter-grid">
       <label>追跡状態<select id="filter-tracking" multiple size="5">${multiEnumOptions(filterOptionValues("tracking_states"), state.projectSearch.tracking)}</select></label>
       <label>サービス状態<select id="filter-service" multiple size="5">${multiEnumOptions(filterOptionValues("service_statuses"), state.projectSearch.service)}</select></label>
@@ -828,7 +855,25 @@ async function loadList() {
   bindControls();
   try {
     let data;
-    if (state.screen === "projects") data = await api(projectSearchPath());
+    if (state.screen === "browser") {
+      if (state.browserQuery) data = await api(`/api/projects?${new URLSearchParams({q:state.browserQuery, limit:state.settings.projectLimit})}`);
+      else if (state.pageUrl) {
+        data = await api(`/api/browser-entry?${new URLSearchParams({url:state.pageUrl})}`);
+        if (request !== state.listRequest) return;
+        state.pageUrl = data.url;
+        state.browserSeed = data.seed;
+        $("browser-url").value = data.url;
+        $("browser-new-seed").disabled = list(data.items).length > 0;
+        $("browser-new-seed").title = list(data.items).length ? "一致候補を確認してください。別のURLは登録状況を確認してから追加できます。" : "";
+        if (!state.selected && data.project_key) {
+          state.selected = data.project_key;
+          // setScreen restores this selection after loadList finishes.
+        }
+        syncUrl({replace:true});
+      } else data = {items:[]};
+    }
+    else if (state.screen === "projects") data = await api(projectSearchPath());
+    else if (state.reviewView === "planned") data = await api(`/api/introduction-plans?${new URLSearchParams({q:state.plannedQuery, limit:state.settings.reviewLimit, offset:state.plannedOffset})}`);
     else if (state.reviewView === "introduced") data = await api(`/api/introduced-review?${new URLSearchParams({status:state.introducedStatus, limit:100, offset:state.introducedOffset})}`);
     else if (state.reviewView === "promotion") data = await api(`/api/promotion-queue?${new URLSearchParams({limit:state.settings.reviewLimit, include_personal_tools:state.settings.includePersonalTools, view:state.promotionView, reason:state.promotionReason, offset:state.promotionOffset})}`);
     else if (state.reviewView === "merge") data = await api(`/api/merge-batch?mode=${encodeURIComponent(state.settings.mergeMode)}&limit=${state.settings.mergeLimit}`);
@@ -934,7 +979,39 @@ function captureProjectSearch() {
   };
 }
 
+function browserPageUrl(value) {
+  const url = new URL(value.trim());
+  if (!["https:", "http:"].includes(url.protocol) || url.username || url.password) throw new Error("HTTP(S)のサイトURLを入力してください。");
+  url.search = ""; url.hash = "";
+  return url.href;
+}
+
 function bindControls() {
+  $("open-browser-entry")?.addEventListener("click", () => setScreen("browser"));
+  const resolveBrowser = () => {
+    try {
+      state.pageUrl = browserPageUrl($("browser-url").value);
+      state.browserQuery = "";
+      setScreen("browser");
+    } catch (_) { status("HTTP(S)のサイトURLを入力してください。", true); }
+  };
+  $("resolve-browser-url")?.addEventListener("click", resolveBrowser);
+  $("browser-url")?.addEventListener("keydown", (event) => { if (event.key === "Enter") resolveBrowser(); });
+  const searchBrowser = () => {
+    state.browserQuery = $("browser-query").value.trim();
+    setScreen("browser");
+  };
+  $("browser-search")?.addEventListener("click", searchBrowser);
+  $("browser-query")?.addEventListener("keydown", (event) => { if (event.key === "Enter") searchBrowser(); });
+  $("browser-new-seed")?.addEventListener("click", () => {
+    try {
+      const value = browserPageUrl($("browser-url").value);
+      renderNewSeed(value.replace(/\/$/, "") === state.pageUrl.replace(/\/$/, "") && state.browserSeed ? state.browserSeed : value);
+    } catch (_) { status("HTTP(S)のサイトURLを入力してください。", true); }
+  });
+  const searchPlanned = () => { state.plannedQuery = $("planned-query").value.trim(); state.plannedOffset = 0; clearDetailSelection(); syncUrl(); loadList(); };
+  $("search-planned")?.addEventListener("click", searchPlanned);
+  $("planned-query")?.addEventListener("keydown", (event) => { if (event.key === "Enter") searchPlanned(); });
   const applyPromotionFilter = () => {
     state.promotionView = $("promotion-view").value;
     state.promotionReason = $("promotion-reason").value.trim();
@@ -968,7 +1045,7 @@ function bindControls() {
   bindExplicitMergePairControls(document);
   $("search-projects")?.addEventListener("click", () => { captureProjectSearch(); clearDetailSelection(); syncUrl(); loadList(); });
   $("project-query")?.addEventListener("keydown", (event) => { if (event.key === "Enter") { captureProjectSearch(); clearDetailSelection(); syncUrl(); loadList(); } });
-  $("new-seed")?.addEventListener("click", renderNewSeed);
+  $("new-seed")?.addEventListener("click", () => renderNewSeed());
 }
 
 function renderExplicitMergePairForm({source = "", target = "", sourceFixed = false} = {}) {
@@ -1251,6 +1328,7 @@ function renderList(data) {
   }
   const items = list(data.items);
   const count = data.count ?? items.length;
+  const isPlanned = state.screen === "review" && state.reviewView === "planned";
   const isPromotion = state.screen === "review" && state.reviewView === "promotion";
   if (isPromotion) {
     $("promotion-reasons").innerHTML = list(data.reasons).length ? `<details><summary>理由別の候補数 (${data.reasons.length})</summary>${data.reasons.map((item) => `<button class="small secondary" data-promotion-reason="${esc(item.reason)}">${esc(item.reason)} (${esc(item.count)})</button>`).join("")}</details>` : "";
@@ -1274,9 +1352,22 @@ function renderList(data) {
       ${isPromotion ? "" : `<span class="meta-row">${pill(project.service_status || "")}${pill(project.atproto_contribution_level || "")}${project.introduced_url ? pill("introduced", "confirmed") : ""}${project.has_candidates ? pill("candidates", "candidate") : ""}</span>`}
       ${project.tagline ? `<span>${esc(project.tagline)}</span>` : ""}${signals ? `<span class="meta-row">${signals}</span>` : ""}
       ${promotionCardDetails(item)}
+      ${item.plan ? `<span>紹介予定: ${esc(item.plan.reason || "理由なし")}</span><span class="muted">${esc(formatTimestamp(item.plan.added_at))}</span>` : ""}
+      ${list(item.matches).map((match) => `<span class="muted">${esc(match.value)} · ${esc(displayLabel(match.classification))}${match.match === "descendant" ? " · 配下ページの一致" : match.match === "repository" ? " · リポジトリ配下" : " · URL一致"}</span>`).join("")}
       ${mergeTarget ? `<span class="muted">→ ${esc(item.target_name || mergeTarget)}</span>` : ""}
     </button>`;
   }).join("") : `<div class="empty-state"><p>条件に一致する登録プロジェクトはありません。</p></div>`);
+  if (state.screen === "browser" && data.status) {
+    const message = data.status === "matched" ? "採用済みのURLから登録プロジェクトが見つかりました。"
+      : data.status === "choose" ? "一致候補を選んでください。候補のURLや採用状態を確認できます。"
+      : "このURLと一致する登録は見つかりません。名前で検索するか、URLを確認して登録へ進めます。";
+    $("list").insertAdjacentHTML("afterbegin", `<p class="notice">${message}</p>`);
+  }
+  if (isPlanned) {
+    $("list").insertAdjacentHTML("beforeend", `<div class="actions"><span>${esc(data.offset + items.length)} / ${esc(data.total)} 件</span><button id="planned-prev" ${!data.offset ? "disabled" : ""}>前のページ</button><button id="planned-next" ${data.offset + items.length >= data.total ? "disabled" : ""}>次のページ</button></div>`);
+    $("planned-prev").onclick = () => { state.plannedOffset = Math.max(0, state.plannedOffset - state.settings.reviewLimit); syncUrl(); loadList(); };
+    $("planned-next").onclick = () => { state.plannedOffset += Number(state.settings.reviewLimit); syncUrl(); loadList(); };
+  }
   if (isPromotion) {
     $("list").insertAdjacentHTML("beforeend", `<div id="promotion-pages" class="actions"><span>${esc(data.offset + items.length)} / ${esc(data.total)} 件</span><button id="promotion-prev" ${!data.offset ? "disabled" : ""}>前のページ</button><button id="promotion-next" ${!data.has_more ? "disabled" : ""}>次のページ</button></div>`);
     $("promotion-prev").onclick = () => { state.promotionOffset = Math.max(0, state.promotionOffset - state.settings.reviewLimit); syncUrl(); loadList(); };
@@ -1343,6 +1434,7 @@ function insertMergeReviewContinuation(sourceKey, targetKey, anchorIndex) {
 }
 
 function advanceReviewListAfterMutation(response, path) {
+  if (state.screen === "review" && state.reviewView === "planned") return false;
   if (state.screen === "review" && state.reviewView === "promotion") {
     state.promotionOffset = 0;
     if ($("promotion-pages")) $("promotion-pages").innerHTML = `<span class="muted">保存により候補が変わりました。再読込で先頭から再取得します。</span>`;
@@ -1491,6 +1583,8 @@ function renderDetail(data) {
   const decisions = data.decisions || {active: [], history: []};
   const evaluation = data.evaluation || {};
   const promotionPolicy = data.promotion_policy || {};
+  const feedback = data.operator_feedback || {};
+  const plan = feedback.introduction_plan;
   const investigation = data.investigation;
   const overview = data.overview || {};
   const serviceOwnership = data.service_ownership_review || {};
@@ -1545,6 +1639,13 @@ function renderDetail(data) {
       <div class="meta-row">${pill(project.tracking_state)}${pill(project.service_status)}${project.introduced_url ? pill("introduced", "confirmed") : ""}</div>
       <div class="actions"><select id="tracking-state" aria-label="追跡状態">${(state.server?.tracking_states || []).map((value) => `<option value="${esc(value)}" ${value === project.tracking_state ? "selected" : ""}>${esc(displayLabel(value))}</option>`).join("")}</select><button id="save-tracking">追跡状態を変更</button><button id="add-project-seed">シードを追加</button><button id="enrich-project" class="primary">調査</button><span id="merge-analysis-action"></span></div>
       ${promotionActions}
+      <div class="operator-feedback">
+        <div class="actions"><button id="plan-introduction" class="primary">${plan ? "紹介予定の理由を編集" : "紹介予定に入れる"}</button>${plan ? `<button id="clear-introduction-plan">紹介予定から外す</button>` : ""}<button id="feedback-ownership">帰属を確認</button><button id="record-service-usage" ${!browserServiceUrls.length ? "disabled" : ""}>Lexicon利用を記録</button></div>
+        ${plan ? `<p>紹介予定: ${esc(plan.reason || "理由なし")} · ${esc(formatTimestamp(plan.added_at))}</p>` : ""}
+        ${state.screen === "browser" && state.pageUrl ? `<p class="muted">見ていたページ: ${link(state.pageUrl)}</p>` : ""}
+        ${!browserServiceUrls.length ? `<p class="muted">Lexicon利用の記録には、先にサービスURLをシードとして追加してください。</p>` : ""}
+        ${list(feedback.service_usage).length ? `<details><summary>記録したLexicon利用 (${feedback.service_usage.length})</summary>${feedback.service_usage.map((item, index) => `<div class="relation"><strong>${esc(item.nsid)}</strong><p>${esc(item.service_url)}</p><p>${esc(item.reason)}</p><p>${item.source_url ? link(item.source_url) : ""} · ${esc(formatTimestamp(item.added_at))}</p><button class="small" data-clear-usage="${index}">この判断を解除</button></div>`).join("")}</details>` : ""}
+      </div>
     </div>
     <nav class="detail-tabs" aria-label="プロジェクト詳細">
       ${[["overview","概要"],["identifiers","識別子"],["relations","関係"],["investigation","調査履歴"],["decisions","手動判断"],["raw","JSON"]].map(([key,label]) => `<button class="secondary ${state.detailTab === key ? "active" : ""}" data-detail-tab="${key}">${label}</button>`).join("")}
@@ -1577,7 +1678,47 @@ function renderDetail(data) {
     document.querySelectorAll("[data-detail-panel]").forEach((item) => item.hidden = item.dataset.detailPanel !== state.detailTab);
   });
   bindDetailActions(project.project_key);
+  $("plan-introduction").onclick = () => confirmMutation("紹介予定に保存", "紹介予定の一覧へ残します。自動推薦の順位や保留は変えません。",
+    `/api/projects/${encodeURIComponent(project.project_key)}/introduction-plan`, {}, true, plan?.reason || "", "紹介したい理由・メモ（任意）");
+  $("clear-introduction-plan")?.addEventListener("click", () => confirmMutation("紹介予定から外す", "取り置きを解除します。判断の履歴は残ります。",
+    `/api/projects/${encodeURIComponent(project.project_key)}/introduction-plan`, {clear:true}, false));
+  $("feedback-ownership").onclick = () => {
+    document.querySelector('[data-detail-tab="identifiers"]').click();
+    document.querySelector('[data-detail-panel="identifiers"]').scrollIntoView({block:"start"});
+    status("サービス・リポジトリ・NSIDの候補から採用する値を選んでください。未登録の値は「シードを追加」から登録できます。");
+  };
+  $("record-service-usage").onclick = () => openServiceUsageDialog(project, browserServiceUrls, data);
+  document.querySelectorAll("[data-clear-usage]").forEach((button) => button.onclick = () => {
+    const item = feedback.service_usage[Number(button.dataset.clearUsage)];
+    confirmMutation("Lexicon利用の判断を解除", `${item.service_url} → ${item.nsid} の手動判断を解除します。自動調査の根拠は残ります。`,
+      `/api/projects/${encodeURIComponent(project.project_key)}/service-usage`, {clear:true, service_url:item.service_url, nsid:item.nsid}, false);
+  });
   loadMergeAnalysis(project.project_key, data.revision, explanations);
+}
+
+function openServiceUsageDialog(project, services, data) {
+  const dialog = $("service-usage-dialog");
+  $("usage-service").innerHTML = services.map((url) => `<option value="${esc(url)}">${esc(url)}</option>`).join("");
+  const current = services.filter((url) => state.pageUrl === url || state.pageUrl.startsWith(`${url.replace(/\/$/, "")}/`)).sort((a, b) => b.length - a.length)[0];
+  if (current) $("usage-service").value = current;
+  const suggestions = uniqueValues([
+    ...list(data.identifiers).filter((item) => item.family === "schema").map((item) => item.value),
+    ...list(data.service_ownership_review?.oauth_clients).flatMap((client) => list(client.analysis?.permissions).flatMap((permission) => list(permission.collection))),
+  ]).filter((value) => value !== "*");
+  $("usage-nsids").innerHTML = suggestions.map((value) => `<option value="${esc(value)}"></option>`).join("");
+  $("usage-nsid").value = "";
+  $("usage-source").value = state.screen === "browser" ? state.pageUrl : "";
+  $("usage-reason").value = "";
+  $("cancel-service-usage").onclick = () => dialog.close();
+  $("service-usage-form").onsubmit = (event) => {
+    event.preventDefault();
+    const payload = {service_url:$("usage-service").value, nsid:$("usage-nsid").value.trim(), source_url:$("usage-source").value.trim(), note:$("usage-reason").value.trim()};
+    if (!payload.note) { $("usage-reason").focus(); return; }
+    dialog.close();
+    confirmMutation("Lexicon利用を記録", `${payload.service_url} が ${payload.nsid} を利用すると記録します。理由: ${payload.note}`,
+      `/api/projects/${encodeURIComponent(project.project_key)}/service-usage`, payload, false);
+  };
+  showDialogWithoutInputFocus(dialog);
 }
 
 const identifierFamilies = [
@@ -2019,7 +2160,7 @@ function bindDetailActions(projectKey) {
   document.querySelectorAll("[data-action]").forEach((button) => button.onclick = () => {
     const action = button.dataset.action;
     const payload = {identifier_type: button.dataset.type || "", value: button.dataset.value || "", other_project_key: button.dataset.other || "", target_type: button.dataset.targetType || "", target_value: button.dataset.targetValue || "", review_action: button.dataset.reviewAction || "", days: button.dataset.days || ""};
-    const needsNote = ["reject-candidate", "block-identifier", "defer-identifier", "split-project", "defer-promotion", "dismiss-review-target", "defer-review-target", "lower-promotion-priority"].includes(action);
+    const needsNote = ["confirm-candidate", "reject-candidate", "block-identifier", "defer-identifier", "split-project", "defer-promotion", "dismiss-review-target", "defer-review-target", "lower-promotion-priority"].includes(action);
     const title = action === "defer-promotion" ? `紹介候補を${payload.days}日間、保留にする` : action === "lower-promotion-priority"
       ? "紹介候補の優先度を下げる"
       : action === "clear-promotion-priority"
@@ -2152,7 +2293,7 @@ function confirmMerge(title, action, source, target) {
   }, false);
 }
 
-function renderNewSeed() {
+function renderNewSeed(initialSeed = "") {
   clearDetailSelection();
   $("detail").innerHTML = `${backToListButton()}<p class="eyebrow">登録プロジェクト</p><h2>シードを登録</h2><div class="controls"><label>NSID・リポジトリURL・サービスURL<input id="seed-value" type="text"></label><div class="actions"><button id="preview-seed" class="primary">プレビュー</button></div></div><div id="seed-preview"></div><div class="detail-footer">${backToListButton()}</div>`;
   document.body.classList.add("detail-open");
@@ -2165,6 +2306,10 @@ function renderNewSeed() {
       $("create-seed")?.addEventListener("click", () => confirmMutation("プロジェクトを登録", `${value}をシードとしてプロジェクトを登録しますか？`, "/api/seeds", {seed:value}, false));
     } catch (error) { status(error.message, true); }
   };
+  if (initialSeed) {
+    $("seed-value").value = initialSeed;
+    $("preview-seed").click();
+  }
 }
 
 function renderOperations() {

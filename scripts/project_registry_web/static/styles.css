@@ -242,3 +242,6 @@ dialog input, dialog textarea { min-width: 0; max-width: 100%; }
 .review-signal-filter { display: grid; gap: 3px; min-width: 0; max-width: 100%; flex: 1 1 220px; }
 .review-signal-filter select { width: 100%; min-width: 0; }
 .relation > .pill { justify-self: start; }
+/* Operator feedback stays next to the existing introduction decisions. */
+.operator-feedback { margin: 1rem 0; padding: 1rem; border: 1px solid var(--line); border-radius: .6rem; }
+.operator-feedback p { overflow-wrap: anywhere; }

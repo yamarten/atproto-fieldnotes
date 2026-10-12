@@ -29,6 +29,8 @@ from project_registry_core import introduced_review
 from project_registry_core import registry as core
 from project_registry_core.application import (
     decisions,
+    browser_entry,
+    feedback,
     maintenance,
     merge,
     presentation as services,
@@ -312,6 +314,18 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             if not job_id or "/" in job_id:
                 raise KeyError("job not found")
             self.send_json(self.server.jobs.get_job(job_id))
+            return
+        if path == "/api/browser-entry":
+            with contextlib.closing(self.server.open_db()) as conn:
+                self.send_json(browser_entry.resolve_page(conn, str(query.get("url", [""])[0])))
+            return
+        if path == "/api/introduction-plans":
+            with contextlib.closing(self.server.open_db()) as conn:
+                self.send_json(browser_entry.introduction_plans(
+                    conn, query=str(query.get("q", [""])[0]),
+                    limit=_int(query.get("limit", [50])[0], 50),
+                    offset=_int(query.get("offset", [0])[0], 0, minimum=0, maximum=1000000),
+                ))
             return
         if path == "/api/projects":
             with contextlib.closing(self.server.open_db()) as conn:
@@ -695,6 +709,13 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
         identifier_type = str(payload.get("identifier_type") or "").strip()
         value = str(payload.get("value") or "").strip()
         note = str(payload.get("note") or "").strip()
+        if action in {"introduction-plan", "service-usage"}:
+            return feedback.save_feedback(
+                conn, project_key=project_key, kind=action, reason=note,
+                clear=_boolean(payload.get("clear")),
+                service_url=str(payload.get("service_url") or ""), nsid=str(payload.get("nsid") or ""),
+                source_url=str(payload.get("source_url") or ""),
+            )
         if action == "tracking-state":
             return projects.set_tracking_state(
                 conn,
@@ -731,7 +752,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             )
         if action == "confirm-candidate":
             return services.confirm_candidate(
-                conn, project_key=project_key, identifier_type=identifier_type, value=value
+                conn, project_key=project_key, identifier_type=identifier_type, value=value, note=note
             )
         if action == "reject-candidate":
             return services.reject_candidate(

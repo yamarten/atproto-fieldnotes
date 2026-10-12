@@ -57,6 +57,19 @@
     </form>
   </dialog>
 
+  <dialog id="service-usage-dialog" tabindex="-1">
+    <form id="service-usage-form">
+      <h2>サービスのLexicon利用を記録</h2>
+      <label>サービス<select id="usage-service" required></select></label>
+      <label>利用しているcollectionのNSID<input id="usage-nsid" list="usage-nsids" required placeholder="app.example.post"></label>
+      <datalist id="usage-nsids"></datalist>
+      <label>根拠のURL<input id="usage-source" type="url" placeholder="https://example.com/docs"></label>
+      <label>確認した内容・理由<textarea id="usage-reason" rows="3" maxlength="4000" required></textarea></label>
+      <p class="muted">サービスがこのLexiconを利用するという判断を保存します。NSIDの所有は採用しません。URLのクエリとフラグメントは保存しません。</p>
+      <div class="dialog-actions"><button id="cancel-service-usage" type="button" class="secondary">キャンセル</button><button type="submit" class="primary">確認へ</button></div>
+    </form>
+  </dialog>
+
   <dialog id="profile-dialog" tabindex="-1" autofocus>
     <form method="dialog">
       <p class="eyebrow">紹介情報を編集</p>

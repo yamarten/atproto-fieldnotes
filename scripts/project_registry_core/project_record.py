@@ -25,6 +25,7 @@ from project_registry_core.persistence import storage as investigation_storage
 from project_registry_core.persistence import concurrency
 from project_registry_core import atproto_usage
 from project_registry_core import oauth_metadata
+from project_registry_core import operator_feedback
 from project_registry_core.persistence.concurrency import StaleProjectWriteError
 from project_registry_core import trust_graph as trust_graph_core
 
@@ -797,6 +798,8 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "confirmed_identifiers": [],
         "promotion_deferrals": [],
         "promotion_priority_adjustments": [],
+        "introduction_plans": [],
+        "service_usage_decisions": [],
         "collection_observations": [],
         "notes": "",
         "last_run_errors": [],
@@ -1084,6 +1087,9 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["investigation_queries"] = unique_list([str(item) for item in defaults.get("investigation_queries", []) if item])
     defaults["last_run_errors"] = unique_list([str(item) for item in defaults.get("last_run_errors", []) if item])
     defaults["relation_evidence"] = relation_core.normalize_relation_records(defaults.get("relation_evidence", []))
+    for field in ("introduction_plans", "service_usage_decisions"):
+        defaults[field] = operator_feedback.normalize_history(defaults.get(field))
+    operator_feedback.reconcile_usage(defaults)
     oauth_metadata.reconcile_relations(defaults)
     defaults["service_verification_results"] = [
         dict(item) for item in defaults.get("service_verification_results", []) if isinstance(item, dict)

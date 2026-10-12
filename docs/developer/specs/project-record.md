@@ -303,6 +303,8 @@ operator判断を履歴として保持し、自動収集・評価より優先し
 現在の`kind`:
 
 - `assess_atproto_usage`: 主機能でのatproto利用を理由付きで補正する。解除・更新前の判断も履歴に残す
+- `plan_introduction`: 紹介したいprojectを理由付きで取り置く。targetは所属project key
+- `confirm_service_usage`: サービスがcollectionを利用するという明示判断。targetはNSID、service URLと根拠URLはmetadataに保持
 - `block_identifier`: 誤ったidentifierの再付着を恒久的に抑止する
 - `defer_identifier`: identifierの確定を期限付きで保留する
 - `confirm_identifier`: operator入力または採用済みsource seedによるidentifier採用判断
@@ -314,6 +316,16 @@ operator判断を履歴として保持し、自動収集・評価より優先し
 - `separate_project`: 2 projectを別物としてmerge候補から除外する
 
 各rowはtarget、note、created/expires/cleared timestamp、追加metadataを持ちます。clear後も履歴を残すdecisionがあります。`confirm_identifier`はmigrationや再評価で自動判定より優先する明示的な採用根拠として扱い、`source`でoperator入力とsource syncを区別します。
+
+### サイト閲覧後の手動判断
+
+`plan_introduction`と`confirm_service_usage`は`project_decisions`を正本とし、runtimeの`introduction_plans`と`service_usage_decisions`へ投影します。metadataはentry ID、`origin_project_key`、作成・解除時刻と理由を保持し、利用判断では`service_url`・`nsid`・`source_url`も保持します。runtime配列をstate JSONへ重複保存せず、既存schema version 5のまま追加decision kindとして保存します。理由は4,000字以内で、紹介予定では任意、利用判断では必須です。
+
+紹介予定はprojectごと、利用判断は同じservice URLとNSIDの組ごとに有効な判断を1件とします。理由編集は旧entryを解除して新しいentryを作り、解除済み履歴も残します。利用判断の新規保存では、所属projectに保存済みのconfirmed/candidateサービスURLと、妥当なcollection NSIDを要求します。HTTP(S)以外や認証情報を含む根拠URLは拒否し、クエリとフラグメントは除きます。保存済みサービスが消えた後も、過去の利用判断の解除は可能です。
+
+有効な利用判断は、`operator_service_usage` source、`operator` methodのconfirmed `service → uses_collection → nsid` relationへ投影します。自動収集がrelationを更新してもdecisionから再構成し、解除時はこのsourceの投影だけを取り除きます。他の情報源の根拠とNSIDの採用状態は維持します。NSIDの所有、主機能での利用範囲、稼働状態の手動判断を兼ねません。通常の評価規則はこの利用relationを根拠として参照できます。
+
+mergeでは両側のentry IDと履歴を保持します。紹介予定や同じservice/NSID組の有効判断が重複する場合はtarget側を維持し、source側の判断を解除済み履歴へ残します。片側だけの判断と異なるservice/NSID組は保持します。紹介予定一覧は有効判断があるprojectを正規化索引から読み、追跡状態・紹介済み・推薦signalにかかわらず名前と理由で検索し、全体を作成時刻・keyの降順に並べてからoffset/limitを適用します。
 
 `defer_promotion`は紹介候補の保留を表し、reasonは空文字を許可します。新しいmetadataには判断時点の`fingerprint`を保存します。期限前でも現在の根拠が異なれば紹介候補の保留効果を解除し、元のdecision rowは履歴として維持します。再保留では期限内の旧entryをclearして新しい基準を保存します。fingerprintがない既存decisionは期限だけで判定し、読込み時の推測補完・移行はしません。Lower priorityの保存形、理由、解除済み履歴、merge時のtarget優先は維持します。
 

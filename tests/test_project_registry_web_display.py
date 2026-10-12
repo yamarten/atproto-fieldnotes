@@ -10,6 +10,23 @@ import unittest
 
 @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web display checks")
 class WebDisplayTest(unittest.TestCase):
+    def test_browser_entry_and_introduction_plan_views_restore_and_escape(self):
+        self.run_javascript(r'''
+restoreStateFromUrl(new URLSearchParams({screen:"browser",url:"https://example.com/<tag>",browser_q:"service"}));
+assert.equal(state.screen,"browser");
+assert.equal(state.browserQuery,"service");
+assert.equal(browserPageUrl("https://example.com/path?token=secret#code"),"https://example.com/path");
+assert.throws(()=>browserPageUrl("https://name:secret@example.com"));
+assert.match(listControls(), /https:\/\/example.com\/&lt;tag&gt;/);
+assert.match(listControls(), /id="browser-new-seed" disabled/);
+restoreStateFromUrl(new URLSearchParams({screen:"review",view:"planned",planned_q:"<note>",planned_offset:"50"}));
+assert.equal(state.reviewView,"planned");
+assert.equal(state.plannedOffset,50);
+assert.match(listControls(), /&lt;note&gt;/);
+assert.equal(displayLabel("plan_introduction"),"紹介予定の取り置き");
+assert.equal(displayLabel("confirm_service_usage"),"サービスのLexicon利用の確認");
+''')
+
     def run_javascript(self, checks):
         path = Path(__file__).resolve().parents[1] / "scripts/project_registry_web/static/app.js"
         # Run the real render helpers; omit only page startup and supply browser storage.

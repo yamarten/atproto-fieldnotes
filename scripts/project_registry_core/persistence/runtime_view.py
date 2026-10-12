@@ -108,6 +108,8 @@ DECISION_FIELDS = {
     "confirmed_identifiers",
     "review_target_decisions",
     "atproto_usage_decisions",
+    "introduction_plans",
+    "service_usage_decisions",
 }
 
 NORMALIZED_FIELDS = IDENTIFIER_FIELDS | DECISION_FIELDS | {"relation_evidence"}
@@ -404,6 +406,14 @@ def merge_identifier_rows(project: dict[str, Any], target: Mapping[str, Any], so
 
 def _derive_project_decisions(project: Mapping[str, Any]) -> list[ProjectDecision]:
     output: list[ProjectDecision] = []
+    for field, kind, target in (("introduction_plans", "plan_introduction", "project_key"),
+                                 ("service_usage_decisions", "confirm_service_usage", "nsid")):
+        for item in project.get(field, []):
+            output.append(ProjectDecision(
+                kind, target, str(item.get("nsid") or project.get("project_key") or ""),
+                note=str(item.get("reason") or ""), created_at=str(item.get("added_at") or ""),
+                cleared_at=str(item.get("cleared_at") or ""), metadata=dict(item),
+            ))
     for item in project.get("atproto_usage_decisions", []):
         if isinstance(item, dict):
             output.append(ProjectDecision(
@@ -696,11 +706,16 @@ def hydrate(
         "dismissed_review_kinds": [], "separate_project_keys": [], "confirmed_identifiers": [],
         "review_target_decisions": [],
         "atproto_usage_decisions": [],
+        "introduction_plans": [], "service_usage_decisions": [],
     })
     for row in decision_payload:
         kind = row["kind"]
         metadata = row["metadata"]
-        if kind == "assess_atproto_usage":
+        if kind in {"plan_introduction", "confirm_service_usage"}:
+            field = "introduction_plans" if kind == "plan_introduction" else "service_usage_decisions"
+            project[field].append({**metadata, "reason": str(row["note"]),
+                                   "added_at": str(row["created_at"]), "cleared_at": str(row["cleared_at"])})
+        elif kind == "assess_atproto_usage":
             project["atproto_usage_decisions"].append({
                 "role": str(row["target_value"]), "reason": str(row["note"]),
                 "assessed_at": str(row["created_at"]), "cleared_at": str(row["cleared_at"]),
