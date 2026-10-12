@@ -1402,10 +1402,11 @@ function renderList(data) {
     </button>`;
   }).join("") : `<div class="empty-state"><p>条件に一致する登録プロジェクトはありません。</p></div>`);
   if (state.screen === "browser" && data.status) {
-    const message = data.status === "matched" ? "採用済みのURLから登録プロジェクトが見つかりました。"
-      : data.status === "choose" ? "一致候補を選んでください。URLやNSIDの採用状態を確認できます。NSIDの一致だけではサイトの帰属は確定しません。"
-      : "このURLやドメインに対応するNSIDの登録は見つかりません。名前で検索するか、URLを確認して登録へ進めます。";
-    $("list").insertAdjacentHTML("afterbegin", `<p class="notice">${message}</p>`);
+    const message = {
+      matched: "採用済みのURLから登録プロジェクトが見つかりました。",
+      choose: "一致候補を選んでください。URLやNSIDの採用状態を確認できます。NSIDの一致だけではサイトの帰属は確定しません。",
+    }[data.status];
+    if (message) $("list").insertAdjacentHTML("afterbegin", `<p class="notice">${message}</p>`);
   }
   if (isPlanned) {
     $("list").insertAdjacentHTML("beforeend", `<div class="actions"><span>${esc(data.offset + items.length)} / ${esc(data.total)} 件</span><button id="planned-prev" ${!data.offset ? "disabled" : ""}>前のページ</button><button id="planned-next" ${data.offset + items.length >= data.total ? "disabled" : ""}>次のページ</button></div>`);

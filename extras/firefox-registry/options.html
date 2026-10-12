@@ -4,19 +4,16 @@
 <body>
   <main>
     <h1>Project Registryの接続先</h1>
-    <p>ツールバーのボタンを押すと、いま見ているページのURLを指定したWeb UIへ渡します。</p>
     <form id="settings">
       <label for="registry-url">Web UIのルートURL</label>
       <input id="registry-url" type="url" required placeholder="https://your-registry.example/">
       <p>普段ログインしている接続先を指定してください。APIトークンはWeb UI側で入力します。</p>
       <label for="open-mode">開き方</label>
-      <select id="open-mode"><option value="popup">ポップアップ（試用）</option><option value="tab">タブ</option></select>
+      <select id="open-mode"><option value="popup">ポップアップ</option><option value="tab">タブ</option></select>
       <button type="submit">保存</button>
     </form>
     <p id="status" role="status"></p>
-    <h2>渡す情報</h2>
-    <p>ボタンを押したタブのURLだけを渡します。クエリ文字列とフラグメントは除きます。ページ本文、OAuthスコープ、入力内容、ログイン情報は読み取りません。</p>
-    <p>拡張が保存するのは接続先URLだけです。閲覧URLは拡張に保存しません。開いたWeb UIのURLは、通常のブラウザー履歴に残ります。</p>
+    <p>操作したタブのURLだけをWeb UIへ渡します（クエリ文字列・フラグメントを除く）。</p>
   </main>
   <script src="entry.js"></script><script src="options.js"></script>
 </body>
