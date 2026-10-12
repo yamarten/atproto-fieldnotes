@@ -1,5 +1,8 @@
 """Exercise the display boundary without a browser or external services."""
 from pathlib import Path
+import ast
+import inspect
+import json
 import shutil
 import subprocess
 import unittest
@@ -36,6 +39,68 @@ assert.ok(!container.innerHTML.includes('<img'));
 assert.ok(container.innerHTML.includes('&lt;img src=x onerror=alert(1)&gt;'));
 renderList({items: [], count: 12});
 assert.match(container.innerHTML, /<strong>12<\/strong> 件/);
+''')
+
+    def test_review_selection_covers_generated_signals_and_preserves_values(self):
+        from project_registry_core import project_review
+        source = ast.parse(inspect.getsource(project_review.compute_review_signals))
+        kinds = sorted({value.value for node in ast.walk(source) if isinstance(node, ast.Dict)
+                        for key, value in zip(node.keys, node.values)
+                        if isinstance(key, ast.Constant) and key.value == "kind"
+                        and isinstance(value, ast.Constant) and isinstance(value.value, str)})
+        self.assertTrue(kinds)
+        self.run_javascript("const generatedKinds = " + json.dumps(kinds) + r'''
+assert.deepEqual([...reviewSignalKinds].sort(), generatedKinds);
+state.screen = "review";
+state.reviewView = "queue";
+state.reviewSignalKind = "candidate_repo_needs_confirmation";
+const html = listControls();
+assert.match(html, /<select id="review-signal-kind">/);
+assert.match(html, /value="candidate_repo_needs_confirmation" selected>リポジトリ候補の確認が必要/);
+for (const kind of generatedKinds) assert.notEqual(displayLabel(kind), kind);
+assert.ok(!html.includes("placeholder="));
+state.reviewSignalKind = 'future"<signal>';
+assert.match(listControls(), /value="future&quot;&lt;signal&gt;" selected/);
+''')
+
+    def test_merge_comparison_emphasizes_only_matches_and_collapses_diagnostics(self):
+        self.run_javascript(r'''
+const nodes = new Map();
+document.getElementById = id => {
+  if (!nodes.has(id)) nodes.set(id, {innerHTML:"", addEventListener() {}});
+  return nodes.get(id);
+};
+document.querySelectorAll = () => [];
+document.body = {classList:{add() {}}};
+syncUrl = () => {};
+const common = "https://common.example";
+const identifiers = [common, "https://distinct.example"].map(value => ({value, family:"service", kinds:["service_url"], classification:"confirmed"}));
+api = async () => ({source:{project_key:"a", identifiers}, target:{project_key:"b", identifiers},
+  source_pair_candidate:{reasons:{candidate_confirmed_identifiers:[`service_url: ${common} (service)`]}, identifier_matches:[{kind:"service_url", role:"service", value:common, project_classification:"candidate", other_classification:"confirmed"}]},
+  first_creator_details_included:true, source_collection_first_creator_details:{sample:"not_found"}});
+loadMergeDetail("a", "b", {includeFirstCreator:true}).then(async () => {
+  const html = nodes.get("detail").innerHTML;
+  assert.match(html, /<strong class="matched-identifier"[^>]*><a[^>]*href="https:\/\/common.example\/"/);
+  assert.equal((html.match(/class="matched-identifier"/g) || []).length, 2);
+  assert.match(html, /<details class="detail-section"><summary>候補と判断された理由<\/summary>/);
+  assert.match(html, /<details class="first-creator-results"><summary>初回作成者の照会結果<\/summary>/);
+  assert.match(html, /<template><p>両プロジェクトのコレクションを外部APIへ照会/);
+  assert.match(html, /not_found/);
+  api = async () => ({source:{project_key:"a"}, target:{project_key:"b"}, merge_blocked:true});
+  await loadMergeDetail("a", "b", {includeFirstCreator:true});
+  assert.match(nodes.get("detail").innerHTML, /<p class="notice">別プロジェクト指定によりマージが制限/);
+}).catch(error => { console.error(error); process.exitCode = 1; });
+''')
+
+    def test_relation_display_separates_entities_and_escapes_values(self):
+        self.run_javascript(r'''
+const unsafe = '<img src=x onerror=alert(1)>';
+const html = renderRelation({subject:{type:"repo", value:unsafe}, predicate:"defines_schema",
+  object:{type:"collection", value:"org.example.post"}, classification:"candidate", source:unsafe});
+assert.ok(!html.includes("<img"));
+assert.match(html, /relation-entity/);
+assert.match(html, /relation-edge">─ スキーマを定義 →/);
+assert.match(html, /&lt;img/);
 ''')
 
     def test_search_controls_render_server_options_fallbacks_and_selection(self):
@@ -103,6 +168,11 @@ assert.match(html, /aria-label="A&quot;&amp;Bの処理内容の説明"/);
 assert.ok(!html.includes(unsafe));
 assert.match(html, /<template><p>&lt;img/);
 assert.ok(!html.includes("<details"));
+assert.ok(!html.includes("実行順:"));
+const sequence = renderSchedules({items:[{preset_id:"multi", label:"複合処理", description:"処理を順番に実行します。",
+  steps:[{label:unsafe}, {label:"enrich --all --new-only"}]}]});
+assert.match(sequence, /実行順: &lt;img[^<]* → 新規登録分の調査/);
+assert.ok(!sequence.includes(unsafe));
 const attributes = {};
 const button = {dataset:{helpTitle:"Example"}, isConnected:false,
   nextElementSibling:{innerHTML:"<p>Explanation</p>"},
@@ -151,7 +221,7 @@ for (const identity of [{has_identity:true, components:[{value:"org.example.post
 }
 assert.match(html, /最新の調査実行記録/);
 assert.ok(!html.includes('このプロジェクトが表す対象'));
-assert.match(html, /<dt>採用済みサービス<\/dt><dd><a[^>]*href="https:\/\/example.com\/app"/);
+assert.match(html, /<dt>サービス<\/dt><dd><a[^>]*href="https:\/\/example.com\/app"/);
 assert.match(html, /id="enrich-project"/);
 nodes.get("enrich-project").listeners.click();
 assert.deepEqual(starts, [{project_key:"proj:display", all_projects:false}]);
@@ -255,7 +325,8 @@ const candidate = {score_breakdown: score, service_evidence_group: "confirmed", 
   atproto_usage: {source:"none", role:"unknown", reason:"routine explanation"}};
 const compact = promotionCardDetails(candidate);
 assert.match(compact, /スコア 12/);
-assert.match(compact, /atproto利用 未評価/);
+assert.ok(!compact.includes("atproto利用 未評価"));
+assert.ok(!compact.includes(">未確認<"));
 assert.ok(!compact.includes("routine explanation"));
 assert.ok(!compact.includes("通常の優先度"));
 assert.ok(!compact.includes("紹介候補一覧の対象"));
@@ -279,4 +350,10 @@ assert.match(technical, /技術評価 高い · 80/);
 assert.match(technical, /独自の連携方式/);
 assert.ok(!renderServiceObservations([]).includes("取得失敗"));
 assert.match(renderServiceObservations([{fetch_error:"timeout"}]), /取得失敗は提供終了を示しません/);
+const recent = renderServiceObservations([{surface_confirmed:false, observed_at:"2026-10-12T00:00:00Z",
+  last_success:{observed_at:"2026-10-01T00:00:00Z"}}]);
+assert.match(recent, /利用画面は未確認/);
+assert.match(recent, /最後に利用画面を確認/);
+assert.match(recent, /2026-10-01/);
+assert.match(renderServiceObservations([{surface_confirmed:true}]), /利用画面を確認/);
 ''')

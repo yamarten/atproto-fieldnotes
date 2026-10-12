@@ -86,7 +86,7 @@ main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .filter-grid input, .filter-grid select { width: 100%; min-width: 0; }
 .card { width: 100%; height: max-content; min-height: max-content; display: grid; gap: 6px; text-align: left; padding: 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: var(--shadow); }
 .card > * { min-width: 0; }
-.promotion-card { gap: 8px; box-shadow: none; }
+.promotion-card { gap: 6px; box-shadow: none; }
 .promotion-card .pill:not(.candidate):not(.failed):not(.rate_limited) { padding: 2px 0; border-color: transparent; background: transparent; }
 .promotion-card .meta-row { gap: 6px 12px; }
 .card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent); }
@@ -221,3 +221,14 @@ dialog input, dialog textarea { min-width: 0; max-width: 100%; }
 .context-help-popover h3 { margin: 0; font-size: 14px; }
 .context-help-popover p { margin: 10px 0 0; }
 .context-help-popover #context-help-close { flex-shrink: 0; width: 30px; padding: 0; font-size: 20px; }
+
+.relation-path { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.relation-entity { min-width: 0; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-soft); overflow-wrap: anywhere; }
+.relation-entity .muted { font-size: 12px; }
+.relation-edge { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.matched-identifier { font-weight: 750; text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+.detail-section > summary { font-weight: 650; }
+
+.review-signal-filter { display: grid; gap: 3px; min-width: 0; max-width: 100%; flex: 1 1 220px; }
+.review-signal-filter select { width: 100%; min-width: 0; }
+.relation > .pill { justify-self: start; }

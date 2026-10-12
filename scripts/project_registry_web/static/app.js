@@ -58,7 +58,7 @@ const displayLabels = {
   "project not found": "登録プロジェクトが見つかりません",
   "job not found": "ジョブが見つかりません",
   "investigation run not found": "調査実行記録が見つかりません",
-  "introduced_url must be an http(s) URL": "紹介済み投稿のURLはhttpまたはhttpsで指定してください",
+  "introduced_url must be an http(s) URL": "紹介投稿のURLはhttpまたはhttpsで指定してください",
   "features must contain at most 6 short strings": "特徴は短い文で6件まで指定してください",
   "schedule time must be HH:MM": "定期実行の時刻はHH:MM形式で指定してください",
   "schedule week_of_month must be between 0 and 5": "定期実行の週は毎週または第1〜第5週を指定してください",
@@ -240,11 +240,11 @@ const displayLabels = {
   "confirmed identifiers plus saved ownership relations": "採用済み識別子と保存済みの帰属関係",
   "rule-based atproto contribution evaluation": "規則に基づくatproto寄与度の評価",
   "current duplicate candidate and merge recommendation evaluation": "現在の重複候補とマージ推奨の評価",
-  "trust-graph-v1 mutual directed trust paths for URL, collection, DID, handle, and domain identifiers": "URL・コレクション・DID・ハンドル・ドメインの相互信頼経路（trust-graph-v1）",
+  "trust-graph-v1 mutual directed trust paths for URL, collection, DID, handle, and domain identifiers": "URL・コレクション・DID・ハンドル・ドメインの相互信頼経路",
   "no confirmed service/repository/lexicon": "採用済みのサービス・リポジトリ・Lexiconがない",
   "service_status is still unknown": "サービス状態が不明",
   "summary missing": "説明が未登録",
-  "tagline missing": "短い説明が未登録",
+  "tagline missing": "概要が未登録",
   "fewer than 3 features": "特徴が3件未満",
   "category missing": "分類が未登録",
   "LLM review missing": "LLMによる評価が未実施",
@@ -262,7 +262,7 @@ const displayLabels = {
   "high_information_density": "調査材料が豊富",
   "many_identity_candidates": "アカウント・ドメインの候補が多数",
   "service_status_unverified": "サービス状態が未確認",
-  "browser_surface_not_confirmed": "ブラウザーで利用面を確認できず",
+  "browser_surface_not_confirmed": "ブラウザーで利用画面を確認できず",
   "browser_password_form_detected": "パスワード入力欄を検出",
   "browser_identity_form_detected": "アカウント入力欄を検出",
   "browser_oauth_entry_detected": "OAuth認証の入口を検出",
@@ -764,13 +764,15 @@ function setScreen(screen, {updateUrl = true, preserveSelection = false} = {}) {
   if (updateUrl) syncUrl();
 }
 
+const reviewSignalKinds = ["missing_project_identity", "editorial_refresh", "service_observation_changed", "lexicon_publication_changed", "llm_manual_review_recommended", "service_candidate_needs_confirmation", "candidate_repo_needs_confirmation", "service_now_usable_but_needs_editorial_review", "more_evidence_than_current_classification", "stale_metadata_with_recent_activity", "service_status_unverified_but_promising", "category_recheck_needed", "external_lexicon_dependency_needs_review", "high_information_density", "many_identity_candidates"];
+
 function listControls() {
   if (state.screen === "review") {
     const explicitMerge = state.reviewView === "merge"
       ? renderExplicitMergePairForm()
       : "";
     const reviewFilter = state.reviewView === "queue"
-      ? `<div class="toolbar"><label>要レビューの種類<input id="review-signal-kind" placeholder="例: candidate_repo_needs_confirmation" value="${esc(state.reviewSignalKind)}"></label><button id="apply-review-filter" class="primary">適用</button><button id="clear-review-filter" class="secondary">解除</button></div>`
+      ? `<div class="toolbar"><label class="review-signal-filter">要レビューの種類<select id="review-signal-kind">${enumOptions(reviewSignalKinds, state.reviewSignalKind)}</select></label><button id="apply-review-filter" class="primary">適用</button><button id="clear-review-filter" class="secondary">解除</button></div>`
       : "";
     const promotionFilter = state.reviewView === "promotion" ? `<div class="toolbar">
       <label>候補の扱い<select id="promotion-view">${selectOptions([["inbox", "確認対象"], ["technical", "技術候補"], ["waiting", "保留"], ["lowered", "低優先度・特集候補"], ["all", "すべて"]], state.promotionView)}</select></label>
@@ -780,7 +782,7 @@ function listControls() {
     const introducedFilter = state.reviewView === "introduced" ? `<div class="toolbar"><label>表示<select id="introduced-status">${selectOptions([["open", "要確認"], ["all", "判断済みを含むすべて"]], state.introducedStatus)}</select></label></div>` : "";
     return `<div class="controls"><div class="subnav">
       <button data-review-view="queue" class="${state.reviewView === "queue" ? "active" : ""}">要レビュー一覧</button>
-      <button data-review-view="introduced" class="${state.reviewView === "introduced" ? "active" : ""}">紹介投稿の要確認</button>
+      <button data-review-view="introduced" class="${state.reviewView === "introduced" ? "active" : ""}">紹介確認</button>
       <button data-review-view="promotion" class="${state.reviewView === "promotion" ? "active" : ""}">紹介候補一覧</button>
       <button data-review-view="merge" class="${state.reviewView === "merge" ? "active" : ""}">マージ</button>
       <button id="refresh-review-list" class="secondary">再読込</button>
@@ -1092,8 +1094,7 @@ function promotionCardDetails(item) {
   const visibility = item.candidate_visibility?.group || "eligible";
   const attention = item.attention?.group || "unreviewed";
   const technicalView = state.promotionView === "technical";
-  return `<span class="meta-row">${pill(promotionLabel(promotionServiceLabels, serviceGroup), serviceGroup === "needs_validation" ? "candidate" : "")}${priorityGroup === "normal" ? "" : pill(promotionLabel(promotionPriorityLabels, priorityGroup), "candidate")}${pill(technicalView ? `技術評価 ${displayLabel(item.technical_interest_level)} · ${item.technical_interest_score}` : `スコア ${breakdown.total ?? item.sort_score ?? 0}`)}</span>
-    <span class="meta-row">${pill(item.atproto_usage?.source === "operator" ? promotionLabel(atprotoUsageLabels, item.atproto_usage.role) : "atproto利用 未評価")}${pill(promotionLabel({unreviewed:"未確認", recorded:"判断記録あり", held:"保留中", changed:"根拠変化・再確認", due:"再確認時期"}, attention), ["changed", "due"].includes(attention) ? "candidate" : "")}${visibility === "eligible" ? "" : pill(promotionLabel(promotionVisibilityLabels, visibility), "candidate")}</span>
+  return `<span class="meta-row">${pill(item.project?.service_status || item.service_status || "")}${pill(promotionLabel(promotionServiceLabels, serviceGroup), serviceGroup === "needs_validation" ? "candidate" : "")}${priorityGroup === "normal" ? "" : pill(promotionLabel(promotionPriorityLabels, priorityGroup), "candidate")}${pill(technicalView ? `技術評価 ${displayLabel(item.technical_interest_level)} · ${item.technical_interest_score}` : `スコア ${breakdown.total ?? item.sort_score ?? 0}`)}${item.atproto_usage?.source === "operator" ? pill(promotionLabel(atprotoUsageLabels, item.atproto_usage.role)) : ""}${attention === "unreviewed" ? "" : pill(promotionLabel({recorded:"判断記録あり", held:"保留中", changed:"根拠変化・再確認", due:"再確認時期"}, attention), ["changed", "due"].includes(attention) ? "candidate" : "")}${visibility === "eligible" ? "" : pill(promotionLabel(promotionVisibilityLabels, visibility), "candidate")}</span>
     ${item.atproto_usage?.source === "operator" && item.atproto_usage.reason ? `<span class="muted">${esc(item.atproto_usage.reason)}</span>` : ""}
     ${list(item.signals).some((s) => s.kind === "technical_insight_candidate") ? `<span>${esc(list(item.signals).find((s) => s.kind === "technical_insight_candidate").details.technical_interest_summary)}</span>` : ""}
     ${item.active_deferral ? `<span class="muted">保留: ${esc(item.active_deferral.reason || "理由なし")} · ${esc(formatTimestamp(item.active_deferral.expires_at))}まで</span>` : ""}
@@ -1107,7 +1108,7 @@ const introducedReasonLabels = {
   no_seed: "紹介対象の識別子を抽出できないURL",
   text_url_not_extracted: "本文のURLは現行の自動抽出対象外",
   unmatched: "一致する登録プロジェクトがない",
-  multiple_projects: "複数の登録プロジェクトに一致（自動照合は従来どおり先頭へ反映）",
+  multiple_projects: "複数の登録プロジェクトに一致",
   different_introduced_url: "一致先には別の紹介投稿が設定済み",
   post_url_unavailable: "投稿URLを再構成できない",
   not_applied: "一致先の紹介URLへ自動反映されていない",
@@ -1217,11 +1218,11 @@ function renderList(data) {
       return pill(label, "candidate");
     }).filter(Boolean).join(" ");
     return `<button class="card ${isPromotion ? "promotion-card" : ""} ${state.selected === key ? "selected" : ""}" data-project-key="${esc(key)}" ${mergeTarget ? `data-merge-target="${esc(mergeTarget)}"` : ""}>
-      <span class="card-title"><strong>${esc(name)}</strong>${pill(project.tracking_state || item.recommendation?.confidence || "")}</span>
-      <span class="meta-row">${pill(project.service_status || "")}${pill(project.atproto_contribution_level || "")}${project.introduced_url ? pill("introduced", "confirmed") : ""}${project.has_candidates ? pill("candidates", "candidate") : ""}</span>
+      <span class="card-title"><strong>${esc(name)}</strong>${isPromotion && project.tracking_state === "active" ? "" : pill(project.tracking_state || item.recommendation?.confidence || "")}</span>
+      ${isPromotion ? "" : `<span class="meta-row">${pill(project.service_status || "")}${pill(project.atproto_contribution_level || "")}${project.introduced_url ? pill("introduced", "confirmed") : ""}${project.has_candidates ? pill("candidates", "candidate") : ""}</span>`}
       ${project.tagline ? `<span>${esc(project.tagline)}</span>` : ""}${signals ? `<span class="meta-row">${signals}</span>` : ""}
       ${promotionCardDetails(item)}
-      ${mergeTarget ? `<span class="muted">→ ${esc(item.target_name || mergeTarget)}</span>${renderMergeIdentifierMatches(item.identifier_matches, "マージ元", "マージ先")}` : ""}
+      ${mergeTarget ? `<span class="muted">→ ${esc(item.target_name || mergeTarget)}</span>` : ""}
     </button>`;
   }).join("") : `<div class="empty-state"><p>条件に一致する登録プロジェクトはありません。</p></div>`);
   if (isPromotion) {
@@ -1392,7 +1393,21 @@ async function loadDetail(key, {updateUrl = true, backTarget = null} = {}) {
 }
 
 function profileValue(profile, key) { return profile?.core?.[key] ?? profile?.[key] ?? ""; }
-function section(title, body) { return `<section class="detail-section"><h3>${esc(title)}</h3>${body}</section>`; }
+function section(title, body, help = "") { return `<section class="detail-section"><h3>${esc(title)}${help ? helpButton(title, help) : ""}</h3>${body}</section>`; }
+
+const detailTabHelp = {
+  overview: "<p>紹介文の下書きや候補選びに使う、現在の情報をまとめています。紹介情報を編集したり、サービスの観測、atproto利用の材料、評価やマージ候補を確認できます。</p>",
+  identifiers: "<p>このプロジェクトに属するサイト・サービス・リポジトリ・NSID・アカウントを、役割と採用状態で確認します。候補の採用、除外、保留もここで行います。</p>",
+  relations: "<p>対象同士について観測したつながりと、その取得元を確認します。「リポジトリがLexiconを定義」「サービスがコレクションを利用」などの向きがある関係です。関係があるだけで、このプロジェクトの所有物とは限りません。個別のレビュー対象を除外・保留できます。</p>",
+  investigation: "<p>調査で何を集め、どこで失敗したかを追う場所です。最新と過去の調査実行記録から、収集結果、所要時間、保存済みの根拠やLLMの記録を確認できます。保存済みの根拠による再評価もここから行います。</p>",
+  decisions: "<p>採用・除外・保留、別プロジェクト指定など、現在有効な判断と履歴を確認します。自動調査に対する制御もここに表示されます。解除できる判断には操作ボタンが付きます。</p>",
+  raw: "<p>詳細APIが返すデータ全体をJSONで確認します。他のタブで省略される値や、調査・判断の細部を調べるときに使います。この表示から直接編集はできません。</p>",
+};
+
+function renderRelation(item) {
+  const entity = value => `<span class="relation-entity"><span class="muted">${esc(displayLabel(value.type))}</span> ${esc(value.value)}</span>`;
+  return `<div class="relation ${esc(item.classification)}">${pill(item.classification, item.classification)}<div class="relation-path">${entity(item.subject)}<span class="relation-edge">─ ${esc(displayLabel(item.predicate))} →</span>${entity(item.object)}</div><div class="muted">${esc([displayLabel(item.source), item.locator, displayLabel(item.method)].filter(Boolean).join(" · "))}</div><div class="actions">${reviewTargetActions(item.review_target)}</div></div>`;
+}
 function projectTimestampRows(project) {
   return `<dt>初回観測</dt><dd>${esc(formatTimestamp(project.first_seen_at) || "不明")}</dd><dt>最終観測</dt><dd>${esc(formatTimestamp(project.last_seen_at) || "不明")}</dd><dt>最終調査</dt><dd>${esc(formatTimestamp(project.last_enriched_at) || "未調査")}</dd>`;
 }
@@ -1405,9 +1420,9 @@ function mergeIdentifierLabel(item, classification) {
   }
   return roleLabels.map(displayLabel).join(" + ") || item.role_labels?.map(displayLabel).join(" + ") || item.roles?.map(displayLabel).join(" + ") || item.kinds?.map(displayLabel).join(" + ") || item.family || "";
 }
-function mergeIdentifierRows(identifiers, classification) {
+function mergeIdentifierRows(identifiers, classification, matchedValues = new Set()) {
   const rows = list(identifiers).filter((item) => list(item.classifications).includes(classification) || item.classification === classification);
-  return rows.map((item) => `<div><span class="muted">${esc(mergeIdentifierLabel(item, classification))}</span> ${identifierValueLink(item)}</div>`).join("") || `<span class="muted">なし</span>`;
+  return rows.map((item) => `<div><span class="muted">${esc(mergeIdentifierLabel(item, classification))}</span> ${matchedValues.has(item.value) ? `<strong class="matched-identifier" title="マージ候補の一致対象">${identifierValueLink(item)}</strong>` : identifierValueLink(item)}</div>`).join("") || `<span class="muted">なし</span>`;
 }
 function actionButton(label, action, data = {}, style = "small") {
   const attrs = Object.entries(data).map(([key, value]) => `data-${key}="${esc(value)}"`).join(" ");
@@ -1456,7 +1471,7 @@ function renderDetail(data) {
     ${hasPromotionHold ? `<p>保留: ${esc(promotionPolicy.active_deferral.reason || "理由なし")} · ${esc(formatTimestamp(promotionPolicy.active_deferral.expires_at))}まで</p>` : ""}</div>`;
   const tab = (key, label, body) => `<section class="detail-tab-panel" data-detail-panel="${key}" ${state.detailTab === key ? "" : "hidden"}>${body}</section>`;
   const overviewBody = `
-    ${section("紹介情報", `<dl class="kv"><dt>公式サイト</dt><dd>${project.website_url ? link(project.website_url) : "なし"}</dd><dt>採用済みサービス</dt><dd>${list(overview.confirmed_services).map(link).join("<br>") || "なし"}</dd><dt>リポジトリ</dt><dd>${list(overview.repositories).map(link).join("<br>") || "なし"}</dd><dt>アカウント</dt><dd>${esc(overview.account || "なし")}</dd><dt>紹介済み</dt><dd>${project.introduced_url ? link(project.introduced_url) : "なし"}</dd><dt>短い説明</dt><dd>${esc(profileValue(profile, "tagline")) || "なし"}</dd><dt>説明</dt><dd>${esc(profileValue(profile, "summary")) || "なし"}</dd><dt>メモ</dt><dd>${esc(profileValue(profile, "notes")) || "なし"}</dd><dt>システム履歴</dt><dd>${renderSystemNotes(project)}</dd>${projectTimestampRows(project)}</dl><div class="actions"><button id="edit-profile">編集</button></div>`)}
+    ${section("紹介情報", `<dl class="kv"><dt>公式サイト</dt><dd>${project.website_url ? link(project.website_url) : "なし"}</dd><dt>サービス</dt><dd>${list(overview.confirmed_services).map(link).join("<br>") || "なし"}</dd><dt>リポジトリ</dt><dd>${list(overview.repositories).map(link).join("<br>") || "なし"}</dd><dt>アカウント</dt><dd>${esc(overview.account || "なし")}</dd><dt>紹介投稿</dt><dd>${project.introduced_url ? link(project.introduced_url) : "なし"}</dd><dt>概要</dt><dd>${esc(profileValue(profile, "tagline")) || "なし"}</dd><dt>説明</dt><dd>${esc(profileValue(profile, "summary")) || "なし"}</dd><dt>メモ</dt><dd>${esc(profileValue(profile, "notes")) || "なし"}</dd><dt>システム履歴</dt><dd>${renderSystemNotes(project)}</dd>${projectTimestampRows(project)}</dl><div class="actions"><button id="edit-profile">編集</button></div>`, detailTabHelp.overview)}
     ${project.features?.length ? section("特徴", `<ul>${project.features.map((value) => `<li>${esc(value)}</li>`).join("")}</ul>`) : ""}
     ${project.editorial?.proposal ? `<p class="notice">根拠付きの説明更新案があります。紹介情報の「編集」から確認できます。</p>` : ""}
     ${section("Lexicon公開情報", renderPublicationSchemas(project.publication_schemas, project.publication_review))}
@@ -1483,11 +1498,11 @@ function renderDetail(data) {
       ${[["overview","概要"],["identifiers","識別子"],["relations","関係"],["investigation","調査履歴"],["decisions","手動判断"],["raw","JSON"]].map(([key,label]) => `<button class="secondary ${state.detailTab === key ? "active" : ""}" data-detail-tab="${key}">${label}</button>`).join("")}
     </nav>
     ${tab("overview", "概要", overviewBody)}
-    ${tab("identifiers", "識別子", section("識別子", identifiers.length ? renderIdentifiers(identifiers) : `<p class="muted">識別子はありません。</p>`))}
-    ${tab("relations", "関係", section("関係", relations.length ? relations.map((item) => `<div class="relation ${esc(item.classification)}"><div>${pill(item.classification, item.classification)} ${esc(`${displayLabel(item.subject.type)}: ${item.subject.value} → ${displayLabel(item.predicate)} → ${displayLabel(item.object.type)}: ${item.object.value}`)}</div><div class="muted">${esc([displayLabel(item.source), item.locator, displayLabel(item.method)].filter(Boolean).join(" · "))}</div><div class="actions">${reviewTargetActions(item.review_target)}</div></div>`).join("") : `<p class="muted">保存済みの関係はありません。</p>`))}
-    ${tab("investigation", "調査履歴", section("最新の調査実行記録", `${renderInvestigation(investigation)}<div class="actions"><button id="load-investigation-history">調査履歴を読み込む</button></div><div id="investigation-history"></div>`))}
-    ${tab("decisions", "手動判断", section("手動判断", renderDecisions(decisions)))}
-    ${tab("raw", "元データ", section("元データ（JSON）", `<details open><summary>プロジェクトのJSON</summary>${json(data)}</details>`))}
+    ${tab("identifiers", "識別子", section("識別子", identifiers.length ? renderIdentifiers(identifiers) : `<p class="muted">識別子はありません。</p>`, detailTabHelp.identifiers))}
+    ${tab("relations", "関係", section("関係", relations.length ? relations.map(renderRelation).join("") : `<p class="muted">保存済みの関係はありません。</p>`, detailTabHelp.relations))}
+    ${tab("investigation", "調査履歴", section("最新の調査実行記録", `${renderInvestigation(investigation)}<div class="actions"><button id="load-investigation-history">調査履歴を読み込む</button></div><div id="investigation-history"></div>`, detailTabHelp.investigation))}
+    ${tab("decisions", "手動判断", section("手動判断", renderDecisions(decisions), detailTabHelp.decisions))}
+    ${tab("raw", "元データ", section("元データ（JSON）", `<details open><summary>プロジェクトのJSON</summary>${json(data)}</details>`, detailTabHelp.raw))}
     <div class="detail-footer">${backToListButton()}${contextualBackButton()}</div>
   `;
   bindBackToListButtons();
@@ -1503,6 +1518,7 @@ function renderDetail(data) {
   $("load-investigation-history")?.addEventListener("click", () => loadInvestigationHistory(project.project_key));
   bindExplicitMergePairControls(document);
   document.querySelectorAll("[data-detail-tab]").forEach((button) => button.onclick = () => {
+    $("context-help-popover").hidePopover();
     state.detailTab = button.dataset.detailTab;
     syncUrl();
     document.querySelectorAll("[data-detail-tab]").forEach((item) => item.classList.toggle("active", item.dataset.detailTab === state.detailTab));
@@ -1829,18 +1845,18 @@ function renderMultiTenantSuffixSuggestions(suggestions) {
 }
 
 function renderProfileFields(profile) {
-  return `<dl class="kv"><dt>短い説明</dt><dd>${esc(profile.tagline || "なし")}</dd><dt>説明</dt><dd>${esc(profile.summary || "なし")}</dd><dt>特徴</dt><dd>${list(profile.features).map(esc).join("<br>") || "なし"}</dd></dl>`;
+  return `<dl class="kv"><dt>概要</dt><dd>${esc(profile.tagline || "なし")}</dd><dt>説明</dt><dd>${esc(profile.summary || "なし")}</dd><dt>特徴</dt><dd>${list(profile.features).map(esc).join("<br>") || "なし"}</dd></dl>`;
 }
 
 function renderProfileChanges(changes) {
   const value = (item) => Array.isArray(item) ? item.map(esc).join("<br>") : esc(typeof item === "boolean" ? (item ? "自動反映する" : "更新案を確認する") : item || "なし");
-  const labels = {tagline:"短い説明", summary:"説明", features:"特徴", name:"名前", notes:"メモ", introduced_url:"紹介済み投稿のURL", automatic_description:"説明の更新方法"};
+  const labels = {tagline:"概要", summary:"説明", features:"特徴", name:"名前", notes:"メモ", introduced_url:"紹介投稿のURL", automatic_description:"説明の更新方法"};
   return changes.map((change) => `<h4>${esc(labels[change.field] || change.field)}</h4><dl class="kv"><dt>変更前</dt><dd>${value(change.before)}</dd><dt>変更後</dt><dd>${value(change.after)}</dd></dl>`).join("");
 }
 
 function renderServiceObservations(observations) {
   if (!list(observations).length) return `<p class="muted">保存済みの確認記録はありません。</p>`;
-  return `${list(observations).some((item) => item.fetch_error) ? `<p class="muted">取得失敗は提供終了を示しません。</p>` : ""}${list(observations).map((item) => `<div class="collector"><strong>${link(item.requested_url)}</strong> · ${esc(displayLabel(item.lane))}<dl class="kv"><dt>最新の試行</dt><dd>${esc(formatTimestamp(item.observed_at) || "時点未記録")} · ${esc(item.fetch_error ? "取得失敗" : item.surface_confirmed ? "利用面を確認" : "利用面は未確認")}${item.status_code ? ` (HTTP ${esc(item.status_code)})` : ""}</dd><dt>最後に利用面を確認</dt><dd>${esc(item.last_success?.observed_at ? formatTimestamp(item.last_success.observed_at) : "時点未記録／成功記録なし")}</dd>${item.content_changed ? `<dt>ページの変化</dt><dd>保存範囲の内容が変化（説明への影響は未確認）</dd>` : ""}${item.surface_change ? `<dt>観測の変化</dt><dd>${esc(item.surface_change === "surface_reached" ? "利用面へ到達" : "以前の利用面へ今回は到達できず")}</dd>` : ""}</dl></div>`).join("")}`;
+  return `${list(observations).some((item) => item.fetch_error) ? `<p class="muted">取得失敗は提供終了を示しません。</p>` : ""}${list(observations).map((item) => `<div class="collector"><strong>${link(item.requested_url)}</strong> · ${esc(displayLabel(item.lane))}<dl class="kv"><dt>最新の試行</dt><dd>${esc(formatTimestamp(item.observed_at) || "時点未記録")} · ${esc(item.fetch_error ? "取得失敗" : item.surface_confirmed ? "利用画面を確認" : "利用画面は未確認")}${item.status_code ? ` (HTTP ${esc(item.status_code)})` : ""}</dd><dt>最後に利用画面を確認</dt><dd>${esc(item.last_success?.observed_at ? formatTimestamp(item.last_success.observed_at) : "時点未記録／成功記録なし")}</dd>${item.content_changed ? `<dt>ページの変化</dt><dd>保存範囲の内容が変化（説明への影響は未確認）</dd>` : ""}${item.surface_change ? `<dt>観測の変化</dt><dd>${esc(item.surface_change === "surface_reached" ? "利用画面へ到達" : "以前の利用画面へ今回は到達できず")}</dd>` : ""}</dl></div>`).join("")}`;
 }
 
 function editProfile(project, profile) {
@@ -2033,15 +2049,21 @@ async function loadMergeDetail(source, target, options = {}) {
     if (request !== state.detailRequest || state.selected !== source) return;
     state.mergeSourceRevision = data.source_revision || "";
     state.mergeTargetRevision = data.target_revision || "";
+    const matchedValues = new Set([
+      ...list(data.source_pair_candidate?.identifier_matches).map(item => item.value),
+      ...list(data.target_pair_candidate?.identifier_matches).map(item => item.value),
+      ...Object.values(data.source_pair_candidate?.reasons || {}).flatMap(list),
+      ...Object.values(data.target_pair_candidate?.reasons || {}).flatMap(list),
+    ]);
     const snapshot = (project, side) => {
       const identifiers = list(project.identifiers);
-      return `<article class="merge-project"><div class="card-title"><strong>${esc(project.name || project.project_key)}</strong>${pill(project.tracking_state)}</div><div class="muted">${esc(project.project_key)}</div><dl class="kv"><dt>公式サイト</dt><dd>${project.website_url ? link(project.website_url) : "なし"}</dd><dt>状態</dt><dd>${pill(project.service_status)} ${pill(project.atproto_contribution_level)}</dd><dt>シード</dt><dd>${esc(`${displayLabel(project.seed?.type || "")}: ${project.seed?.value || ""}`)}</dd>${projectTimestampRows(project)}</dl><div class="merge-identifiers"><strong>採用済み識別子</strong>${mergeIdentifierRows(identifiers, "confirmed")}<strong>候補</strong>${mergeIdentifierRows(identifiers, "candidate")}</div><button class="small" data-merge-view="${esc(side)}">詳細を開く</button></article>`;
+      return `<article class="merge-project"><div class="card-title"><strong>${esc(project.name || project.project_key)}</strong>${pill(project.tracking_state)}</div><div class="muted">${esc(project.project_key)}</div><dl class="kv"><dt>公式サイト</dt><dd>${project.website_url ? link(project.website_url) : "なし"}</dd><dt>状態</dt><dd>${pill(project.service_status)} ${pill(project.atproto_contribution_level)}</dd>${projectTimestampRows(project)}</dl><div class="merge-identifiers"><strong>採用済み識別子</strong>${mergeIdentifierRows(identifiers, "confirmed", matchedValues)}<strong>候補</strong>${mergeIdentifierRows(identifiers, "candidate", matchedValues)}</div><button class="small" data-merge-view="${esc(side)}">詳細を開く</button></article>`;
     };
     const firstCreatorBody = data.first_creator_details_included
-      ? `<dl class="kv"><dt>一致</dt><dd>${json(data.first_creator_overlap || {})}</dd><dt>マージ元の初回作成者DID</dt><dd>${json(data.source_collection_first_creator_dids || {})}</dd><dt>マージ先の初回作成者DID</dt><dd>${json(data.target_collection_first_creator_dids || {})}</dd><dt>マージ元の照会結果</dt><dd>${json(data.source_collection_first_creator_details || {})}</dd><dt>マージ先の照会結果</dt><dd>${json(data.target_collection_first_creator_details || {})}</dd></dl><p class="muted">候補判定には使わない補足情報です。not_foundは作成者を取得できず、errorは照会失敗を示します。</p>`
+      ? `<details class="first-creator-results"><summary>初回作成者の照会結果</summary><dl class="kv"><dt>一致</dt><dd>${json(data.first_creator_overlap || {})}</dd><dt>マージ元の初回作成者DID</dt><dd>${json(data.source_collection_first_creator_dids || {})}</dd><dt>マージ先の初回作成者DID</dt><dd>${json(data.target_collection_first_creator_dids || {})}</dd><dt>マージ元の照会結果</dt><dd>${json(data.source_collection_first_creator_details || {})}</dd><dt>マージ先の照会結果</dt><dd>${json(data.target_collection_first_creator_details || {})}</dd></dl></details>`
       : `<div class="actions"><button id="load-first-creator-heuristic" class="secondary">初回作成者の情報を取得（外部通信）</button></div>`;
     const mergeActions = `<div class="actions"><button id="skip-review-item" class="secondary">今回は先送り</button><button id="mark-separate">別プロジェクトとして保持</button><button id="execute-merge" class="danger">プロジェクトをマージ</button></div>`;
-    $("detail").innerHTML = `${backToListButton()}${contextualBackButton()}<p class="eyebrow">マージ候補の比較</p><h2>${esc(data.source?.name || source)} → ${esc(data.target?.name || target)}</h2><div class="actions"><button id="reverse-merge-direction" class="secondary">マージ元とマージ先を入れ替える</button></div><div class="merge-comparison">${snapshot(data.source, "source")}${snapshot(data.target, "target")}</div>${renderMergeIdentifierMatches(data.source_pair_candidate?.identifier_matches, "マージ元", "マージ先")}${section("候補と判断された理由", `<dl class="kv"><dt>マージの制限</dt><dd>${data.merge_blocked ? pill("blocked", "failed") : "別プロジェクト指定なし"}</dd><dt>厳密な一致</dt><dd>${json(data.strict_overlap || {})}</dd><dt>標準条件での一致</dt><dd>${json(data.moderate_overlap || {})}</dd><dt>マージ元の判定材料</dt><dd>${json(data.source_pair_candidate || {})}</dd><dt>マージ先の判定材料</dt><dd>${json(data.target_pair_candidate || {})}</dd></dl>`)}${renderMultiTenantSuffixSuggestions(data.suggested_multi_tenant_suffixes)}${section("初回作成者による推測", firstCreatorBody)}${section("マージ結果のプレビュー", `<dl class="kv"><dt>名前</dt><dd>${esc(data.merged_preview?.merged_name || "")}</dd><dt>公式サイト</dt><dd>${link(data.merged_preview?.merged_website_url || "")}</dd><dt>サービス状態</dt><dd>${pill(data.merged_preview?.merged_service_status || "unknown")}</dd><dt>リポジトリ</dt><dd>${list(data.merged_preview?.merged_project_repository_urls).map(link).join("<br>") || "なし"}</dd><dt>サービス</dt><dd>${list(data.merged_preview?.merged_service_urls).map(link).join("<br>") || "なし"}</dd></dl>`)}${mergeActions}<div class="detail-footer">${backToListButton()}${contextualBackButton()}</div>`;
+    $("detail").innerHTML = `${backToListButton()}${contextualBackButton()}<p class="eyebrow">マージ候補の比較</p><h2>${esc(data.source?.name || source)} → ${esc(data.target?.name || target)}</h2><div class="actions"><button id="reverse-merge-direction" class="secondary">マージ元とマージ先を入れ替える</button></div><div class="merge-comparison">${snapshot(data.source, "source")}${snapshot(data.target, "target")}</div>${renderMergeIdentifierMatches(data.source_pair_candidate?.identifier_matches, "マージ元", "マージ先")}${data.merge_blocked ? `<p class="notice">別プロジェクト指定によりマージが制限されています。</p>` : ""}<details class="detail-section"><summary>候補と判断された理由</summary><dl class="kv"><dt>マージの制限</dt><dd>${data.merge_blocked ? pill("blocked", "failed") : "別プロジェクト指定なし"}</dd><dt>厳密な一致</dt><dd>${json(data.strict_overlap || {})}</dd><dt>標準条件での一致</dt><dd>${json(data.moderate_overlap || {})}</dd><dt>マージ元の判定材料</dt><dd>${json(data.source_pair_candidate || {})}</dd><dt>マージ先の判定材料</dt><dd>${json(data.target_pair_candidate || {})}</dd></dl></details>${renderMultiTenantSuffixSuggestions(data.suggested_multi_tenant_suffixes)}${section("初回作成者による推測", firstCreatorBody, "<p>両プロジェクトのコレクションを外部APIへ照会し、先頭に返る利用者のDIDが一致するか比較します。初期の利用者が共通するかを見るための補助情報です。返される順序に依存するため、最初に作成した人を確定するものではありません。</p><p>候補判定には使いません。利用者が同じでも、同じプロジェクトとは限りません。not_foundは利用者を取得できず、errorは照会失敗を示します。</p>")}${section("マージ結果のプレビュー", `<dl class="kv"><dt>名前</dt><dd>${esc(data.merged_preview?.merged_name || "")}</dd><dt>公式サイト</dt><dd>${link(data.merged_preview?.merged_website_url || "")}</dd><dt>サービス状態</dt><dd>${pill(data.merged_preview?.merged_service_status || "unknown")}</dd><dt>リポジトリ</dt><dd>${list(data.merged_preview?.merged_project_repository_urls).map(link).join("<br>") || "なし"}</dd><dt>サービス</dt><dd>${list(data.merged_preview?.merged_service_urls).map(link).join("<br>") || "なし"}</dd></dl>`)}${mergeActions}<div class="detail-footer">${backToListButton()}${contextualBackButton()}</div>`;
     bindBackToListButtons();
     document.querySelectorAll("[data-merge-view]").forEach((button) => button.onclick = () => loadDetail(button.dataset.mergeView === "source" ? source : target, {backTarget: {type: "merge", source, target, previous: state.detailBackTarget}}));
     document.querySelectorAll("[data-add-multi-tenant-suffix]").forEach((button) => button.onclick = () => addMultiTenantSuffix(button.dataset.addMultiTenantSuffix, source, target));
@@ -2317,10 +2339,11 @@ function renderSchedules(data) {
   const queueHtml = queue.length ? `<p class="notice">実行待ち: ${esc(queue.map((item) => `${displayLabel(item.preset_id)}: ${item.current_job_id || "待機中"}`).join(", "))}</p>` : "";
   return `${queueHtml}<div class="operation-grid">${items.map((item) => {
     const schedule = item.schedule || {};
-    const steps = list(item.steps).map((step) => esc(displayLabel(step.label || step.operation))).join(" → ");
+    const steps = list(item.steps);
+    const stepHelp = steps.length > 1 ? `<p>実行順: ${steps.map((step) => esc(displayLabel(step.label || step.operation))).join(" → ")}</p>` : "";
     const statusLine = [displayLabel(item.last_status), scheduleMessage(item.last_message), item.last_started_at ? `開始 ${formatTimestamp(item.last_started_at)}` : "", item.last_completed_at ? `完了 ${formatTimestamp(item.last_completed_at)}` : ""].filter(Boolean).join(" · ");
     return `<article class="operation-card schedule-card" data-schedule-card="${esc(item.preset_id)}">
-      <div class="card-title"><span class="title-with-help"><strong>${esc(displayLabel(item.label))}</strong>${helpButton(`${displayLabel(item.label)}の処理内容`, `<p>${esc(displayLabel(item.description))}</p><p>${steps}</p>`)}</span>${schedule.enabled ? pill("enabled", "confirmed") : pill("disabled")}</div>
+      <div class="card-title"><span class="title-with-help"><strong>${esc(displayLabel(item.label))}</strong>${helpButton(`${displayLabel(item.label)}の処理内容`, `<p>${esc(displayLabel(item.description))}</p>${stepHelp}`)}</span>${schedule.enabled ? pill("enabled", "confirmed") : pill("disabled")}</div>
       <div class="controls">
         <label><span><input type="checkbox" data-schedule-field="enabled" data-preset-id="${esc(item.preset_id)}" ${schedule.enabled ? "checked" : ""}> 有効</span></label>
         <label>週<select data-schedule-field="week_of_month" data-preset-id="${esc(item.preset_id)}">${scheduleWeekOptions(schedule.week_of_month)}</select></label>
@@ -2471,7 +2494,7 @@ async function renderSettings() {
     <label>タイムゾーン<input id="setting-time-zone" value="${esc(state.settings.timeZone || defaults.timeZone)}" placeholder="Asia/Tokyo または +09:00"></label>
     <label class="settings-toggle"><span>紹介候補一覧</span><span><input id="setting-personal" type="checkbox" ${state.settings.includePersonalTools ? "checked" : ""}> 個人用ツールを含める</span></label>
   </div><div class="actions"><button id="save-settings" class="primary">設定を保存</button><button id="clear-token" class="danger">APIトークンを削除</button><button id="reload-server" class="danger">サーバーを再起動</button></div>
-  ${section("サーバー", `<dl class="kv"><dt>API</dt><dd>v${esc(state.server?.api_version || "?")}</dd><dt>DBスキーマ</dt><dd>v${esc(state.server?.schema_version || "?")}</dd><dt>起動時コミット</dt><dd>${state.server?.build?.commit ? `<code>${esc(state.server.build.commit)}${state.server.build.dirty ? "（未コミット変更あり）" : ""}</code>` : "Git管理外のため取得できません"}</dd><dt>Python</dt><dd>${esc(state.server?.build?.python || "?")}</dd><dt>データベース</dt><dd>${esc(state.server?.db_path || "取得できません")}</dd><dt>バックグラウンドジョブ</dt><dd>${state.server?.operations_connected ? "接続済み（調査・取り込み・追跡状態の見直し）" : "未接続"}</dd></dl>`)}
+  ${section("サーバー", `<dl class="kv"><dt>API</dt><dd>v${esc(state.server?.api_version || "?")}</dd><dt>DBスキーマ</dt><dd>v${esc(state.server?.schema_version || "?")}</dd><dt>起動時コミット</dt><dd>${state.server?.build?.commit ? `<code>${esc(state.server.build.commit)}${state.server.build.dirty ? "（未コミット変更あり）" : ""}</code>` : "Git管理外のため取得できません"}</dd><dt>Python</dt><dd>${esc(state.server?.build?.python || "?")}</dd><dt>データベース</dt><dd>${esc(state.server?.db_path || "取得できません")}</dd><dt>Webからの処理実行</dt><dd>${state.server?.operations_connected ? "利用可能（調査・取り込み・追跡状態の見直し）" : "利用できません"}</dd></dl>`)}
   `;
   $("setting-merge-mode").value = state.settings.mergeMode;
   $("save-settings").onclick = () => {
