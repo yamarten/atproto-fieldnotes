@@ -256,10 +256,10 @@ class FirefoxRegistryExtensionTest(unittest.TestCase):
         source = (folder / "entry.js").read_text() + (folder / "background.js").read_text()
         harness = '''
 const assert = require("node:assert/strict");
-let clicked, settings = {}, options = 0, opened = [];
+let clicked, modeChanged, settings = {}, options = 0, opened = [], popups = [];
 const browser = {
- action:{onClicked:{addListener(fn){clicked=fn;}}},
- storage:{local:{async get(){return settings;}}},
+ action:{onClicked:{addListener(fn){clicked=fn;}}, async setPopup(item){popups.push(item.popup);}},
+ storage:{local:{async get(){return settings;}}, onChanged:{addListener(fn){modeChanged=fn;}}},
  runtime:{async openOptionsPage(){options++;}, getURL(path){return "moz-extension://test/"+path;}},
  tabs:{async create(item){opened.push(item.url);}}
 };
@@ -268,6 +268,11 @@ const browser = {
 (async () => {
  await clicked({url:"https://service.example/path?code=secret#token"});
  assert.equal(options,1); assert.equal(opened.length,0);
+ assert.equal(popups[0],"popup.html");
+ settings.openMode="tab";
+ modeChanged({openMode:{newValue:"tab"}},"local");
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(popups.at(-1),"");
  settings.registryUrl="http://127.0.0.1:8765";
  await clicked({url:"https://service.example/path?code=secret#token"});
  const target = new URL(opened.pop());
@@ -288,3 +293,63 @@ const browser = {
         manifest = json.loads((folder / "manifest.json").read_text())
         self.assertEqual(set(manifest["permissions"]), {"activeTab", "storage"})
         self.assertNotIn("host_permissions", manifest)
+        self.assertEqual(manifest["name"], "Project Registry")
+        self.assertEqual(manifest["action"]["default_popup"], "popup.html")
+
+    def test_popup_handoff_uses_private_frame_channel_and_navigation_fields_only(self):
+        folder = ROOT / "extras/firefox-registry"
+        source = (folder / "entry.js").read_text() + (folder / "popup.js").read_text()
+        harness = r'''
+const assert = require("node:assert/strict");
+const elements = Object.fromEntries(["registry","open-tab","options","status"].map(id=>[id, {
+ disabled:true, hidden:true, handlers:{}, addEventListener(type,fn){this.handlers[type]=fn;}
+}]));
+const sent = [], opened = [], listeners = {};
+let channel;
+class MessageChannel {constructor(){this.port1={close(){}};this.port2={};channel=this;}}
+elements.registry.contentWindow = {postMessage(data, origin, ports){sent.push({data,origin,ports});}};
+const document = {getElementById:id=>elements[id]};
+let closed = 0;
+const window = {addEventListener(type,fn){listeners[type]=fn;}, close(){closed++;}};
+const browser = {
+ storage:{local:{async get(){return {registryUrl:"http://127.0.0.1:8765"};}}},
+ runtime:{async openOptionsPage(){},getURL(path){return "moz-extension://test/"+path;}},
+ tabs:{async query(){return [{url:"https://example.org/path?secret=code#token"}];}, async create(item){opened.push(item.url);}}
+};
+'''
+        checks = r'''
+(async()=>{
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(elements["open-tab"].disabled,false);
+ const initial = new URL(elements.registry.src);
+ assert.equal(initial.searchParams.get("embed"),"popup");
+ assert.equal(initial.searchParams.get("popup_parent"),"moz-extension://test");
+ assert.equal(initial.searchParams.get("url"),"https://example.org/path");
+ elements.registry.handlers.load();
+ assert.equal(sent[0].origin,"http://127.0.0.1:8765");
+ assert.equal(sent[0].ports[0],channel.port2);
+ const message = {type:"registry-popup-location",pageUrl:"https://example.org/another?secret=code",
+  browserQuery:"org.example",project:"proj:chosen",tab:"identifiers",token:"never-forward",url:"https://evil.example/"};
+ assert.equal(listeners.message,undefined); // No global message can change the target.
+ channel.port1.onmessage({data:{...message,type:"unrecognized"}});
+ await elements["open-tab"].handlers.click();
+ assert.equal(new URL(opened.pop()).searchParams.get("project"),null);
+ channel.port1.onmessage({data:{...message,pageUrl:"javascript:alert(1)"}});
+ await elements["open-tab"].handlers.click();
+ assert.equal(new URL(opened.pop()).searchParams.get("project"),null);
+ channel.port1.onmessage({data:message});
+ await elements["open-tab"].handlers.click();
+ const target = new URL(opened.pop());
+ assert.equal(target.origin,"http://127.0.0.1:8765");
+ assert.equal(target.searchParams.get("project"),"proj:chosen");
+ assert.equal(target.searchParams.get("browser_q"),"org.example");
+ assert.equal(target.searchParams.get("tab"),"identifiers");
+ assert.equal(target.searchParams.get("url"),"https://example.org/another");
+ assert.equal(target.searchParams.get("embed"),null);
+ assert.ok(!target.href.includes("secret") && !target.href.includes("never-forward") && !target.href.includes("evil"));
+ assert.equal(closed,3);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+'''
+        result = subprocess.run([shutil.which("node"), "-"], input=harness + source + checks,
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)

@@ -20,3 +20,16 @@ function registryEntryUrl(base, page) {
   target.searchParams.set("url", source.href);
   return target.href;
 }
+
+// Build a destination from navigation fields only; never accept a frame's URL
+// verbatim or transfer its token, storage, or unsaved form inputs.
+function registryPopupTarget(base, navigation) {
+  const target = new URL(registryEntryUrl(base, navigation.pageUrl));
+  for (const [key, value] of [["browser_q", navigation.browserQuery], ["project", navigation.project]]) {
+    if (typeof value === "string" && value) target.searchParams.set(key, value);
+  }
+  if (["identifiers", "relations", "investigation", "decisions", "raw"].includes(navigation.tab)) {
+    target.searchParams.set("tab", navigation.tab);
+  }
+  return target.href;
+}

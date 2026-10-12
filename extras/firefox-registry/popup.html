@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Project Registry</title><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <header><strong>Project Registry</strong><div><button id="open-tab" disabled>タブで開く</button><button id="options" aria-label="接続先と開き方の設定">設定</button></div></header>
+  <p id="status" role="status">登録状況を読み込みます…</p>
+  <iframe id="registry" title="Project Registryの登録状況" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" hidden></iframe>
+  <footer>編集は「タブで開く」から。選択と検索条件を引き継ぎます。</footer>
+  <script src="entry.js"></script><script src="popup.js"></script>
+</body>
+</html>

@@ -535,13 +535,16 @@ const state = {
 let mutationQueue = Promise.resolve();
 
 const params = new URLSearchParams(location.search);
+const popupEmbedded = params.get("embed") === "popup";
+const popupParentOrigin = params.get("popup_parent") || "";
+let popupPort = null;
 if (params.get("token")) {
   localStorage.setItem("projectRegistryToken", params.get("token"));
   params.delete("token");
   history.replaceState(null, "", location.pathname + (params.toString() ? `?${params}` : ""));
 }
 restoreStateFromUrl(params);
-let token = localStorage.getItem("projectRegistryToken") || prompt("Project RegistryのAPIトークン") || "";
+let token = localStorage.getItem("projectRegistryToken") || (popupEmbedded ? "" : prompt("Project RegistryのAPIトークン")) || "";
 if (token) localStorage.setItem("projectRegistryToken", token);
 
 function loadSettings() {
@@ -757,8 +760,49 @@ function syncUrl({replace = false} = {}) {
     if (state.plannedOffset) query.set("planned_offset", state.plannedOffset);
   }
   if (state.selected && state.detailTab !== "overview") query.set("tab", state.detailTab);
+  if (popupEmbedded) {
+    query.set("embed", "popup");
+    if (popupParentOrigin) query.set("popup_parent", popupParentOrigin);
+  }
   const url = location.pathname + (query.toString() ? `?${query}` : "");
   (replace ? history.replaceState : history.pushState).call(history, null, "", url);
+  publishPopupNavigation();
+}
+
+function publishPopupNavigation() {
+  if (!popupEmbedded || !popupPort) return;
+  popupPort.postMessage({type: "registry-popup-location", pageUrl: state.pageUrl,
+    browserQuery: state.browserQuery, project: state.selected, tab: state.detailTab});
+}
+
+function connectPopup(event) {
+  // Firefox can hide the source of privileged messages. Match the exact
+  // extension origin supplied when embedding, then reply only on its port.
+  if (!popupEmbedded || window.parent === window || (event.source !== null && event.source !== window.parent)
+      || !/^moz-extension:\/\/[^/]+$/.test(popupParentOrigin) || event.origin !== popupParentOrigin
+      || event.data?.type !== "registry-popup-connect" || !event.ports?.[0]) return;
+  popupPort?.close();
+  popupPort = event.ports[0];
+  publishPopupNavigation();
+}
+
+async function startApplication() {
+  if (popupEmbedded && !token) {
+    $("popup-login").hidden = false;
+    $("workspace").hidden = true;
+    return;
+  }
+  try {
+    state.server = await api("/api/settings");
+    $("popup-login").hidden = true;
+    setScreen(state.screen, {updateUrl: false, preserveSelection: true});
+  } catch (error) {
+    status(error.message, true);
+    if (popupEmbedded && error.code === "unauthorized") {
+      $("popup-login").hidden = false;
+      $("workspace").hidden = true;
+    }
+  }
 }
 
 function setScreen(screen, {updateUrl = true, preserveSelection = false} = {}) {
@@ -788,10 +832,10 @@ function setScreen(screen, {updateUrl = true, preserveSelection = false} = {}) {
 const reviewSignalKinds = ["missing_project_identity", "editorial_refresh", "service_observation_changed", "lexicon_publication_changed", "llm_manual_review_recommended", "service_candidate_needs_confirmation", "candidate_repo_needs_confirmation", "service_now_usable_but_needs_editorial_review", "more_evidence_than_current_classification", "stale_metadata_with_recent_activity", "service_status_unverified_but_promising", "category_recheck_needed", "external_lexicon_dependency_needs_review", "high_information_density", "many_identity_candidates"];
 
 function listControls() {
-  if (state.screen === "browser") return `<div class="controls"><h2>サイトから記録</h2>
+  if (state.screen === "browser") return `<div class="controls"><h2>${popupEmbedded ? "登録状況" : "サイトから記録"}</h2>
     <label>見ていたサイトのURL<input id="browser-url" type="url" value="${esc(state.pageUrl)}" placeholder="https://example.com/app"></label>
     <div class="actions"><button id="resolve-browser-url" class="primary">登録状況を確認</button><button id="browser-new-seed" disabled>このURLで登録</button></div>
-    <p class="muted">URLだけで見つからない場合や、OAuth画面から来た場合は、元のサービスを検索してください。</p>
+    <p class="muted browser-help">URLだけで見つからない場合や、OAuth画面から来た場合は、元のサービスを検索してください。</p>
     <div class="toolbar"><input id="browser-query" type="search" value="${esc(state.browserQuery)}" placeholder="サービス名・ドメイン・NSID・URLを検索"><button id="browser-search">検索</button></div></div>`;
   if (state.screen === "review") {
     const explicitMerge = state.reviewView === "merge"
@@ -2752,7 +2796,17 @@ window.addEventListener("pagehide", cancelDetailRequests);
 window.addEventListener("pageshow", (event) => {
   if (event.persisted) setScreen(state.screen, {updateUrl: false, preserveSelection: true});
 });
-api("/api/settings").then((server) => {
-  state.server = server;
-  setScreen(state.screen, {updateUrl: false, preserveSelection: true});
-}).catch((error) => status(error.message, true));
+if (popupEmbedded) {
+  document.body.classList.add("popup-embedded");
+  state.screen = "browser";
+  window.addEventListener("message", connectPopup);
+  $("popup-login-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    token = $("popup-token").value.trim();
+    if (!token) return;
+    localStorage.setItem("projectRegistryToken", token);
+    $("popup-token").value = "";
+    startApplication();
+  });
+}
+startApplication();

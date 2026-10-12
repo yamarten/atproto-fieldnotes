@@ -72,6 +72,16 @@ pre { margin: 0; max-height: 420px; overflow: auto; white-space: pre-wrap; overf
 .status { min-height: 24px; padding: 3px 0; color: var(--muted); }
 main { width: min(1480px, 100%); margin: 0 auto; padding: 12px; }
 .workspace { display: grid; grid-template-columns: minmax(340px, .9fr) minmax(460px, 1.3fr); gap: 12px; height: calc(100vh - 130px); min-height: 520px; }
+body.popup-embedded .brand-row, body.popup-embedded .primary-nav { display: none; }
+body.popup-embedded .app-header { padding: 0 12px; }
+body.popup-embedded .status:empty { display: none; }
+body.popup-embedded .workspace { height: calc(100vh - 24px); min-height: 0; }
+body.popup-embedded .controls h2 { margin-bottom: 0; }
+body.popup-embedded .browser-help { display: none; }
+body.popup-embedded #browser-new-seed,
+body.popup-embedded .detail-header > .actions,
+body.popup-embedded .detail-header > .promotion-actions,
+body.popup-embedded .detail-header > .operator-feedback { display: none; }
 .list-pane, .detail-pane, .single-pane { min-width: 0; min-height: 0; }
 .list-pane { display: grid; grid-template-rows: auto 1fr; gap: 10px; }
 .detail-pane, .single-pane { overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow); padding: 14px; }

@@ -9,6 +9,8 @@
       <label for="registry-url">Web UIのルートURL</label>
       <input id="registry-url" type="url" required placeholder="https://your-registry.example/">
       <p>普段ログインしている接続先を指定してください。APIトークンはWeb UI側で入力します。</p>
+      <label for="open-mode">開き方</label>
+      <select id="open-mode"><option value="popup">ポップアップ（試用）</option><option value="tab">タブ</option></select>
       <button type="submit">保存</button>
     </form>
     <p id="status" role="status"></p>

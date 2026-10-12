@@ -25,6 +25,14 @@
   </header>
 
   <main>
+    <section id="popup-login" class="controls" hidden>
+      <h2>Project Registryに接続</h2>
+      <p>小窓と通常タブでログイン状態が分かれる場合があります。トークンはWeb UI側に保存します。</p>
+      <form id="popup-login-form" class="toolbar">
+        <label>APIトークン<input id="popup-token" type="password" autocomplete="off" required></label>
+        <button type="submit" class="primary">接続</button>
+      </form>
+    </section>
     <section id="workspace" class="workspace">
       <div class="list-pane">
         <div id="list-controls"></div>

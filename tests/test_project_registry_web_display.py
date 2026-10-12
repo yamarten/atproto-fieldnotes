@@ -28,20 +28,47 @@ assert.equal(displayLabel("plan_introduction"),"紹介予定の取り置き");
 assert.equal(displayLabel("confirm_service_usage"),"サービスのLexicon利用の確認");
 ''')
 
-    def run_javascript(self, checks):
+    def run_javascript(self, checks, search=""):
         path = ROOT / "scripts/project_registry_web/static/app.js"
         # Run the real render helpers; omit only page startup and supply browser storage.
         source = path.read_text().rsplit('\ndocument.querySelectorAll(".primary-nav', 1)[0]
         harness = r'''
 const assert = require("node:assert/strict");
-const location = {search:""};
+const location = {search:SEARCH};
 const localStorage = {getItem: () => null};
 const prompt = () => "";
 const document = {};
-'''
+'''.replace("SEARCH", json.dumps(search))
         result = subprocess.run([shutil.which("node"), "-"], input=harness + source + checks,
                                 text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_popup_navigation_excludes_credentials_and_preserves_embedded_history(self):
+        self.run_javascript(r'''
+let message, historyUrl;
+global.window = {parent:{}};
+global.history = {pushState(_,__,url){historyUrl=url;}};
+location.pathname="/";
+const port={postMessage(data){message=data;},close(){}};
+const connection={origin:"moz-extension://test",source:null,ports:[port],data:{type:"registry-popup-connect"}};
+connectPopup({...connection,origin:"moz-extension://other"});
+assert.equal(message,undefined);
+connectPopup({...connection,source:{}});
+assert.equal(message,undefined);
+connectPopup(connection);
+state.selected="proj:chosen";
+state.browserQuery="org.example";
+state.detailTab="identifiers";
+syncUrl();
+assert.equal(new URLSearchParams(historyUrl.slice(2)).get("embed"),"popup");
+assert.deepEqual(message, {type:"registry-popup-location",
+ pageUrl:"https://example.org/",browserQuery:"org.example",project:"proj:chosen",tab:"identifiers"});
+const nodes={"popup-login":{hidden:true},workspace:{hidden:false}};
+document.getElementById=id=>nodes[id];
+startApplication();
+assert.equal(nodes["popup-login"].hidden,false);
+assert.equal(nodes.workspace.hidden,true);
+''', search="?screen=browser&embed=popup&popup_parent=moz-extension%3A%2F%2Ftest&url=https%3A%2F%2Fexample.org%2F")
 
     def test_browser_matches_show_nsid_reason_and_escape_values(self):
         self.run_javascript(r'''

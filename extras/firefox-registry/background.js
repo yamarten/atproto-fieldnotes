@@ -1,5 +1,14 @@
 "use strict";
 
+async function configurePopup() {
+  const settings = await browser.storage.local.get("openMode");
+  await browser.action.setPopup({popup: settings.openMode === "tab" ? "" : "popup.html"});
+}
+configurePopup().catch(console.error);
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.openMode) configurePopup().catch(console.error);
+});
+
 browser.action.onClicked.addListener(async (tab) => {
   try {
     const settings = await browser.storage.local.get("registryUrl");

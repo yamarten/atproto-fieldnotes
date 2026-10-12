@@ -7,7 +7,8 @@ from pathlib import Path
 import zipfile
 
 
-FILES = ("manifest.json", "entry.js", "background.js", "options.html", "options.js", "options.css", "icon.svg")
+FILES = ("manifest.json", "entry.js", "background.js", "popup.html", "popup.js", "popup.css",
+         "options.html", "options.js", "options.css", "icon.svg")
 
 
 def main() -> None:

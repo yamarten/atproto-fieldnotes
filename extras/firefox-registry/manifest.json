@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "Project Registryへ記録",
-  "version": "0.1.0",
+  "name": "Project Registry",
+  "version": "0.2.0",
   "description": "見ているサービスから、自分のProject Registryで登録確認とフィードバックへ進みます。",
   "permissions": ["activeTab", "storage"],
   "action": {
-    "default_title": "Project Registryで確認・記録",
+    "default_title": "Project Registry",
+    "default_popup": "popup.html",
     "default_icon": "icon.svg"
   },
   "icons": {"48": "icon.svg", "96": "icon.svg"},

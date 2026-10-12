@@ -2,6 +2,6 @@
 body { margin: 0; }
 main { max-width: 42rem; padding: 2rem; margin: auto; }
 label { display: block; font-weight: 600; }
-input { box-sizing: border-box; width: 100%; padding: .65rem; font: inherit; }
+input, select { box-sizing: border-box; width: 100%; padding: .65rem; font: inherit; }
 button { padding: .6rem 1.2rem; font: inherit; cursor: pointer; }
 #status { font-weight: 600; }

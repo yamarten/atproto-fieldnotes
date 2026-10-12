@@ -1,12 +1,22 @@
-# FirefoxからProject Registryへ記録
+# Project Registry（Firefox拡張）
 
-Firefoxのツールバーボタンから、見ているサービスやリポジトリを自分のProject Registry Web UIで探す拡張です。登録状況の確認、候補の採用、理由付きの保留、紹介予定の取り置きへ進めます。拡張内にDB・認証・保存処理を持たず、Web UIを別タブに開きます。元のサイトのタブは残ります。
+Firefoxのツールバーボタンから、見ているサービスやリポジトリを自分のProject Registry Web UIで探す拡張です。登録状況の確認、候補の採用、理由付きの保留、紹介予定の取り置きへ進めます。拡張内にDB・認証・保存処理を持たず、Web UIへ接続します。元のサイトのタブは残ります。
+
+version 0.2.0では、登録有無を確認するためのポップアップを試用できます。既定の開き方はポップアップで、接続先設定の`開き方`を`タブ`にすると従来の別タブ表示へ戻せます。継続採用の判断には、Firefox本体で下記の手動確認を行います。
 
 対象はデスクトップ版Firefox 140以降です。Androidでの動作は検証対象に含めていません。Web UI側の入口・操作は[Web UIガイド](../../docs/user/web-ui.md#サイトから記録)を参照してください。
 
+## ポップアップで確認する
+
+小窓にはWeb UIをiframeで埋め込みます。選択したプロジェクト、詳細の表示タブ、サイトURL、検索条件は上部の`タブで開く`へ引き継ぎます。編集は移動先で行ってください。未保存のフォーム入力は引き継がず、外をクリックすると小窓は閉じます。閉じた後に再び開くと、元のサイトURLから検索し直します。
+
+表示領域は780×590pxです。Web UI側の狭い画面向け表示を使い、一覧から詳細へ切り替えます。iframeが読み込めない場合も`タブで開く`を使えます。外部の認証画面を埋め込む機能ではありません。
+
+通常タブとiframeでlocalStorageが分かれる場合、小窓にもAPIトークンの入力フォームが表示されます。トークンは接続先Web UIのlocalStorageだけに保存し、拡張のstorageやタブへ渡すメッセージには含めません。通常タブでも必要なら従来どおりログインします。小窓の表示・認証状態共有はFirefoxのプライバシー設定によって異なるため、一時ロードで実際の環境を確認してください。
+
 ## 接続先と渡す情報
 
-初回にボタンを押すと接続先の設定が開きます。普段ログインしているWeb UIのルートURLを保存し、元のサービスのタブへ戻ってボタンを押します。接続先はブラウザープロファイルごとの`storage.local`に保持し、他端末へ同期しません。個人環境の接続先を配布ファイルへ書き込む必要はありません。
+初回は小窓の`設定`から、普段使うWeb UIのルートURLを保存し、元のサービスのタブへ戻ってボタンを押します。タブ表示を選んでいる場合は、接続先未設定時に設定が直接開きます。接続先と開き方はブラウザープロファイルごとの`storage.local`に保持し、他端末へ同期しません。個人環境の接続先を配布ファイルへ書き込む必要はありません。
 
 APIトークンは拡張へ保存せず、Web UIの通常のログインを使います。接続先のURLには認証情報・クエリ・フラグメント・ルート以外のパスを指定できません。Tailscale等のHTTPS入口を使う場合は、そのoriginでWeb UIへログインしてください。
 
@@ -22,16 +32,19 @@ JavaScriptの構文と、ボタンクリック時のURL受け渡し・設定不�
 bin/project-registry-test -p test_browser_feedback.py
 node --check extras/firefox-registry/entry.js
 node --check extras/firefox-registry/background.js
+node --check extras/firefox-registry/popup.js
 node --check extras/firefox-registry/options.js
 ```
 
 Web UIの手動確認には[共通ダミーDBと確認用server](../../docs/developer/workflows/change-acceptance.md#cliwebの共通ダミーdb)を使います。拡張を開発用Firefoxへ一時ロードする場合は、`about:debugging`の「このFirefox」からこのdirectoryの`manifest.json`を選びます。一時ロードはFirefox再起動後の継続利用や更新を検証するものではありません。
 
+既に一時ロード済みなら`about:debugging#/runtime/this-firefox`のこの拡張の`再読み込み`を押します。Firefoxを終了する必要はありません。小窓の試用では、登録済みURLの自動選択、domainのNSID候補一覧、未一致、検索して選んだプロジェクトの`タブで開く`、小窓の初回トークン入力、閉じて再表示、設定の`タブ`への切替を確認します。Web UIの静的ファイルを更新した場合は開き直すだけで反映され、確認用serverの再起動は不要です。
+
 ## 継続導入と更新
 
 通常版Firefoxへの継続導入にはMozillaの署名が必要です。個人用ではAMOの公開一覧に載せないself-distribution（unlisted）を使えます。提出にはMozillaアカウントと規約への同意が必要で、署名時・事後の審査対象になります。署名・提出・インストールは、このリポジトリのbuildやtestでは行いません。[Mozillaの署名と配布](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/)を参照してください。
 
-提出用ZIPは標準Pythonだけで生成します。ソースを変更せず、固定した7ファイルだけをZIPのルートへ入れ、既定ではGit管理外の`.tmp/firefox-registry/`へ保存します。このZIPは未署名で、通常版Firefoxへ継続導入する成果物ではありません。
+提出用ZIPは標準Pythonだけで生成します。ソースを変更せず、固定した10ファイルだけをZIPのルートへ入れ、既定ではGit管理外の`.tmp/firefox-registry/`へ保存します。このZIPは未署名で、通常版Firefoxへ継続導入する成果物ではありません。
 
 ```sh
 bin/_project-registry-python extension-build extras/firefox-registry/build.py

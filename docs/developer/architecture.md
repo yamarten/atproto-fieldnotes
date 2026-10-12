@@ -50,6 +50,8 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 
 ### 一覧・詳細の検索経路
 
+Firefox拡張のポップアップ試作は、`embed=popup`のWeb UIをiframeへ埋め込みます。Web UIは初回認証用フォームと狭い画面向け表示を使います。拡張は接続先originを指定した`postMessage`でframeへ専用MessagePortを渡し、その通信口から受け取ったサイトURL・検索条件・project key・詳細tabだけで別タブのURLを組み立てます。token・storage・未保存入力は渡しません。Web UI側は`popup_parent`で指定された拡張のoriginを照合し、送信元が親frameかFirefoxが参照を公開しない場合だけ通信口へ応答します。開き方は拡張設定で従来のタブ表示へ戻せます。試用手順と制限は[拡張のREADME](../../extras/firefox-registry/README.md)に置きます。
+
 `application/browser_entry.py`は訪問URLから保存済みidentifierを照合するread-only入口と、利用者が取り置いた紹介予定一覧を担当します。Firefox拡張はURLを`screen=browser&url=...`へ渡すだけで、認証・DB保存はWeb UI側に置きます。サービス・サイトURLの完全一致かパス区切りごとの親URL、対応forgeのrepository境界を使います。hostのlabelを逆順にしたnamespaceと区切り付きprefixが一致するconfirmed/candidateの`owned_nsid`も検索候補に含めます。hostは親domainへ広げず、NSIDの元のcaseを表示します。`/api/browser-entry?q=...`は通常のテキスト検索へこの照合を追加し、件数・limitは両者を合わせたproject単位で計算します。NSIDだけの一致、candidate URLだけの一致、複数project一致では自動選択しません。GitHub、Tangled、Codeberg、GitLab、SourceHut、Bluesky、pds.ls等の共用hostでは単純な親service/site URL一致を使いません。redirectの取得やLLM照合は行わず、不一致時は手動検索・シードpreviewへ進めます。
 
 `application/feedback.py`が紹介予定とサービスのLexicon利用の明示保存・解除を担当します。`operator_feedback.py`がdecision履歴から現在の取り置きと利用relationを投影し、既存の完全runtime view・revision check・transactionを使って保存します。拡張からの閲覧・照合だけでは判断を記録しません。データ契約は[operator decision](specs/project-record.md#サイト閲覧後の手動判断)を参照してください。
