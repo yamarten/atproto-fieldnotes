@@ -301,18 +301,20 @@ const browser = {
         source = (folder / "entry.js").read_text() + (folder / "popup.js").read_text()
         harness = r'''
 const assert = require("node:assert/strict");
-const elements = Object.fromEntries(["registry","open-tab","options","status"].map(id=>[id, {
+const elements = Object.fromEntries(["registry","open-tab","options","status","popup-width","popup-width-value"].map(id=>[id, {
  disabled:true, hidden:true, handlers:{}, addEventListener(type,fn){this.handlers[type]=fn;}
 }]));
 const sent = [], opened = [], listeners = {};
 let channel;
 class MessageChannel {constructor(){this.port1={close(){}};this.port2={};channel=this;}}
 elements.registry.contentWindow = {postMessage(data, origin, ports){sent.push({data,origin,ports});}};
-const document = {getElementById:id=>elements[id]};
+let appliedWidth;
+const document = {getElementById:id=>elements[id],documentElement:{style:{setProperty(key,value){assert.equal(key,"--popup-width");appliedWidth=value;}}}};
 let closed = 0;
 const window = {addEventListener(type,fn){listeners[type]=fn;}, close(){closed++;}};
+let savedSettings={registryUrl:"http://127.0.0.1:8765",popupWidth:420};
 const browser = {
- storage:{local:{async get(){return {registryUrl:"http://127.0.0.1:8765"};}}},
+ storage:{local:{async get(){return savedSettings;},async set(values){Object.assign(savedSettings,values);}}},
  runtime:{async openOptionsPage(){},getURL(path){return "moz-extension://test/"+path;}},
  tabs:{async query(){return [{url:"https://example.org/path?secret=code#token"}];}, async create(item){opened.push(item.url);}}
 };
@@ -320,6 +322,21 @@ const browser = {
         checks = r'''
 (async()=>{
  await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(appliedWidth,"420px");
+ assert.equal(elements["popup-width"].value,"420");
+ const originalFrameSrc=elements.registry.src;
+ elements["popup-width"].value="600";
+ elements["popup-width"].handlers.input();
+ assert.equal(appliedWidth,"600px");
+ assert.equal(elements["popup-width-value"].value,"600px");
+ await elements["popup-width"].handlers.change();
+ assert.equal(savedSettings.popupWidth,600);
+ assert.equal(elements.registry.src,originalFrameSrc);
+ await initializePopup();
+ assert.equal(appliedWidth,"600px");
+ assert.equal(applyPopupWidth(undefined),480);
+ assert.equal(applyPopupWidth(2000),780);
+ assert.equal(applyPopupWidth(100),360);
  assert.equal(elements["open-tab"].disabled,false);
  const initial = new URL(elements.registry.src);
  assert.equal(initial.searchParams.get("embed"),"popup");

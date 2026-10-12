@@ -3,8 +3,25 @@
 const frame = document.getElementById("registry");
 const openTab = document.getElementById("open-tab");
 const popupStatus = document.getElementById("status");
+const widthControl = document.getElementById("popup-width");
+const widthValue = document.getElementById("popup-width-value");
 let registryRoot = "", targetUrl = "";
 let navigationPort = null;
+
+function applyPopupWidth(value) {
+  const numeric = Number(value);
+  const width = Number.isFinite(numeric) && numeric > 0
+    ? Math.min(780, Math.max(360, Math.round(numeric / 20) * 20)) : 480;
+  document.documentElement.style.setProperty("--popup-width", `${width}px`);
+  widthControl.value = String(width);
+  widthValue.value = `${width}px`;
+  return width;
+}
+widthControl.addEventListener("input", () => applyPopupWidth(widthControl.value));
+widthControl.addEventListener("change", async () => {
+  try { await browser.storage.local.set({popupWidth: applyPopupWidth(widthControl.value)}); }
+  catch (_) { popupStatus.textContent = "横幅を保存できませんでした。次回は以前の幅で開きます。"; }
+});
 
 document.getElementById("options").addEventListener("click", async () => {
   await browser.runtime.openOptionsPage();
@@ -35,7 +52,9 @@ frame.addEventListener("load", () => {
 
 async function initializePopup() {
   try {
-    const settings = await browser.storage.local.get("registryUrl");
+    const settings = await browser.storage.local.get(["registryUrl", "popupWidth"]);
+    applyPopupWidth(settings.popupWidth);
+    widthControl.disabled = false;
     if (!settings.registryUrl) {
       popupStatus.textContent = "設定からWeb UIの接続先を指定してください。";
       return;
