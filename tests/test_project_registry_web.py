@@ -346,6 +346,8 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         self.assertEqual(status, 200)
         self.assertEqual(listed["open_count"], 1)
         self.assertEqual(listed["items"][0]["reason"], "no_url")
+        self.assertEqual(listed["items"][0]["post_line"], "")
+        self.assertEqual(listed["items"][0]["matched_projects"], [])
         status, result, _ = self.request("/api/introduced-review/action", method="POST", payload={
             "scope_key": listed["items"][0]["scope_key"], "item_id": item["id"], "action": "link",
             "project_key": "proj:111111111111",
@@ -355,8 +357,30 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         status, listed, _ = self.request("/api/introduced-review?status=all")
         self.assertEqual(listed["open_count"], 0)
         self.assertEqual(listed["items"][0]["status"], "linked")
+        self.assertEqual(listed["items"][0]["linked_project"]["name"], "Example App")
         status, detail, _ = self.request("/api/projects/proj:111111111111")
         self.assertEqual(detail["project"]["introduced_url"], "https://bsky.app/profile/example.test/post/review")
+
+    def test_introduced_review_api_projects_named_candidates_without_applying(self) -> None:
+        url = "https://duplicate.example"
+        text = f"別の紹介\nCandidate: {url}\n別の行"
+        source = {"uri": "at://did:plc:example/app.bsky.feed.post/candidate", "author": {"handle": "example.test"},
+                  "record": {"text": text, "facets": []}}
+        conn = registry.open_db()
+        try:
+            item = introduced_review.observe_posts(conn, [source])[0]
+            registry.write_sync_state(conn, "introduced", {"query": "named"}, {"review_items": [item]})
+            conn.commit()
+        finally:
+            conn.close()
+        status, listed, _ = self.request("/api/introduced-review")
+        self.assertEqual(status, 200)
+        self.assertEqual(listed["items"][0]["post_line"], f"Candidate: {url}")
+        self.assertEqual(listed["items"][0]["matched_projects"], [
+            {"project_key": "proj:222222222222", "name": "Example Duplicate", "introduced_url": ""}])
+        status, detail, _ = self.request("/api/projects/proj:222222222222")
+        self.assertEqual(status, 200)
+        self.assertEqual(detail["project"]["introduced_url"], "")
 
     def test_static_assets_and_api_authentication(self) -> None:
         status, html, content_type = self.request_text("/")

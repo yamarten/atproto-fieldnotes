@@ -486,6 +486,7 @@ const state = {
   introducedStatus: "open",
   introducedOffset: 0,
   introducedItems: [],
+  introducedDrafts: new Map(),
   reviewSignalKind: "",
   promotionView: "inbox",
   promotionReason: "",
@@ -1123,7 +1124,7 @@ function renderIntroducedList(data) {
   $("list").innerHTML = `<div class="notice"><strong>要確認 ${esc(data.open_count)}件</strong>${helpButton("紹介済み投稿の取得範囲", `<p>${esc(data.coverage_note)}</p>`)}${coverage || "<p>同期記録はありません。</p>"}</div>
     <div class="meta-row">表示 ${state.introducedItems.length ? `${esc(data.offset + 1)}〜${esc(data.offset + state.introducedItems.length)}` : "0"} / ${esc(data.count)}件</div>
     ${state.introducedItems.length ? state.introducedItems.map((item) => `<button class="card ${state.selected === item.id ? "selected" : ""}" data-introduced-id="${esc(item.id)}">
-      <span class="card-title"><strong>${esc(item.label || item.url || item.post_text?.slice(0, 65) || "URLなしの投稿")}</strong>${pill(introducedStatusLabels[item.status] || item.status, item.status === "open" ? "candidate" : "")}</span>
+      <span class="card-title"><strong>${esc(item.label || item.url || "URLなしの投稿")}</strong>${pill(introducedStatusLabels[item.status] || item.status, item.status === "open" ? "candidate" : "")}</span>
       <span class="muted">${esc(introducedReasonLabels[item.reason] || item.reason || "照合済み")}</span>
       <span class="muted">${esc(formatTimestamp(item.indexed_at))}</span>
     </button>`).join("") : `<div class="empty-state"><p>表示する紹介投稿はありません。</p></div>`}
@@ -1132,40 +1133,84 @@ function renderIntroducedList(data) {
   $("introduced-next").onclick = () => { state.introducedOffset += 100; clearDetailSelection(); syncUrl(); loadList(); };
   document.querySelectorAll("[data-introduced-id]").forEach((button) => button.onclick = () => selectIntroducedItem(button.dataset.introducedId));
   const selected = state.introducedItems.find((item) => item.id === state.selected) || state.introducedItems[0];
-  if (selected) selectIntroducedItem(selected.id, {updateUrl:false});
+  if (selected) selectIntroducedItem(selected.id, {updateUrl:false, reveal:document.body.classList.contains("detail-open") || new URLSearchParams(location.search).get("project") === selected.id});
   else $("detail").innerHTML = `<div class="empty-state"><h2>紹介投稿の確認</h2></div>`;
 }
 
-function selectIntroducedItem(id, {updateUrl = true} = {}) {
+function selectIntroducedItem(id, {updateUrl = true, reveal = true} = {}) {
   const item = state.introducedItems.find((entry) => entry.id === id);
   if (!item) return;
+  const draft = introducedDraft(item);
   cancelDetailRequests();
   state.selected = id;
   document.querySelectorAll("[data-introduced-id]").forEach((card) => card.classList.toggle("selected", card.dataset.introducedId === id));
   if (updateUrl) syncUrl();
-  document.body.classList.add("detail-open");
-  $("detail").innerHTML = `<div class="detail-header"><p class="eyebrow">紹介投稿の確認</p><h2>${esc(item.label || "取得済み投稿")}</h2>
+  document.body.classList.toggle("detail-open", reveal);
+  $("detail").innerHTML = `<div class="detail-header introduced-header">${backToListButton()}<p class="eyebrow">紹介投稿の確認</p><h2>${item.url ? externalLink(item.url, item.url) : "URLなしの投稿"}</h2>
     <p>${pill(introducedStatusLabels[item.status] || item.status)} ${esc(introducedReasonLabels[item.reason] || item.reason || "")}</p></div>
-    <div class="detail-content"><p>${item.post_web_url ? externalLink(item.post_web_url, "元の投稿を開く ↗") : "投稿URLを再構成できません"}</p>
-    <p class="muted">${esc(formatTimestamp(item.indexed_at))}</p><p class="notice">${esc(item.post_text || "旧保留記録には投稿本文がありません。元の投稿を開いて確認してください。")}</p>
-    <dl class="kv"><dt>投稿中のURL</dt><dd>${item.url ? link(item.url) : "なし"}</dd><dt>URLの検出元</dt><dd>${esc(introducedSourceLabels[item.url_source] || item.url_source || "不明")}</dd>
-    <dt>抽出された識別子</dt><dd>${item.seed_type ? `${esc(item.seed_type)}: ${esc(item.seed_value)}` : "なし"}</dd>
-    <dt>一致したプロジェクト</dt><dd>${list(item.matched_project_keys).map(esc).join("、") || "なし"}</dd></dl>
-    ${item.status === "open" ? `<div class="actions"><button id="introduced-ignore" class="secondary">${item.url ? "このURLを対象外にする" : "この投稿を対象外にする"}</button>${item.seed_type && item.url_source !== "text" ? `<button id="introduced-recheck" class="secondary">再照合</button>` : ""}</div>
-      ${item.post_web_url ? `<div class="controls"><label>紐付け先の登録プロジェクトを検索<input id="introduced-project-query" type="search" placeholder="名前・URL・識別子"></label><button id="introduced-project-search">検索</button><div id="introduced-project-results"></div></div>` : ""}` : ""}
+    <div class="detail-content"><p class="meta-row">${item.post_web_url ? externalLink(item.post_web_url, "元の投稿を開く ↗") : "投稿URLを再構成できません"} <span>${esc(formatTimestamp(item.indexed_at))}</span></p>
+    ${item.post_line ? `<p class="notice introduced-post-line">${esc(item.post_line)}</p>` : ""}
+    <dl class="kv"><dt>URLの検出元</dt><dd>${esc(introducedSourceLabels[item.url_source] || item.url_source || "不明")}</dd>
+    <dt>抽出された識別子</dt><dd>${item.seed_type ? `${esc(item.seed_type)}: ${esc(item.seed_value)}` : "なし"}</dd></dl>
+    ${item.status === "open" && item.post_web_url ? `<section class="introduced-linking"><h3>紐付け先</h3>
+      <div id="introduced-matched-projects"></div>
+      <div id="introduced-selected-project" class="introduced-selection" aria-live="polite"></div>
+      <form id="introduced-project-search-form" class="toolbar introduced-search"><label>登録プロジェクトを検索<input id="introduced-project-query" type="search" placeholder="名前・URL・識別子" value="${esc(draft.query)}"></label><button id="introduced-project-search" type="submit">検索</button></form>
+      <div id="introduced-project-results" aria-live="polite"></div></section>` : ""}
+    ${item.status === "linked" ? `<dl class="kv"><dt>紐付け先</dt><dd>${item.linked_project ? introducedProjectLink(item.linked_project) : esc(item.project_key || "なし")}</dd></dl>` : item.status !== "open" || !item.post_web_url ? `<dl class="kv"><dt>一致したプロジェクト</dt><dd>${list(item.matched_projects).map((project) => introducedProjectLink(project)).join("、") || "なし"}</dd></dl>` : ""}
+    ${item.status === "open" ? `<div class="actions"><button id="introduced-ignore" class="secondary">${item.url ? "このURLを対象外にする" : "この投稿を対象外にする"}</button>${item.seed_type && item.url_source !== "text" ? `<button id="introduced-recheck" class="secondary">再照合</button>` : ""}</div>` : ""}
     ${["ignored", "linked"].includes(item.status) ? `<div class="actions"><button id="introduced-reopen" class="secondary">判断を取り消す</button></div>` : ""}
     </div>`;
+  bindBackToListButtons();
   $("introduced-ignore")?.addEventListener("click", () => confirmOperation("対象外として記録", `この項目を対象外として保存します。次回の同期でも要確認に戻りません。${item.auto_set_project_key ? ` この同期で ${item.auto_set_project_key} に設定した紹介URLは、同じ投稿の別URLによる一致がなければ外します。` : ""}`, () => introducedAction(item, "ignore")));
   $("introduced-recheck")?.addEventListener("click", () => introducedAction(item, "recheck"));
   $("introduced-reopen")?.addEventListener("click", () => confirmOperation("判断を取り消す", "手動判断を取り消して要確認に戻します。紐付け時に設定した紹介URLは、変更されていなければ元に戻します。", () => introducedAction(item, "reopen")));
-  $("introduced-project-search")?.addEventListener("click", () => searchIntroducedProjects(item));
-  $("introduced-project-query")?.addEventListener("keydown", (event) => { if (event.key === "Enter") searchIntroducedProjects(item); });
+  $("introduced-project-query")?.addEventListener("input", (event) => { draft.query = event.target.value; });
+  $("introduced-project-search-form")?.addEventListener("submit", (event) => { event.preventDefault(); searchIntroducedProjects(item); });
+  renderIntroducedProjects(item);
+}
+
+function introducedDraft(item) {
+  const key = `${item.scope_key}:${item.id}`;
+  if (!state.introducedDrafts.has(key)) state.introducedDrafts.set(key, {query:"", results:[], searched:false, selected:null, request:0, loading:false, error:""});
+  return state.introducedDrafts.get(key);
+}
+
+function introducedProjectLink(project, label = project.name || project.project_key) {
+  const query = new URLSearchParams({screen:"projects", project:project.project_key});
+  return `<a href="?${esc(query.toString())}" target="_blank" rel="noopener" aria-label="${esc(`${project.name || project.project_key}の詳細を別タブで開く`)}">${esc(label)} ↗</a>`;
+}
+
+function renderIntroducedProjects(item) {
+  const matched = $("introduced-matched-projects");
+  if (!matched) return;
+  const draft = introducedDraft(item);
+  const cards = (projects) => projects.map((project) => {
+    const selected = draft.selected?.project_key === project.project_key;
+    return `<button type="button" class="card ${selected ? "selected" : ""}" aria-pressed="${selected}" data-introduced-project="${esc(project.project_key)}"><span class="card-title"><strong>${esc(project.name || project.project_key)}</strong>${selected ? pill("選択中", "confirmed") : ""}</span><span class="muted">${esc(project.project_key)}</span>${project.introduced_url ? `<span class="muted">現在の紹介URL: ${esc(project.introduced_url)}</span>` : ""}</button>`;
+  }).join("");
+  const candidates = list(item.matched_projects);
+  matched.innerHTML = candidates.length ? `<p class="muted">一致候補</p><div class="introduced-project-cards">${cards(candidates)}</div>` : `<p class="muted">一致候補はありません。名前やURLで検索してください。</p>`;
+  $("introduced-project-results").innerHTML = draft.loading ? "検索中…" : draft.error ? esc(draft.error) : draft.searched ? `<p class="muted">検索結果</p><div class="introduced-project-cards">${cards(draft.results) || "一致する登録プロジェクトはありません。"}</div>` : "";
+  document.querySelectorAll("[data-introduced-project]").forEach((button) => button.onclick = () => {
+    draft.selected = [...candidates, ...draft.results].find((project) => project.project_key === button.dataset.introducedProject);
+    renderIntroducedProjects(item);
+    $("introduced-apply")?.focus();
+  });
+  const project = draft.selected;
+  $("introduced-selected-project").innerHTML = project ? `<strong>選択中: ${esc(project.name || project.project_key)}</strong><div class="actions">${introducedProjectLink(project, "詳細を確認")}<button id="introduced-apply" class="primary">このプロジェクトに紐付ける</button></div>` : "";
+  $("introduced-apply")?.addEventListener("click", () => {
+    const replace = Boolean(project.introduced_url && project.introduced_url !== item.post_web_url);
+    confirmOperation(replace ? "紹介URLを付け替える" : "紹介投稿を紐付け", `${project.name || project.project_key} の紹介URLを${replace ? ` ${project.introduced_url} から` : ""} ${item.post_web_url} に${replace ? "付け替えます" : "設定します"}か？${item.auto_set_project_key && item.auto_set_project_key !== project.project_key ? ` この同期で ${item.auto_set_project_key} に設定した紹介URLは、同じ投稿の別URLによる一致がなければ外します。` : ""} 識別子の採用状態は変更しません。`, () => introducedAction(item, "link", {project_key:project.project_key, replace}));
+  });
 }
 
 async function introducedAction(item, action, extra = {}) {
   try {
     await api("/api/introduced-review/action", {method:"POST", body:JSON.stringify({scope_key:item.scope_key, item_id:item.id, action, ...extra})});
+    state.introducedDrafts.delete(`${item.scope_key}:${item.id}`);
     status("紹介投稿の判断を保存しました。");
+    document.body.classList.remove("detail-open");
     clearDetailSelection();
     syncUrl({replace:true});
     await loadList();
@@ -1175,21 +1220,28 @@ async function introducedAction(item, action, extra = {}) {
 async function searchIntroducedProjects(item) {
   const query = $("introduced-project-query")?.value.trim();
   if (!query) { status("検索語を入力してください。", true); return; }
-  const target = $("introduced-project-results");
-  target.textContent = "検索中…";
+  const draft = introducedDraft(item);
+  const request = ++draft.request;
+  draft.loading = true;
+  draft.error = "";
+  renderIntroducedProjects(item);
   try {
     const data = await api(`/api/projects?${new URLSearchParams({q:query, limit:20})}`);
-    target.innerHTML = list(data.items).length ? list(data.items).map((entry) => {
-      const project = entry.project || entry;
-      return `<button class="card" data-introduced-project="${esc(project.project_key)}" data-introduced-existing="${esc(project.introduced_url || "")}"><strong>${esc(project.name || project.project_key)}</strong><span class="muted">${esc(project.project_key)}</span>${project.introduced_url ? `<span class="muted">現在の紹介URL: ${esc(project.introduced_url)}</span>` : ""}</button>`;
-    }).join("") : "一致する登録プロジェクトはありません。";
-    target.querySelectorAll("[data-introduced-project]").forEach((button) => button.onclick = () => {
-      const projectKey = button.dataset.introducedProject;
-      const existing = button.dataset.introducedExisting;
-      const replace = Boolean(existing && existing !== item.post_web_url);
-      confirmOperation("紹介投稿を紐付け", `${projectKey} の紹介URLを ${item.post_web_url} に${replace ? "付け替えます" : "設定します"}か？${item.auto_set_project_key && item.auto_set_project_key !== projectKey ? ` この同期で ${item.auto_set_project_key} に設定した紹介URLは、同じ投稿の別URLによる一致がなければ外します。` : ""} 識別子の採用状態は変更しません。`, () => introducedAction(item, "link", {project_key:projectKey, replace}));
-    });
-  } catch (error) { target.textContent = error.message; }
+    if (draft.request !== request) return;
+    draft.results = list(data.items).map((entry) => entry.project || entry);
+    draft.searched = true;
+  } catch (error) {
+    if (draft.request !== request) return;
+    draft.error = error.message;
+  } finally {
+    if (draft.request === request) {
+      draft.loading = false;
+      if (state.introducedDrafts.get(`${item.scope_key}:${item.id}`) === draft && state.screen === "review" && state.reviewView === "introduced" && state.selected === item.id) {
+        const current = state.introducedItems.find((entry) => entry.id === item.id && entry.scope_key === item.scope_key);
+        if (current) renderIntroducedProjects(current);
+      }
+    }
+  }
 }
 
 function renderList(data) {

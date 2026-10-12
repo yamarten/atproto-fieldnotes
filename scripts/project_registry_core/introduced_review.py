@@ -25,6 +25,41 @@ TEXT_URL = re.compile(r"https?://[^\s<>\[\]{}\"']+", re.IGNORECASE)
 MANUAL_STATUSES = {"ignored", "linked"}
 
 
+def target_post_line(text: str, url: str, facets: list[dict[str, Any]] | None = None) -> str:
+    """Return a single, unambiguous URL line; never guess from a label."""
+    if not url:
+        return ""
+    line_indexes: set[int] = set()
+    for match in TEXT_URL.finditer(text):
+        found = identifiers.normalize_url(match.group().rstrip(".,;:!?)]}、。！？」"))
+        if found == url:
+            line_indexes.add(text[:match.start()].count("\n"))
+    raw = text.encode("utf-8")
+    for facet in facets or []:
+        if not isinstance(facet, dict) or not any(
+            isinstance(feature, dict) and feature.get("$type") == "app.bsky.richtext.facet#link"
+            and identifiers.normalize_url(str(feature.get("uri") or "")) == url
+            for feature in facet.get("features", [])
+        ):
+            continue
+        index = facet.get("index") or {}
+        if not isinstance(index, dict):
+            continue
+        start, end = index.get("byteStart"), index.get("byteEnd")
+        if type(start) is not int or type(end) is not int or not 0 <= start < end <= len(raw):
+            continue
+        try:
+            raw[:start].decode("utf-8")
+            label = raw[start:end].decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        if label.strip() and "\n" not in label and "\r" not in label:
+            line_indexes.add(raw[:start].count(b"\n"))
+    if len(line_indexes) != 1:
+        return ""
+    return text.split("\n")[next(iter(line_indexes))].strip()
+
+
 def item_id(post_uri: str, url: str) -> str:
     return uuid.uuid5(uuid.NAMESPACE_URL, f"introduced:{post_uri}\n{url}").hex
 
@@ -130,6 +165,7 @@ def observe_posts(conn: sqlite3.Connection, posts: list[dict[str, Any]]) -> list
             item = {
                 "id": item_id(uri, url), "post_uri": uri, "post_web_url": web_url,
                 "post_text": text, "indexed_at": str(post.get("indexedAt") or record.get("createdAt") or ""),
+                "post_line": target_post_line(text, url, record.get("facets", [])),
                 "url": url, "url_source": entry["source"], "label": str(entry.get("label") or ""),
                 "seed_type": seed[0] if seed else "", "seed_value": seed[1] if seed else "",
                 "matched_project_keys": matches,
@@ -223,7 +259,25 @@ def review_payload(conn: sqlite3.Connection, *, include_resolved: bool = False, 
     items.sort(key=lambda item: (str(item.get("indexed_at") or ""), str(item.get("id") or "")), reverse=True)
     open_items = [item for item in items if item.get("status") == "open"]
     shown = items if include_resolved else open_items
-    return {"items": shown[offset:offset + limit], "count": len(shown), "open_count": len(open_items),
+    page = shown[offset:offset + limit]
+    candidates: dict[str, dict[str, Any] | None] = {}
+    def project_preview(key: str) -> dict[str, Any] | None:
+        if key not in candidates:
+            row = conn.execute("SELECT project_key,name,introduced_url FROM projects WHERE project_key=?", (key,)).fetchone()
+            candidates[key] = dict(row) if row else None
+        return candidates[key]
+
+    for item in page:
+        item["post_line"] = item.get("post_line", target_post_line(
+            str(item.get("post_text") or ""), str(item.get("url") or "")))
+        item["matched_projects"] = []
+        for key in item.get("matched_project_keys", []):
+            preview = project_preview(key)
+            if preview is not None:
+                item["matched_projects"].append(preview)
+        if item.get("status") == "linked" and item.get("project_key"):
+            item["linked_project"] = project_preview(item["project_key"])
+    return {"items": page, "count": len(shown), "open_count": len(open_items),
             "scopes": scopes, "offset": offset, "has_more": len(shown) > offset + limit,
             "coverage_note": "要確認が0件でも検索結果の完全取得を保証しません。直近の走査完了状態と取得上限を確認してください。"}
 

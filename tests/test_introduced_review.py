@@ -21,6 +21,34 @@ def post(rkey: str, *, urls: list[str] = (), text: str = "Example") -> dict:
     }
 
 
+class TargetPostLineTest(unittest.TestCase):
+    def test_text_url_line_is_exact_and_unambiguous(self) -> None:
+        url = "https://example.test/app"
+        text = f"別の紹介 https://other.test\n対象はこちら {url}。\n次の紹介"
+        self.assertEqual(introduced_review.target_post_line(text, url), f"対象はこちら {url}。")
+        self.assertEqual(introduced_review.target_post_line(text, "https://example.test"), "")
+        self.assertEqual(introduced_review.target_post_line(text + f"\n再掲 {url}", url), "")
+        self.assertEqual(introduced_review.target_post_line(text, ""), "")
+
+    def test_facet_uses_utf8_position_and_rejects_unusable_or_ambiguous_ranges(self) -> None:
+        url = "https://example.test/app"
+        text = "ほかの紹介\n対象アプリ: example.test/a…\n同じ表示 example.test/a…"
+        label = "example.test/a…"
+        start = len(text[:text.index(label)].encode())
+        end = start + len(label.encode())
+        def facet(begin, finish):
+            return {"index": {"byteStart": begin, "byteEnd": finish},
+                    "features": [{"$type": "app.bsky.richtext.facet#link", "uri": url}]}
+        valid = facet(start, end)
+        self.assertEqual(introduced_review.target_post_line(text, url, [valid]), "対象アプリ: example.test/a…")
+        for invalid in [facet(-1, end), facet(start, 999), facet(1, end), facet(0, end), facet(start, start)]:
+            with self.subTest(invalid=invalid):
+                self.assertEqual(introduced_review.target_post_line(text, url, [invalid]), "")
+        second_start = len(text[:text.rindex(label)].encode())
+        self.assertEqual(introduced_review.target_post_line(text, url, [valid, facet(second_start, second_start + len(label.encode()))]), "")
+        self.assertEqual(introduced_review.target_post_line(text, url), "")
+
+
 class IntroducedReviewTest(TempRegistryDbTestCase):
     query = "introduced review fixture"
 
@@ -40,6 +68,31 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
             project["candidate_project_repository_urls"] = [candidate_repo]
         project_record.save_project(conn, project)
         return project
+
+    def test_payload_has_current_named_candidates_and_safe_legacy_line_without_writes(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.add_project(conn, "proj:choice", service="https://choice.example")
+            project.update(name="Named Choice", introduced_url="https://example.test/older")
+            project_record.save_project(conn, project)
+            source = post("choice", urls=["https://choice.example"], text="Before\nChoice\nAfter")
+            source["record"]["facets"][0]["index"] = {"byteStart": 7, "byteEnd": 13}
+            item = introduced_review.observe_posts(conn, [source])[0]
+            legacy = {**item, "id": "old", "post_text": "Before\nhttps://choice.example\nAfter"}
+            legacy.pop("post_line")
+            item["matched_project_keys"].append("proj:deleted")
+            registry.write_sync_state(conn, "introduced", {"query": self.query}, {"review_items": [item, legacy]})
+            conn.commit()
+            before = conn.total_changes
+            items = {entry["id"]: entry for entry in introduced_review.review_payload(conn)["items"]}
+            self.assertEqual(items[item["id"]]["post_line"], "Choice")
+            self.assertEqual(items["old"]["post_line"], "https://choice.example")
+            self.assertEqual(items[item["id"]]["matched_projects"], [
+                {"project_key": "proj:choice", "name": "Named Choice", "introduced_url": "https://example.test/older"}])
+            self.assertEqual(conn.total_changes, before)
+            self.assertEqual(project_record.fetch_project(conn, "proj:choice")["introduced_url"], "https://example.test/older")
+        finally:
+            conn.close()
 
     def test_records_unextractable_and_mixed_urls_without_changing_automatic_match(self) -> None:
         conn = registry.open_db()
