@@ -317,7 +317,10 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/browser-entry":
             with contextlib.closing(self.server.open_db()) as conn:
-                self.send_json(browser_entry.resolve_page(conn, str(query.get("url", [""])[0])))
+                if "q" in query:
+                    self.send_json(browser_entry.search(conn, str(query["q"][0]), limit=_int(query.get("limit", [50])[0], 50)))
+                else:
+                    self.send_json(browser_entry.resolve_page(conn, str(query.get("url", [""])[0])))
             return
         if path == "/api/introduction-plans":
             with contextlib.closing(self.server.open_db()) as conn:

@@ -68,6 +68,72 @@ class BrowserFeedbackTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase):
         self.assertFalse(result["project_key"])
         conn.close()
 
+    def seed_domain_nsids(self):
+        conn = registry.open_db()
+        project = project_record.fetch_project(conn, self.key)
+        for nsid in ("com.example.record", "com.example.chat.message", "com.examplemore.record", "org.example.record"):
+            registry.add_manual_seed(project, "nsid", nsid, source="fixture")
+        project_record.save_project(conn, project)
+        other = project_record.fetch_project(conn, "proj:222222222222")
+        other["input_nsids"] = ["com.example.photos.image"]
+        project_record.save_project(conn, other)
+        conn.close()
+
+    def test_domain_nsids_are_visible_candidates_with_namespace_boundaries(self):
+        self.seed_domain_nsids()
+        status, result, _ = self.resolve("https://EXAMPLE.com/path?code=secret#part")
+        self.assertEqual(status, 200)
+        self.assertEqual(result["status"], "choose")
+        self.assertEqual(result["project_key"], "")
+        self.assertEqual(result["url_match_count"], 0)
+        self.assertNotIn("secret", json.dumps(result))
+        values = {match["value"] for item in result["items"] for match in item["matches"]}
+        self.assertEqual(values, {"com.example.record", "com.example.chat.message", "com.example.photos.image"})
+        classifications = {match["classification"] for item in result["items"] for match in item["matches"]}
+        self.assertEqual(classifications, {"confirmed", "candidate"})
+        for item in result["items"]:
+            self.assertTrue(all(match["match"] == "nsid_domain" for match in item["matches"]))
+        _, child, _ = self.resolve("https://chat.example.com")
+        self.assertEqual([match["value"] for item in child["items"] for match in item["matches"]], ["com.example.chat.message"])
+        self.assertEqual(child["project_key"], "")
+        self.assertEqual(self.resolve("https://www.example.com")[1]["status"], "unmatched")
+
+    def test_nsid_matches_do_not_override_url_ambiguity_or_create_duplicate_cards(self):
+        self.seed_domain_nsids()
+        conn = registry.open_db()
+        project = project_record.fetch_project(conn, self.key)
+        project["service_urls"] = ["https://example.com"]
+        project_record.save_project(conn, project)
+        before = conn.total_changes
+        result = browser_entry.resolve_page(conn, "https://example.com/path")
+        self.assertEqual(conn.total_changes, before)
+        self.assertEqual(result["url_match_count"], 1)
+        self.assertEqual(result["status"], "choose")
+        self.assertEqual(len(result["items"]), 2)
+        self.assertEqual(result["items"][0]["project_key"], self.key)
+        other = project_record.fetch_project(conn, "proj:222222222222")
+        other["input_nsids"] = []
+        project_record.save_project(conn, other)
+        result = browser_entry.resolve_page(conn, "https://example.com/path")
+        self.assertEqual(result["project_key"], self.key)
+        self.assertEqual(len(result["items"]), 1)
+        conn.close()
+
+    def test_manual_domain_search_keeps_text_search_and_counts_before_limit(self):
+        self.seed_domain_nsids()
+        for query in ("example.com", "EXAMPLE.COM.", "https://example.com/path"):
+            path = "/api/browser-entry?" + urllib.parse.urlencode({"q": query, "limit": 1})
+            status, result, _ = self.request(path)
+            self.assertEqual(status, 200)
+            self.assertEqual(result["count"], 2)
+            self.assertEqual(result["returned_count"], 1)
+            self.assertEqual(len(result["items"]), 1)
+            self.assertTrue(result["items"][0]["matches"])
+        _, result, _ = self.request("/api/browser-entry?" + urllib.parse.urlencode({"q": "Example App"}))
+        self.assertEqual([item["project_key"] for item in result["items"]], [self.key])
+        _, result, _ = self.request("/api/browser-entry?q=example.com", token="bad")
+        self.assertIn("error", result)
+
     def test_introduction_plan_roundtrip_search_edit_clear_and_stale_revision(self):
         path = f"/api/projects/{self.key}/introduction-plan"
         _, before, _ = self.request(f"/api/projects/{self.key}")

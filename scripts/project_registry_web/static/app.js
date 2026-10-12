@@ -792,7 +792,7 @@ function listControls() {
     <label>見ていたサイトのURL<input id="browser-url" type="url" value="${esc(state.pageUrl)}" placeholder="https://example.com/app"></label>
     <div class="actions"><button id="resolve-browser-url" class="primary">登録状況を確認</button><button id="browser-new-seed" disabled>このURLで登録</button></div>
     <p class="muted">URLだけで見つからない場合や、OAuth画面から来た場合は、元のサービスを検索してください。</p>
-    <div class="toolbar"><input id="browser-query" type="search" value="${esc(state.browserQuery)}" placeholder="サービス名・NSID・URLを検索"><button id="browser-search">検索</button></div></div>`;
+    <div class="toolbar"><input id="browser-query" type="search" value="${esc(state.browserQuery)}" placeholder="サービス名・ドメイン・NSID・URLを検索"><button id="browser-search">検索</button></div></div>`;
   if (state.screen === "review") {
     const explicitMerge = state.reviewView === "merge"
       ? renderExplicitMergePairForm()
@@ -856,15 +856,15 @@ async function loadList() {
   try {
     let data;
     if (state.screen === "browser") {
-      if (state.browserQuery) data = await api(`/api/projects?${new URLSearchParams({q:state.browserQuery, limit:state.settings.projectLimit})}`);
+      if (state.browserQuery) data = await api(`/api/browser-entry?${new URLSearchParams({q:state.browserQuery, limit:state.settings.projectLimit})}`);
       else if (state.pageUrl) {
         data = await api(`/api/browser-entry?${new URLSearchParams({url:state.pageUrl})}`);
         if (request !== state.listRequest) return;
         state.pageUrl = data.url;
         state.browserSeed = data.seed;
         $("browser-url").value = data.url;
-        $("browser-new-seed").disabled = list(data.items).length > 0;
-        $("browser-new-seed").title = list(data.items).length ? "一致候補を確認してください。別のURLは登録状況を確認してから追加できます。" : "";
+        $("browser-new-seed").disabled = data.url_match_count > 0;
+        $("browser-new-seed").title = data.url_match_count ? "一致候補を確認してください。別のURLは登録状況を確認してから追加できます。" : "";
         if (!state.selected && data.project_key) {
           state.selected = data.project_key;
           // setScreen restores this selection after loadList finishes.
@@ -1353,14 +1353,14 @@ function renderList(data) {
       ${project.tagline ? `<span>${esc(project.tagline)}</span>` : ""}${signals ? `<span class="meta-row">${signals}</span>` : ""}
       ${promotionCardDetails(item)}
       ${item.plan ? `<span>紹介予定: ${esc(item.plan.reason || "理由なし")}</span><span class="muted">${esc(formatTimestamp(item.plan.added_at))}</span>` : ""}
-      ${list(item.matches).map((match) => `<span class="muted">${esc(match.value)} · ${esc(displayLabel(match.classification))}${match.match === "descendant" ? " · 配下ページの一致" : match.match === "repository" ? " · リポジトリ配下" : " · URL一致"}</span>`).join("")}
+      ${list(item.matches).map((match) => `<span class="muted">${esc(match.value)} · ${esc(displayLabel(match.classification))}${match.match === "nsid_domain" ? " · ドメインに対応するNSID" : match.match === "descendant" ? " · 配下ページの一致" : match.match === "repository" ? " · リポジトリ配下" : " · URL一致"}</span>`).join("")}
       ${mergeTarget ? `<span class="muted">→ ${esc(item.target_name || mergeTarget)}</span>` : ""}
     </button>`;
   }).join("") : `<div class="empty-state"><p>条件に一致する登録プロジェクトはありません。</p></div>`);
   if (state.screen === "browser" && data.status) {
     const message = data.status === "matched" ? "採用済みのURLから登録プロジェクトが見つかりました。"
-      : data.status === "choose" ? "一致候補を選んでください。候補のURLや採用状態を確認できます。"
-      : "このURLと一致する登録は見つかりません。名前で検索するか、URLを確認して登録へ進めます。";
+      : data.status === "choose" ? "一致候補を選んでください。URLやNSIDの採用状態を確認できます。NSIDの一致だけではサイトの帰属は確定しません。"
+      : "このURLやドメインに対応するNSIDの登録は見つかりません。名前で検索するか、URLを確認して登録へ進めます。";
     $("list").insertAdjacentHTML("afterbegin", `<p class="notice">${message}</p>`);
   }
   if (isPlanned) {

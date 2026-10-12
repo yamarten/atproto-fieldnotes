@@ -1,11 +1,12 @@
 """Exercise the display boundary without a browser or external services."""
-from pathlib import Path
 import ast
 import inspect
 import json
 import shutil
 import subprocess
 import unittest
+
+from helpers import ROOT
 
 
 @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web display checks")
@@ -28,7 +29,7 @@ assert.equal(displayLabel("confirm_service_usage"),"サービスのLexicon利用
 ''')
 
     def run_javascript(self, checks):
-        path = Path(__file__).resolve().parents[1] / "scripts/project_registry_web/static/app.js"
+        path = ROOT / "scripts/project_registry_web/static/app.js"
         # Run the real render helpers; omit only page startup and supply browser storage.
         source = path.read_text().rsplit('\ndocument.querySelectorAll(".primary-nav', 1)[0]
         harness = r'''
@@ -41,6 +42,19 @@ const document = {};
         result = subprocess.run([shutil.which("node"), "-"], input=harness + source + checks,
                                 text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_browser_matches_show_nsid_reason_and_escape_values(self):
+        self.run_javascript(r'''
+const container = {innerHTML: "", insertAdjacentHTML: (_, html) => {container.innerHTML = html + container.innerHTML;}};
+document.getElementById = () => container;
+document.querySelectorAll = () => [];
+state.screen = "browser";
+renderList({items:[{project_key:"proj:123",name:"Example",matches:[{value:"com.example.<record>",classification:"candidate",match:"nsid_domain"}]}],status:"choose"});
+assert.match(container.innerHTML, /com.example.&lt;record&gt;/);
+assert.match(container.innerHTML, /ドメインに対応するNSID/);
+assert.match(container.innerHTML, /NSIDの一致だけではサイトの帰属は確定しません/);
+assert.ok(!container.innerHTML.includes("URL一致"));
+''')
 
     def test_list_count_escapes_external_text(self):
         self.run_javascript(r'''

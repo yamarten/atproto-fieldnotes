@@ -21,6 +21,7 @@ def search_project_rows(
     conn: sqlite3.Connection,
     *,
     query: str = "",
+    nsid_namespace: str = "",
     tracking_states: set[str] | None = None,
     service_statuses: set[str] | None = None,
     contribution_levels: set[str] | None = None,
@@ -107,9 +108,14 @@ def search_project_rows(
             "OR LOWER(json_extract(p.profile_json, '$.core.summary')) LIKE ? "
             "OR EXISTS (SELECT 1 FROM json_each(p.state_json, '$.evidence.features') feature "
             "WHERE feature.type = 'text' AND LOWER(feature.value) LIKE ?)"
-            ")"
+            + (" OR EXISTS (SELECT 1 FROM project_identifiers ni WHERE ni.project_key = p.project_key "
+               "AND ni.kind = 'nsid' AND ni.role = 'owned_nsid' "
+               "AND ni.classification IN ('confirmed', 'candidate') AND LOWER(ni.value) LIKE ?)" if nsid_namespace else "")
+            + ")"
         )
         parameters.extend([pattern] * 12)
+        if nsid_namespace:
+            parameters.append(nsid_namespace + ".%")
 
     identifier_parts: list[str] = []
     identifier_parameters: list[Any] = []

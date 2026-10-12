@@ -50,7 +50,7 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 
 ### 一覧・詳細の検索経路
 
-`application/browser_entry.py`は訪問URLから保存済みidentifierを照合するread-only入口と、利用者が取り置いた紹介予定一覧を担当します。Firefox拡張はURLを`screen=browser&url=...`へ渡すだけで、認証・DB保存はWeb UI側に置きます。サービス・サイトURLの完全一致かパス区切りごとの親URL、対応forgeのrepository境界を使い、candidateだけの一致や複数project一致では自動選択しません。GitHub、Tangled、Codeberg、GitLab、SourceHut、Bluesky、pds.ls等の共用hostでは単純な親service/site URL一致を使いません。redirectの取得やLLM照合は行わず、不一致時は手動検索・シードpreviewへ進めます。
+`application/browser_entry.py`は訪問URLから保存済みidentifierを照合するread-only入口と、利用者が取り置いた紹介予定一覧を担当します。Firefox拡張はURLを`screen=browser&url=...`へ渡すだけで、認証・DB保存はWeb UI側に置きます。サービス・サイトURLの完全一致かパス区切りごとの親URL、対応forgeのrepository境界を使います。hostのlabelを逆順にしたnamespaceと区切り付きprefixが一致するconfirmed/candidateの`owned_nsid`も検索候補に含めます。hostは親domainへ広げず、NSIDの元のcaseを表示します。`/api/browser-entry?q=...`は通常のテキスト検索へこの照合を追加し、件数・limitは両者を合わせたproject単位で計算します。NSIDだけの一致、candidate URLだけの一致、複数project一致では自動選択しません。GitHub、Tangled、Codeberg、GitLab、SourceHut、Bluesky、pds.ls等の共用hostでは単純な親service/site URL一致を使いません。redirectの取得やLLM照合は行わず、不一致時は手動検索・シードpreviewへ進めます。
 
 `application/feedback.py`が紹介予定とサービスのLexicon利用の明示保存・解除を担当します。`operator_feedback.py`がdecision履歴から現在の取り置きと利用relationを投影し、既存の完全runtime view・revision check・transactionを使って保存します。拡張からの閲覧・照合だけでは判断を記録しません。データ契約は[operator decision](specs/project-record.md#サイト閲覧後の手動判断)を参照してください。
 

@@ -143,6 +143,7 @@ def search_projects(
     conn: sqlite3.Connection,
     *,
     query: str = "",
+    nsid_namespace: str = "",
     tracking_states: set[str] | None = None,
     service_statuses: set[str] | None = None,
     contribution_levels: set[str] | None = None,
@@ -175,6 +176,7 @@ def search_projects(
     projects_list = query_service.search_project_rows(
         conn,
         query=search,
+        nsid_namespace=nsid_namespace,
         tracking_states=tracking_states,
         service_statuses=service_statuses,
         contribution_levels=contribution_levels,
