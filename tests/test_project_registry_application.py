@@ -993,6 +993,33 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
+    def test_explicit_merge_rejects_separate_projects_until_decision_is_cleared(self) -> None:
+        conn = registry.open_db()
+        try:
+            source = projects.add_seed(conn, seed="https://source.example", seed_type="service_url")
+            target = projects.add_seed(conn, seed="https://target.example", seed_type="service_url")
+            source_key, target_key = source["project_key"], target["project_key"]
+            decisions.set_separate(conn, project_key=source_key, other_project_key=target_key)
+            before = list(conn.iterdump())
+            # Explicit targets bypass candidate selection, so the operation must
+            # enforce the saved decision for both preview and execution.
+            for first, second in ((source_key, target_key), (target_key, source_key)):
+                for execute in (False, True):
+                    with self.subTest(source=first, execute=execute):
+                        with self.assertRaisesRegex(ValueError, "manually blocked"):
+                            merge.merge_projects(conn, project_key=first, target_project_key=second,
+                                                 execute=execute)
+                        self.assertEqual(list(conn.iterdump()), before)
+
+            decisions.set_separate(conn, project_key=source_key, other_project_key=target_key, clear=True)
+            result = merge.merge_projects(conn, project_key=source_key, target_project_key=target_key,
+                                          execute=True)
+            self.assertEqual(result["mode"], "execute")
+            self.assertIsNone(project_record.fetch_project(conn, source_key))
+            self.assertIsNotNone(project_record.fetch_project(conn, target_key))
+        finally:
+            conn.close()
+
     def test_merge_returns_next_candidate_without_retaining_deleted_source(self) -> None:
         conn = registry.open_db()
         try:

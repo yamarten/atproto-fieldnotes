@@ -8,7 +8,7 @@ from helpers import TempRegistryDbTestCase, registry
 
 from project_registry_core import project_merge
 from project_registry_core import project_record
-from project_registry_core.persistence import runtime_view
+from project_registry_core.persistence import database, runtime_view
 from project_registry_core import trust_graph
 from project_registry_core.publications import publication_registry
 from project_registry_core.application import presentation
@@ -121,9 +121,33 @@ class DuplicateProjectReadTest(TempRegistryDbTestCase):
             for mode in ('strict', 'moderate', 'broad'):
                 with mock.patch.object(project_record, 'list_batch_merge_projects', return_value=full):
                     expected = project_merge.build_batch_merge_plan(conn, mode)
-                self.assertEqual(expected, project_merge.build_batch_merge_plan(conn, mode))
+                # Result equivalence alone also passes if the batch path falls
+                # back to expensive full records. Guard that read boundary too.
+                with mock.patch.object(database, 'hydrate_project_children',
+                                       side_effect=AssertionError('batch loaded complete records')):
+                    self.assertEqual(expected, project_merge.build_batch_merge_plan(conn, mode))
             self.assertEqual(before, list(conn.iterdump()))
             self.assertEqual(project_record.list_batch_merge_projects(conn, tracking_states=set()), [])
+
+    def test_batch_plan_keeps_confirmed_service_as_target_in_either_key_order(self):
+        for service_number in (0, 1):
+            with self.subTest(service_number=service_number), contextlib.closing(
+                registry.initialize_db(self.db_path.with_name(f'direction-{service_number}.db'))
+            ) as conn:
+                repo = 'https://github.com/example/shared'
+                for number in (0, 1):
+                    project = self.make_project(f'proj:direction{number}', 'repo_url', repo)
+                    project['name'] = 'Example'
+                    registry.confirm_project_repository_url(project, repo, 'test')
+                    if number == service_number:
+                        registry.confirm_service_seed(project, 'https://service.example', source='test')
+                    project_record.save_project(conn, project)
+                # The independent expectation is the confirmed service, not a
+                # second call to the same preference/direction implementation.
+                result = presentation.merge_batch_plan(conn, mode='moderate')
+                self.assertEqual(result['count'], 1)
+                self.assertEqual([(p['source_project_key'], p['target_project_key']) for p in result['items']],
+                                 [(f'proj:direction{1 - service_number}', f'proj:direction{service_number}')])
 
     def test_supplied_lookup_does_not_replace_unsaved_target_with_indexed_record(self):
         with contextlib.closing(registry.open_db()) as conn:
