@@ -803,6 +803,10 @@ DBから比較集合を読む単発計算では、名前・Website・status、re
 
 この統合規則は既存recordの説明文を遡及修正する処理ではありません。既存説明の訂正はprofile更新または手動修正として扱います。
 
+### 観測・調査時刻の統合
+
+観測・調査時刻は編集情報の優先と独立に統合します。`first_seen_at`はtarget・sourceの古い方、`last_seen_at`・`last_enriched_at`・`last_llm_review_at`は新しい方を採用します。片側の日時が空なら値のある側を使い、`first_seen_at`が両側とも空なら保存時刻を補います。合成した日時は存続するtargetのDB rowへ保存し、連続マージと再読込みでも保持します。
+
 ## Shadow比較の契約
 
 shadow比較は、比較用policyの結果をreportへ出し、通常の採用・マージによるDB更新には適用しない経路です。以下の比較commandは現行コードに存在し、DBを`mode=ro`のread transactionで読みます。固定caseと実データのsnapshotは分けて解釈します。

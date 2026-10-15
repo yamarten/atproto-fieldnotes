@@ -1866,7 +1866,7 @@ def _save_project(
             """
             UPDATE projects
             SET name = ?, website_url = ?, service_status = ?, tracking_state = ?, introduced_url = ?, profile_json = ?, state_json = ?,
-                last_seen_at = ?, last_enriched_at = ?
+                first_seen_at = ?, last_seen_at = ?, last_enriched_at = ?
             WHERE project_key = ?
             """,
             (
@@ -1877,6 +1877,7 @@ def _save_project(
                 project.get("introduced_url", ""),
                 dump_json(project_record_payload(project), sort_keys=False),
                 dump_json(project_ops_payload(project), sort_keys=False),
+                first_seen_at,
                 last_seen_at,
                 last_enriched_at or existing_last_enriched,
                 project["project_key"],

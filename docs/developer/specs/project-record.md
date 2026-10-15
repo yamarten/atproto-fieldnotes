@@ -48,6 +48,8 @@ CLI/Webの手動確認用の`dev-db`は、既存schema・project保存・調査�
 
 scalar columnは一覧、filter、運用判定で頻繁に使う値だけに限定します。
 
+通常保存は既存rowの`first_seen_at`を保持します。`preserve_timestamps=True`では新規・更新ともproject dictの`first_seen_at`をscalar columnへ保存するため、マージで合成した初回観測日時も再読込みに保持されます。この指定で`first_seen_at`が空なら保存時刻を補います。
+
 紹介投稿の手動紐付けはこの`introduced_url`だけを設定し、`project_identifiers`のcandidate/confirmed判定は変更しません。紹介投稿の要確認項目と対象外判断はproject rowではなく、query別の`sync_state`に保存します。投稿URIとURLを合わせて同じ項目を識別し、再取得しても重複させません。保存構造と再照合規則は[発見と取り込み](discovery-and-sync.md#sync-introduced)を参照してください。
 
 ### `project_key_aliases`
