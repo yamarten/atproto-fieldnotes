@@ -125,23 +125,52 @@ assert.match(listControls(), /value="future&quot;&lt;signal&gt;" selected/);
         self.run_javascript(r'''
 const nodes = new Map();
 document.getElementById = id => {
-  if (!nodes.has(id)) nodes.set(id, {innerHTML:"", addEventListener() {}});
+  if (!nodes.has(id)) nodes.set(id, {innerHTML:"", listeners:{},
+    addEventListener(type, listener) { this.listeners[type] = listener; }});
   return nodes.get(id);
 };
 document.querySelectorAll = () => [];
 document.body = {classList:{add() {}}};
 syncUrl = () => {};
+global.window = {scrollTo() {}};
 const common = "https://common.example";
 const identifiers = [common, "https://distinct.example"].map(value => ({value, family:"service", kinds:["service_url"], classification:"confirmed"}));
-api = async () => ({source:{project_key:"a", identifiers}, target:{project_key:"b", identifiers},
+const requests = [];
+api = async path => {
+  requests.push(path);
+  return {source:{project_key:"a", identifiers}, target:{project_key:"b", identifiers},
   source_pair_candidate:{reasons:{candidate_confirmed_identifiers:[`service_url: ${common} (service)`]}, identifier_matches:[{kind:"service_url", role:"service", value:common, project_classification:"candidate", other_classification:"confirmed"}]},
-  first_creator_details_included:true, source_collection_first_creator_details:{sample:"not_found"}});
-loadMergeDetail("a", "b", {includeFirstCreator:true}).then(async () => {
+  first_creator_details_included:path.includes("include_first_creator_details=1"),
+  first_creator_overlap:{shared_dids:["did:plc:shared"]},
+  source_collection_first_creator_dids:{"org.example.source":"did:plc:source"},
+  target_collection_first_creator_dids:{"org.example.target":"did:plc:target"},
+  source_collection_first_creator_details:{sample:"not_found"},
+  target_collection_first_creator_details:{sample:"error"}};
+};
+loadMergeDetail("a", "b").then(async () => {
+  assert.ok(!requests[0].includes("include_first_creator_details"));
+  assert.match(nodes.get("detail").innerHTML, /id="load-first-creator-heuristic"/);
+  assert.ok(!nodes.get("detail").innerHTML.includes("did:plc:shared"));
+  await nodes.get("load-first-creator-heuristic").listeners.click();
+  assert.ok(requests[1].includes("include_first_creator_details=1"));
   const html = nodes.get("detail").innerHTML;
   assert.match(html, /<strong class="matched-identifier"[^>]*><a[^>]*href="https:\/\/common.example\/"/);
   assert.equal((html.match(/class="matched-identifier"/g) || []).length, 2);
   assert.match(html, /<details class="detail-section"><summary>候補と判断された理由<\/summary>/);
-  assert.match(html, /<details class="first-creator-results"><summary>初回作成者の照会結果<\/summary>/);
+  const creatorSection = html.match(/<section class="detail-section"><h3>初回作成者による推測[\s\S]*?<\/section>/)[0];
+  const diagnostics = [...creatorSection.matchAll(/<details\b([^>]*)><summary>(.*?)<\/summary>([\s\S]*?)<\/details>/g)];
+  assert.deepEqual(diagnostics.map(item => item[2]), ["マージ元の照会結果", "マージ先の照会結果"]);
+  for (const item of diagnostics) {
+    assert.ok(!/\bopen\b/.test(item[1]));
+    assert.ok(!item[3].includes("<details"));
+  }
+  assert.match(diagnostics[0][3], /not_found/);
+  assert.match(diagnostics[1][3], /error/);
+  const visibleResults = creatorSection.replace(/<details\b[\s\S]*?<\/details>/g, "");
+  for (const [label, did] of [["一致", "shared"], ["マージ元の初回作成者DID", "source"], ["マージ先の初回作成者DID", "target"]]) {
+    assert.match(visibleResults, new RegExp(`<dt>${label}</dt><dd><pre>[\\s\\S]*?did:plc:${did}`));
+  }
+  assert.ok(!creatorSection.includes('id="load-first-creator-heuristic"'));
   assert.match(html, /<template><p>両プロジェクトのコレクションを外部APIへ照会/);
   assert.match(html, /not_found/);
   api = async () => ({source:{project_key:"a"}, target:{project_key:"b"}, merge_blocked:true});

@@ -727,7 +727,8 @@ DBから比較集合を読む単発計算では、名前・Website・status、re
   - 例: `foo.example.com` と `bar.example.com` なら `example.com`
   - 追加操作は `config/domain-overrides.json` を更新するだけで、既存 `separate_project` decision は自動解除しません
 - collection first-creator heuristic は通常のWeb merge reviewでは初期計算しません
-  - Webでは `Load first-creator details` を押した時だけ `listReposByCollection` の先頭DIDを補足情報として表示します
+  - Webでは「初回作成者の情報を取得（外部通信）」を押した時だけ `listReposByCollection` の先頭DIDを補足情報として取得します
+  - 取得後は「一致」「マージ元の初回作成者DID」「マージ先の初回作成者DID」をそのまま表示します。「マージ元の照会結果」「マージ先の照会結果」の詳細だけを、それぞれ閉じた折り畳みで表示します
   - 照会collectionには保存済みのcase-preservingなNSID identifierを使います。`listReposByCollection`が返さないcollectionや取得失敗は、空欄にせず`not_found` / `error`として表示します
   - この補足表示は primary の `source_pair_candidate` / `target_pair_candidate` には混ぜません
   - CLIからheuristicを判定へ含める導線はありません
