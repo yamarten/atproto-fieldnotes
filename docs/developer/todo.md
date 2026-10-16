@@ -17,6 +17,7 @@
 | --- | --- |
 | 資源正規化の既存row補正 | [共通規則](specs/project-record.md#識別値の正規化と資源同一性)は新規生成・更新と照合へ接続済み。既存repository identifier、adoption、operator decisionを同時に整え、relationの正規化衝突でも元参照を残す。旧公式account URLの補正、schema型に合わない保存graphの整理とまとめて差分・冪等性を検証する。読込みだけでは一括補正しない。過去に失われたquery等は推測で復元しない |
 | 開発者候補の既存誤検出 | [役割の判定・候補更新](specs/project-boundaries.md#developer-accountの採用)と未採用accountのexact照合除外は接続済み。旧service/search由来の候補は、現在の根拠がある候補・単なる参照・保留に分けて上記補正へまとめる。保存済みのURLやHTML抜粋だけから開発者と再認定せず、全候補を誤検出とも決めつけない。手動採用や他sourceの根拠を維持する |
+| Tangled所有一覧由来の既存誤候補 | [所有観測とproject候補の分離](specs/investigation.md#tangledの調査)は接続済み。2026-10-16の正本read-only監査では旧PDS一覧由来の候補341件／112 project（名前一致なし330件）、旧所有relation 14,009件／442 project。全件を誤検出とは決めず、repo候補、名称・説明・website、誤候補由来の重複提案を上記補正へまとめる。`proj:0cdbc43b85cf`は別repo候補8件、一覧sourceの名称32件・説明44件を確認。所有観測は保持し、手動採用・別sourceの根拠を削除しない。保存テキストのsourceがowner単位の場合はrepo別に推測で割り当てず、元recordまたは再取得で確認する |
 | 通常保存の`lexicon_count`投影 | `resolved_nsids`に値があっても`lexicons`が空のままfetch→saveすると、`state_json.evidence.lexicon_count`が`len(lexicons)`へ再投影され0になる観測がある。NSID行の消失とは別。candidate／confirmed NSIDを持つ一時DBで無変更roundtripと変更後saveを再現し、hydrate/saveの責務を確認する |
 | 同じ発行元のLexicon信頼補強 | 一時DBと小規模sampleの確認までで、全体の誤採用率と省力効果は未評価。[適用条件](specs/project-boundaries.md#承認済みlexiconと同じ発行元による信頼の補強)を踏まえ、一括適用の妥当性を判断する |
 | マージ済みprojectの一括調査 | 一括enrich中にmerge済みの旧project keyで失敗した観測がある。対象確定後のmergeと再開時のalias解決を一時DBで再現し、現在の実装で同じ失敗が起きるか確認する |

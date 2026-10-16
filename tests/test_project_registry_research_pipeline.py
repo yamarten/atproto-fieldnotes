@@ -1821,6 +1821,7 @@ class ProjectRegistryResearchPipelineTest(ProjectRecordTestCase):
 
     def test_tangled_evidence_applies_record_and_readme_text_as_candidates(self) -> None:
         project = self.make_project("proj:tangledtext", "repo_url", "https://tangled.org/dev.example/app")
+        project["project_repository_urls"] = ["https://tangled.org/dev.example/app"]
         bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-13T00:00:00+00:00")
         bundle.add_record(EvidenceRecord(
             kind="tangled_repo_snapshot",

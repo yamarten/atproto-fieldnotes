@@ -88,7 +88,7 @@ repository homepageとREADME公開先の観測は、未採用URLの取得結果�
 
 通常接続済みcollectorは`CollectorResult`を明示的に返します。record/failureからsource状態を推測する互換処理は現行導線では使いません。failure categoryはtimeout、rate limit、request budget、network error、remote 5xx、invalid response、browser error、collector errorなど、再試行・運用判断に必要な単位で固定します。GitHubの403は`X-RateLimit-Remaining: 0`または`Retry-After`がある場合だけrate limitとして扱い、それ以外はforbiddenとして区別します。
 
-主要 relation predicate は `defines_schema`, `uses_collection`, `mentions_collection`, `official_account`, `operates_service`, `project_repository`, `requests_permission`, `redirects_to` です。同じ README から複数抽出した claim は独立 source と数えません。`official_account`の対象URL・公式性の根拠・再収集時の置換は[公式Bluesky account](project-boundaries.md#websiteが示す公式bluesky-account)に従います。
+主要 relation predicate は `defines_schema`, `uses_collection`, `mentions_collection`, `official_account`, `operates_service`, `project_repository`, `owns_repository`, `requests_permission`, `redirects_to` です。同じ README から複数抽出した claim は独立 source と数えません。`official_account`の対象URL・公式性の根拠・再収集時の置換は[公式Bluesky account](project-boundaries.md#websiteが示す公式bluesky-account)に従います。
 
 ### 調査状態
 
@@ -196,6 +196,9 @@ triageへ渡す解析結果はconfirmed repoだけを対象に最大6件とし�
 ### Tangledの調査
 
 - confirmed developer handleがある通常enrichでは、handle -> DID -> PDSを解決し、`com.atproto.repo.listRecords`で本人のTangled repo recordを取得します
+- 一覧の各recordはDID→repoのconfirmed `owns_repository`として保持します。これはaccountの所有観測であり、登録projectへの所属ではありません。`did_links_repo` edgeもauto-confirm対象外です。旧`project_repository`のうちDID→repoかつ`pds_list_records`の形だけを、共通relation正規化で`owns_repository`へ読み替え、元predicateをcontextへ残します。読込みは正本rowを一括更新せず、通常保存・replayでは現在の意味で保存します
+- `tangled-project-repository-v1`では、既に採用済みのrepo URL、repo名とproject名の完全一致（空白とハイフンの差を許容）、record websiteと採用済みservice／代表Websiteの正規化後の完全一致をproject固有の根拠とします。名前・websiteの一致で追加するのはcandidateまでで、project間の同一性やマージは決めません。同じowner、説明文の単語一致、過去snapshotのscoreだけでは候補登録しません。repository共通入口でもowner一致単独を候補根拠にしません
+- PDS recordの名称・説明・website、repo inspectionのREADME本文・リンクは、現在採用済みでblock/deferされていないrepoだけからprojectの候補情報へ反映します。候補repo・所有一覧の他repoからは反映せず、ownerをdeveloperとして自動採用することもありません。PDS由来の名称・説明のsourceにはrecord sourceにrepo URLを付け、同じownerの別repoと区別します。保存済みの誤候補や候補テキストはこの変更だけで削除せず、手動判断・他sourceを保護する既存データ補正で扱います
 - accepted source repo URLがTangledの場合は、repo root HTMLを読み、READMEを`raw/{ref}/{path}` から取得して `tangled_repo_inspection` evidenceを作ります
 - owner DID一致や共通websiteは補助根拠ですが、actorやwebsiteは複数projectに対応し得るためproject同一性の照合には使いません
 - Tangled repo inspection はREADME URLと短いexcerptを候補テキスト・候補URLに反映します。GitHubのrecursive tree API相当の完全なcontents取得ではありません

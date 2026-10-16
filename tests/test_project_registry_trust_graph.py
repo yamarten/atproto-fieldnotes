@@ -297,6 +297,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
 
     def test_tangled_record_adds_candidate_and_did_edge_without_confirming_repo(self) -> None:
         project = project_record.default_project_record("proj:tangledtrust", "service_url", "https://example.com")
+        project["name"] = "App"
         bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-06-25T00:00:00+00:00")
         bundle.add_record(EvidenceRecord(
             kind="tangled_repo_snapshot",
@@ -307,6 +308,7 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
                 "owner_handle": "dev.example",
                 "owner_did": "did:plc:dev",
                 "repo_url": "https://tangled.org/dev.example/app",
+                "record": {"name": "app"},
                 "score": 5,
             },
         ))
@@ -316,8 +318,8 @@ class RegistryTrustGraphIntegrationTest(unittest.TestCase):
         self.assertEqual(project["project_repository_urls"], [])
         self.assertEqual(project["candidate_project_repository_urls"], ["https://tangled.org/dev.example/app"])
         edges = trust_graph.graph(project)["edges"]
-        self.assertTrue(any(edge["predicate"] == "handle_resolves_did" for edge in edges))
         self.assertTrue(any(edge["predicate"] == "did_links_repo" for edge in edges))
+        self.assertEqual(project["developer_accounts"], [])
 
     def test_collection_owned_when_schema_did_and_exact_authority_handle_are_mutual(self) -> None:
         project = project_record.default_project_record("proj:collectiontrust", "service_url", "https://example.com")

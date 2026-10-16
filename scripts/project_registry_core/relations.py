@@ -18,6 +18,7 @@ RELATION_PREDICATES = {
     "operates_service",
     "repository_homepage",
     "project_repository",
+    "owns_repository",
     "requests_permission",
     "redirects_to",
 }
@@ -26,6 +27,10 @@ CLASSIFICATION_RANK = {"heuristic": 0, "candidate": 1, "derived": 2, "confirmed"
 
 def _normalize_relation(relation: RelationEvidence, context: dict[str, Any]) -> tuple[RelationEvidence, dict[str, Any]]:
     payload = relation.to_dict()
+    if (relation.predicate == "project_repository" and relation.subject.type == "did"
+            and relation.object.type == "repo" and relation.method == "pds_list_records"):
+        payload["predicate"] = "owns_repository"
+        context = {**context, "legacy_predicate": relation.predicate}
     originals = list(context.get("original_endpoints", []))
     for side in ("subject", "object"):
         entity = payload[side]

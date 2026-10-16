@@ -1735,23 +1735,18 @@ def repo_candidate_has_confirmed_component_relation(project: dict[str, Any], url
     return False
 
 
-def repo_candidate_allowed_for_project(project: dict[str, Any], url: str) -> bool:
+def repo_candidate_allowed_for_project(project: dict[str, Any], url: str, *, repository_metadata: dict[str, Any] | None = None) -> bool:
     normalized = repo_url_core.canonical_repo_url(url)
     if not normalized:
         return False
     if repo_candidate_has_confirmed_component_relation(project, normalized):
         return True
+    if repository_metadata is not None and tangled_core.repository_match_reason(project, normalized, repository_metadata):
+        return True
     owner = repo_url_core.repo_owner_identity(normalized)
-    developer_handles = {
-        str(item.get("handle") or "").strip().lower().removeprefix("@")
-        for item in project.get("developer_accounts", [])
-        if isinstance(item, dict) and str(item.get("handle") or "").strip()
-    }
-    developer_handle_match = bool(owner and owner.lower().removeprefix("@") in developer_handles)
     if (
         not repo_url_allowed_for_project(project, normalized)
         and not repo_link_matches_project_identity(project, normalized)
-        and not developer_handle_match
     ):
         return False
     if normalized in project_record.manual_repo_urls(project) or normalized in project.get("project_repository_urls", []):
@@ -1759,8 +1754,6 @@ def repo_candidate_allowed_for_project(project: dict[str, Any], url: str) -> boo
     trusted_owners = trusted_repo_owner_identities(project)
     if trusted_owners:
         return bool(owner and owner in trusted_owners)
-    if developer_handle_match:
-        return True
     return True
 
 
@@ -1949,11 +1942,12 @@ def add_candidate_project_repository_url(
     relation: str = "candidate_repo",
     updated_at: str = "",
     admitted_by_relation: bool = False,
+    repository_metadata: dict[str, Any] | None = None,
 ) -> None:
     normalized = repo_url_core.canonical_repo_url(url)
     if project_record.identifier_is_blocked(project, "repo_url", normalized):
         return
-    if not admitted_by_relation and not repo_candidate_allowed_for_project(project, normalized):
+    if not admitted_by_relation and not repo_candidate_allowed_for_project(project, normalized, repository_metadata=repository_metadata):
         return
     if normalized in project.get("project_repository_urls", []):
         return

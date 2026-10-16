@@ -5,12 +5,16 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .transport import atproto, http_transport
+from . import project_record
+from .identity import identifiers
+from .repositories import repo_urls
 from .evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
 from .relations import relation_record
 from .transport.reliability import RetryPolicy, run_with_retry
 
 
 TANGLED_COLLECTION = "sh.tangled.repo"
+REPOSITORY_POLICY_VERSION = "tangled-project-repository-v1"
 
 
 @dataclass(frozen=True)
@@ -29,25 +33,32 @@ def tangled_repo_url(handle: str, record: dict[str, Any], rkey: str) -> str:
     return f"https://tangled.org/{owner}/{urllib.parse.quote(name, safe='._-')}"
 
 
+def repository_match_reason(project: dict[str, Any], url: str, record: dict[str, Any]) -> str:
+    """Project-specific candidate evidence; account ownership alone is insufficient."""
+    normalized = repo_urls.canonical_repo_url(url)
+    if not normalized or not repo_urls.is_supported_repo_url(normalized):
+        return ""
+    if project_record.identifier_is_blocked(project, "repo_url", normalized) or project_record.identifier_is_deferred(project, "repo_url", normalized):
+        return ""
+    known = set(project_record.active_manual_repo_urls(project)) | set(project.get("project_repository_urls", []))
+    if normalized in {repo_urls.canonical_repo_url(item) for item in known}:
+        return "accepted_repository"
+    name = str(record.get("name") or "").strip().lower()
+    project_name = str(project.get("name") or "").strip().lower()
+    if project_name and name in {project_name, project_name.replace(" ", "-")}:
+        return "project_name_exact"
+    website = identifiers.normalize_url(str(record.get("website") or ""))
+    services = {identifiers.normalize_url(str(item)) for item in project.get("service_urls", [])}
+    services.add(identifiers.normalize_url(str(project.get("website_url") or "")))
+    if website and website in services and not project_record.identifier_is_blocked(project, "service_url", website) and not project_record.identifier_is_deferred(project, "service_url", website):
+        return "project_website_exact"
+    return ""
+
+
 def repo_relevance(project: dict[str, Any], record: dict[str, Any], handle: str) -> int:
-    score = 0
-    name = str(record.get("name") or "").lower()
-    project_name = str(project.get("name") or "").lower()
-    description = str(record.get("description") or "").lower()
-    website = str(record.get("website") or "").rstrip("/")
-    if project_name and name and (project_name == name or project_name.replace(" ", "-") == name):
-        score += 4
-    if website and website in {
-        str(project.get("website_url") or "").rstrip("/"),
-        *(str(item).rstrip("/") for item in project.get("service_urls", [])),
-    }:
-        score += 5
-    identity_tokens = {token for token in project_name.replace("-", " ").split() if len(token) >= 4}
-    if any(token in description for token in identity_tokens):
-        score += 2
-    if handle and any(str(item.get("handle") or "").lower() == handle.lower() for item in project.get("developer_accounts", []) if isinstance(item, dict)):
-        score += 1
-    return score
+    url = tangled_repo_url(handle, record, str(record.get("name") or ""))
+    reason = repository_match_reason(project, url, record)
+    return {"accepted_repository": 5, "project_name_exact": 4, "project_website_exact": 5}.get(reason, 0)
 
 
 def atproto_relevant(record: dict[str, Any]) -> bool:
@@ -95,13 +106,15 @@ def collect_account_repos(project: dict[str, Any], handle: str, dependencies: Ta
                 score = repo_relevance(project, record, handle)
                 bundle.add_record(EvidenceRecord(
                     kind="tangled_repo_snapshot", source=f"tangled_pds:{handle}",
-                    classification="confirmed" if score >= 5 else "candidate", observed_at=observed_at,
+                    classification="candidate", observed_at=observed_at,
                     value={"owner_handle": handle, "owner_did": did, "repo_url": url,
                            "repo_did": str(record.get("repoDid") or ""), "record": record, "score": score},
+                    context={"policy_version": REPOSITORY_POLICY_VERSION,
+                             "project_match_reason": repository_match_reason(project, url, record)},
                 ))
                 bundle.add_record(relation_record(
                     source=f"tangled_pds:{handle}", classification="confirmed", observed_at=observed_at,
-                    subject_type="did", subject_value=did, predicate="project_repository",
+                    subject_type="did", subject_value=did, predicate="owns_repository",
                     object_type="repo", object_value=url, locator=uri, method="pds_list_records",
                 ))
                 record_count += 1

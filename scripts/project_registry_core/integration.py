@@ -4,7 +4,7 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from . import service, naming, project_record, developer_links
+from . import service, naming, project_record, developer_links, tangled
 from . import oauth_metadata
 from .identity import identifiers
 from .identity import url_alias
@@ -151,19 +151,7 @@ def apply_tangled_evidence(
         repo_name = str(tangled_record.get("name") or "").strip()
         description = str(tangled_record.get("description") or "").strip()
         website = str(tangled_record.get("website") or "").strip()
-        if handle or did:
-            project_record.add_developer_account(project, handle, record.source, did=did)
         repo_url = str(value.get("repo_url") or "")
-        score = int(value.get("score") or 0)
-        if repo_name:
-            naming.add_name_candidate(project, repo_name, record.source)
-        if description:
-            project_record.add_candidate_text(project, "summary", description, record.source)
-            project_record.add_candidate_text(project, "tagline", description, record.source)
-        if website:
-            normalized_website = project_record.normalize_service_candidate_url(website)
-            if normalized_website:
-                dependencies.add_candidate_url(project, "service_url", normalized_website)
         if did and repo_url:
             project_record.record_trust_edge(
                 project,
@@ -175,24 +163,33 @@ def apply_tangled_evidence(
                 source=record.source,
                 locator=repo_url,
                 method="tangled_pds_record",
-                classification="confirmed" if score >= 5 else "candidate",
+                classification="confirmed",
                 eligible_for_auto_confirm=False,
                 observed_at=record.observed_at,
-                context={"owner_handle": handle, "score": score},
+                context={"owner_handle": handle, "policy_version": tangled.REPOSITORY_POLICY_VERSION},
             )
-        if score >= 5:
+        reason = tangled.repository_match_reason(project, repo_url, tangled_record)
+        if reason:
             dependencies.add_candidate_project_repository_url(
                 project, repo_url, record.source,
-                reason=f"Tangled repo belongs to a confirmed developer account; relevance score={score}",
+                reason=f"Tangled repository matches project: {reason}",
                 evidence_kind="tangled_pds_record", evidence_url=repo_url,
-                relation="tangled_account_repo",
+                repository_metadata=tangled_record,
             )
-        elif score >= 2:
-            dependencies.add_candidate_project_repository_url(
-                project, repo_url, record.source,
-                reason=f"Tangled repo belongs to a confirmed developer account; relevance score={score}",
-                evidence_kind="tangled_pds_record", evidence_url=repo_url,
-            )
+        if reason != "accepted_repository":
+            continue
+        if handle or did:
+            project_record.add_developer_account(project, handle, record.source, did=did)
+        metadata_source = f"{record.source}:{repo_urls.canonical_repo_url(repo_url)}"
+        if repo_name:
+            naming.add_name_candidate(project, repo_name, metadata_source)
+        if description:
+            project_record.add_candidate_text(project, "summary", description, metadata_source)
+            project_record.add_candidate_text(project, "tagline", description, metadata_source)
+        if website:
+            normalized_website = project_record.normalize_service_candidate_url(website)
+            if normalized_website:
+                dependencies.add_candidate_url(project, "service_url", normalized_website)
     for failure in bundle.failures:
         note_failure(project, failure.message)
 
@@ -204,6 +201,8 @@ def _apply_tangled_repo_inspection(
     dependencies: CandidateIntegrationDependencies,
 ) -> None:
     repo_url = str(snapshot.get("repo_url") or "").rstrip("/")
+    if tangled.repository_match_reason(project, repo_url, {}) != "accepted_repository":
+        return
     repo = dict(snapshot.get("repo") or {})
     full_name = str(repo.get("full_name") or "")
     repo_name = str(repo.get("name") or "")

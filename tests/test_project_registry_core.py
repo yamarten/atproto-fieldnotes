@@ -2856,6 +2856,7 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
 
     def test_triage_repository_url_contract_reaches_normal_application(self) -> None:
         project = self.nsid_project()
+        project["name"] = "New Project"
         project["developer_accounts"] = [{"handle": "example"}]
         repository_url = "https://github.com/example/new-project"
         prompt, evidence = registry.build_triage_prompt(project)

@@ -306,6 +306,7 @@ relationの`classification=confirmed`は、保存したpredicateの方向付き�
 - `operates_service`: identityがserviceを運営する
 - `repository_homepage`: repository metadataのWebsite欄がURLを直接示す。URLのtarget roleやproject帰属は含意しない
 - `project_repository`: app/siteとrepoの間に公式project repositoryとしての直接参照がある
+- `owns_repository`: account DIDのrepository所有観測。Tangled PDSのrepo一覧から得る関係で、projectへの所属・identifier採用・project同一性を含意しない
 - `requests_permission`: OAuth metadataが個別repo collectionまたは未解決permission setへの権限を宣言する。grant、実利用、所有を示さない
 - `redirects_to`: URL間の実観測redirect/canonical関係
 
