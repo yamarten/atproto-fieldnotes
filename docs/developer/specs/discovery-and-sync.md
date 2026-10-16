@@ -11,16 +11,16 @@
 | `sync-lexicons` | 最初に受け入れた完全NSID一つ。公開Lexiconの各型に共通。残りは候補 |
 | `sync-collections` | 割当契約でまとめた全full collection。代表collectionにもadoptionを保存 |
 | GitHub / Tangled | 受入条件を通過したrepository URL |
-| Semble / seed list / 紹介済み投稿の新規登録 | 受け入れたseedのNSID、repository URL、service URL |
+| Semble / seed list | 受け入れたseedのNSID、repository URL、service URL |
 | `add-seed` / Webのシード登録 | 利用者が指定した対象。operator adoptionとして記録 |
 
-既存projectへの追加には各入口の照合・帰属規則を使い、登録起点と同じ扱いで候補全体を採用しません。`sync-bluesky-lexicons`は既存の一意な対象だけを更新し、新規projectを作りません。`sync-introduced --mark-only`も新規登録しません。対象の採用と発行元の真正性・projectの追跡価値は[project境界](project-boundaries.md#登録時に対象を採用する)で区別します。
+既存projectへの追加には各入口の照合・帰属規則を使い、登録起点と同じ扱いで候補全体を採用しません。`sync-bluesky-lexicons`は既存の一意な対象だけを更新し、新規projectを作りません。`sync-introduced`も新規登録せず、既存projectへの紹介URLの反映と要確認の保存を行います。対象の採用と発行元の真正性・projectの追跡価値は[project境界](project-boundaries.md#登録時に対象を採用する)で区別します。
 
 ## source設定とpolicyの境界
 
 設計上、operatorが運用中に変更するsource URL、有効・無効、query、request数の上限、取得対象範囲はconfigへ置けます。一方、payloadの解釈、evidence抽出、同一性・所有の信頼条件、identifierやrelationのclassification、既存projectへの自動追加や紹介候補の選定条件はcodeとtestを正本とします。
 
-通常導線では`config/sources.json`がintroduced、collection inventory、GitHub、Semble、Tangledのoperator設定正本です。sourceごとのenabled、URL、query、tracked collection、pages/per-page/limit/lookback等の取得上限・期間を持ち、application sync serviceが解決します。CLI/Web/workerから明示された値は、その取り込み実行中だけ設定値より優先します。disabled sourceはnetwork request前に拒否します。source追加時もこの責務分担に従い、builtin lexicon prefix、payload解釈、evidence抽出、照合・classification・自動追加の規則はcodeとtestで管理します。
+通常導線では`config/sources.json`がintroduced、collection inventory、Lexicon公開情報、GitHub、Semble、Tangledのoperator設定正本です。sourceごとのenabled、URL、query、tracked collection、pages/per-page/limit/lookback等の取得上限・期間を持ち、application sync serviceが解決します。CLI/Web/workerから明示された値は、その取り込み実行中だけ設定値より優先します。disabled sourceはnetwork request前に拒否します。source追加時もこの責務分担に従い、builtin lexicon prefix、payload解釈、evidence抽出、照合・classification・自動追加の規則はcodeとtestで管理します。
 
 ## Source別の取り込み
 

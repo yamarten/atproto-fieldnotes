@@ -108,7 +108,7 @@ GitHub repository metadataのhomepageは、repository管理者がそのURLをWeb
 | repository | source code、schema、文書、issue、release、build定義などを版管理する外部resource | `repo_url`。値はrepositoryを参照するURL | projectが公式に利用する場合は`project_repository`。dependency、fork、mirror、単なる参照は別relation |
 | ATProto account | DIDを安定した識別子、handleを変更可能な現在名として持つ論理的なaccount | account全体のnodeは置かず、`did`と`handle`を別nodeとして保持する | project account、developer、organization、publisher、service operatorなど。roleはidentity解決だけから決めない |
 | domain | DNS名。service host、handle、NSID authority、`did:web` identityなど複数の文脈に現れる | `domain` | 文脈に応じてservice host、handle、authority、中継点などになる。domainというkindだけではproject roleは決まらない |
-| NSID / record collection | AT Protocolのnamespaced identifier。現行設計では、そのうちrecord collectionを表すfull NSIDを主対象とする | `collection`。値はcaseを保持したfull NSID | projectが所有する場合は`owned_nsid`。利用、schema参照、permission要求、record作成はownershipと別relation |
+| NSID / Lexicon | AT Protocolのnamespaced identifier。登録対象はrecord collectionだけでなく、space・非recordの公開Lexiconも含む。型ごとの観測範囲は[Lexicon公開情報](lexicon-publication-catalog.md)を参照 | `collection`。値はcaseを保持したfull NSIDで、schema型は別の観測として保持 | projectが所有する場合は`owned_nsid`。利用、schema参照、permission要求、record作成はownershipと別relation |
 | native app | bundle/packageとして配布・実行されるapp。backend serviceやdistribution pageとは別resource | 現行kindには専用nodeがない | projectの構成要素になり得るが、bundle/package identifier、store URL、backendとの関係は保留 |
 
 #### 資源同一性の補足

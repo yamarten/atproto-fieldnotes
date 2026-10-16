@@ -31,6 +31,8 @@ CLI/Webの手動確認には`project-registry dev-db`で架空データ5件を�
 | `archived` | 終了・保管扱い。 |
 | `ignore` | 調査対象として追わないノイズ。 |
 
+追跡状態は調査対象を選ぶための区分で、データを削除したり、状態ごとに調査時刻を予約したりするものではありません。通常の`enrich --all`は`active`だけ、通常の紹介候補一覧は`active / stable`を対象にします。単体指定や追加状態の指定では通常対象外も調査でき、`--all-tracking-states`は`ignore / archived`も含みます。`stable`は活動観測に基づく継続調査上の扱いであり、現在サービスが動く保証ではありません。[追跡状態の見直し条件](../developer/specs/project-evaluation.md#追跡と再調査)と、[定期処理の対象](web-ui.md#定期実行)を確認してください。
+
 ### 副作用の表記
 
 | 表記 | 意味 |
@@ -131,7 +133,7 @@ project-registry enrich --all --resume-run weekly-20260714
 
 | kind | 意味 |
 | --- | --- |
-| `service_surface_confirmed` | 原則`category=project`で、サービス状態が`live`、`beta`、`invite_only`、確度（`confidence`）が`medium`以上で、ログイン画面やアプリ画面の枠組み（app shell）、ブラウザーでの到達などサービスを利用する画面を確認済み。紹介可否は利用者が判断する。 |
+| `service_surface_confirmed` | 通常は`category=project / infra_tool`で、サービス状態が`live`、`beta`、`invite_only`、確度（`confidence`）が`medium`以上で、ログイン画面やアプリ画面の枠組み（app shell）、ブラウザーでの到達などサービスを利用する画面を確認済み。紹介可否は利用者が判断する。 |
 | `service_candidate_needs_validation` | service URLと稼働statusの候補はあるが、confidenceが低いか稼働面が未確認。上記より低い優先度で残す。 |
 | `lexicon_publisher_confirmed` | confirmed owned NSIDが、authorityの`_lexicon` DNS委譲先にあるmatching schema recordとして取得できた。categoryには依存しない。 |
 | `technical_insight_candidate` | 設計・相互運用・参照実装を学ぶうえで特に見る価値がある。 |
@@ -155,16 +157,18 @@ bin/project-registry set-atproto-usage -p PROJECT_KEY --clear
 
 `sync-*`コマンドは、設定済みの外部情報源を走査して照合結果や新規登録候補を作ります。`--execute`なしでは取り込み候補を確認するだけで、DBへ反映しません。
 
-| コマンド | 情報源と入力 | 出力 | 副作用 |
+| コマンド | 用途・情報源と入力 | 出力 | 副作用 |
 | --- | --- | --- | --- |
-| `import-seed-list` | 見出しやメモを含められるプレーンテキストファイル | 解析、照合、作成候補のJSON | `--execute` |
-| `sync-bluesky-lexicons` | 設定済みBluesky公式repositoryの`app.bsky.*` / `chat.bsky.*` record schema | Bluesky projectへ追加するcollectionのJSON | 外部接続。`--execute`で書き込み。`com.atproto.*`は対象外 |
-| `sync-introduced` | Bluesky投稿検索。検索条件、ページ上限、遡る期間、増分実行 | 紹介URLとの照合結果のJSON | 外部接続。`--execute`でintroduced情報を書き込み |
-| `sync-github-search` | GitHubリポジトリ検索。検索条件、ページ上限、事前選別 | リポジトリの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
-| `sync-lexicons` | 公開Lexiconのsnapshotと発行元検証 | 新規・既存projectへの候補、競合、検証残件のJSON | 外部接続。`--execute`で観測・候補を保存 |
-| `sync-collections` | collection一覧URL。遡る期間、保存先、項目上限 | collectionの照合・作成候補のJSON | 外部接続。`--execute`で書き込み。`--save-path`はファイル書き込み |
-| `sync-semble-collections` | 設定済みSemble collection。ページ上限、遡る期間 | カード由来シードの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
-| `sync-tangled-repos` | Jetstream v2 snapshot。sequence、項目上限、増分実行 | Tangledリポジトリの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
+| `import-seed-list` | 手元で集めた候補をまとめて登録する。見出しやメモを含むプレーンテキスト | 解析、照合、作成候補のJSON | `--execute` |
+| `sync-bluesky-lexicons` | 既存のBluesky登録へ公式schemaを補う。設定済み公式repositoryの`app.bsky.*` / `chat.bsky.*` record schema | Bluesky projectへ追加するcollectionのJSON | 外部接続。`--execute`で書き込み。`com.atproto.*`は対象外 |
+| `sync-introduced` | 紹介済み対象を再び通常候補に出さないため、投稿URLを既存登録へ反映する。Bluesky投稿検索、ページ上限、遡る期間 | 紹介URLとの照合結果のJSON | 外部接続。`--execute`でintroduced情報を書き込み |
+| `sync-github-search` | repositoryから未登録候補を探す。GitHubの検索条件、ページ上限、事前選別 | リポジトリの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
+| `sync-lexicons` | record利用の観測だけでは拾えないspace・非recordも、schemaの公開から探す。公開snapshotと発行元検証 | 新規・既存projectへの候補、競合、検証残件のJSON | 外部接続。`--execute`で観測・候補を保存 |
+| `sync-collections` | 公開recordのcollectionから候補を発見し、既知collectionの活動を更新する。一覧URL、遡る期間、項目上限 | collectionの照合・作成候補のJSON | 外部接続。`--execute`で書き込み。`--save-path`はファイル書き込み |
+| `sync-semble-collections` | 選んだリンク集から候補を取り込む。設定済みSemble collection、ページ上限、遡る期間 | カード由来シードの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
+| `sync-tangled-repos` | Tangled上のrepositoryからatproto関連候補を探す。Jetstream v2 snapshot、sequence、項目上限 | Tangledリポジトリの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
+
+情報源ごとに発見できる範囲が異なります。検索や一覧にないことはprojectの不存在や非利用の証明ではありません。取り込み結果から新規候補や照合保留を確認し、内容の説明・追加調査には`enrich`を使います。`sync-introduced`は未一致投稿から新規projectを作らず、Webの`紹介確認`で登録先を選ぶための要確認を残します。取得上限と照合の詳細は[発見と取り込み](../developer/specs/discovery-and-sync.md)を参照してください。
 
 外部情報の取り込みは`--execute`なしでも外部ネットワークへ接続します。Tangledを除き、dry-run、失敗、不完全、上限で打ち切った実行は成功時点を示すwatermarkを進めません。成功したexecuteだけが情報源別の増分状態を保存します。Tangledの途中checkpoint条件は後述します。`--all-history`は保存済みwatermarkや通常の遡る期間を無視しますが、情報源自身が一定期間のデータしか提供しない場合は完全履歴にはなりません。`sync-collections --all-history`は既知collectionも再処理し、collection inventory由来の保存済みobservationを現在の全payloadに置き換え、collection identifierと活動統計を再構築します。置換対象は結果JSONの`collection_observation_rebuild_project_count`と`collection_observation_cleanup_count`で確認できます。
 
@@ -256,10 +260,18 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 | `export-recollection-relation-assessment-corpus` | 取得範囲を限定した再収集reportの要確認事項を、ページの帰属と関係の意味判定へ分け、URLが採用済み構成要素と完全一致する事例だけを固定corpusへ抽出 | DB変更なし。指定ファイルへ書き込み |
 | `evaluate-relation-assessment-corpus` | 一つの方向付き`project_repository`提案と限定材料からなる固定corpusを評価する。`--support-evidence-mode both_endpoints\|direct_any`で関係の両側への参照を必要とする条件と、一方の直接的根拠を許容する条件を比較し、期待値・旧判断との一致を`--output`へ出力 | LLMへ接続。DB変更なし。指定ファイルへ書き込み |
 | `compare-trust-policy` | 指定DBのidentifier、relation、判断履歴を現行v1とrole付きshadow policyで比較し、`--output`へ構造化reportを出力 | DBはread-only。指定ファイルへ書き込み |
+| `compare-collector-relation-policy` | 保存済みのservice/repository観測について、関係の向きと採用判断を分けた比較用規則との差を調べ、`--output`へ出力 | DBはread-only。指定ファイルへ書き込み |
+| `compare-project-repository-context` | 保存済みrepository候補のリンク表示・周辺文脈を、件数を限定して現在のページから再取得し、帰属判断の材料不足を調べる | 外部接続。DBはread-only。`--output`へ書き込み |
+| `compare-project-repository-recollection` | `--legacy-db-path`の旧帰属根拠と現在DBを照合し、現在ページの限定再取得で再評価材料を作る | 外部接続。両DBはread-only。`--output`へ書き込み |
+| `materialize-project-repository-review` | 人が確認したrepository関係の`--review-manifest`を、新規の`--materialized-db`へ適用して影響を検査する | 入力DBはread-only。新規複製DBと`--output`へ書き込み |
+| `compare-project-repository-migration` | 旧source repository roleから`project_repository`への移行案と、関係の処遇を比較する | 入力DBはread-only。`--output`と、明示した場合だけ新規`--materialized-db`へ書き込み |
+| `compare-project-site-migration` | 保存済みWebsiteとrepository homepageから、`project_site`として採用する候補・要確認を比較する | 入力DBはread-only。`--output`と、明示した場合だけreview manifestに基づく新規複製DBへ書き込み |
 | `compare-merge-policy` | 指定DBの現行マージ候補と、役割・直接的な関係・マージを禁止する条件を分けた比較用規則を照合し、`--output`へ構造化reportを出力。DBと同じcheckoutの`config/domain-overrides.json`を自動検出し、別配置なら`--domain-overrides`で指定する | DBはread-only。指定ファイルへ書き込み |
 | `compare-identifier-storage` | 指定DBの現行identifierと判断履歴から、非現行identifier・採用理由・時間関係を分離した保存案への移行を投影し、`--output`へ構造化reportを出力。`--materialized-db`を指定するとreview manifestを新しい複製DBへ適用する | 入力DBはread-only。reportと、明示した場合だけ新規複製DBへ書き込み。既存複製DBは上書きしない |
 | `verify-service` | 登録プロジェクトまたはシード、任意URL、調査方法（`static\|deep\|browser`） | 外部接続。`--execute`で評価と再評価可能な調査実行記録をDBへ保存 |
 | `monitor-services` | `--min-age-days`（既定30）、`--limit`（既定20） | 既定は未確認・古いconfirmed service URLの一覧だけ。`--execute`で匿名browser確認と保存 |
+
+帰属・移行の比較コマンドは通常の調査や自動採用へ結果を適用しません。旧根拠の再収集は移行前DBが必要で、現在ページは過去の観測の再現ではありません。複製へ判断を適用する経路も、元DBへの移行実行ではありません。用途に合う入力DB・review manifestを用意し、出力の未確認事項を見て規則変更や手動採用を別途判断します。[帰属の判断モデル](../developer/specs/project-boundaries.md#判断モデル)と[比較用経路の境界](../developer/specs/project-boundaries.md#shadow比較の契約)を参照してください。
 
 事例・eventのdraft形式、保存先と確認手順は[非公開LLM事例の固定保存](../developer/specs/llm-case-store.md)を参照してください。通常の作業ではCodexがdraftを組み立て、`register-llm-case`の後に`show-llm-case`と`verify-llm-cases`で保存内容を確認します。後からの判断・調整利用は同じ事例IDへ`append-llm-case-event`で追記し、一覧と詳細の有効状態を確認します。`--store`にはworktree終了後も残る個人用の絶対パスを毎回指定します。実資料はGitへ追加しません。
 
