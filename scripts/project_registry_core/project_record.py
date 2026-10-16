@@ -1542,18 +1542,15 @@ def project_matches_identifier(project: dict[str, Any], identifier_type: str, id
     if identifier_type == "did":
         if str(project.get("brand_did") or "").strip() == normalized:
             return 0, True
-        for account in normalize_developer_accounts(list(project.get("developer_accounts", [])) + list(project.get("candidate_developer_accounts", []))):
+        for account in normalize_developer_accounts(list(project.get("developer_accounts", []))):
             if str(account.get("did") or "").strip() == normalized:
                 return 0, True
         return 99, False
     if identifier_type == "handle":
         lowered = normalized.lower()
-        for account in normalize_developer_accounts(list(project.get("developer_accounts", [])) + list(project.get("candidate_developer_accounts", []))):
+        for account in normalize_developer_accounts(list(project.get("developer_accounts", []))):
             if str(account.get("handle") or "").strip().lower().rstrip(".") == lowered:
                 return 0, True
-        for handle in list(project.get("bluesky_handles", [])) + list(project.get("tangled_handles", [])):
-            if str(handle or "").strip().lower().rstrip(".") == lowered:
-                return 1, True
         return 99, False
     if identifier_type == "domain":
         lowered = normalized.lower()
@@ -1624,12 +1621,10 @@ def indexed_identifier_matches(
                 and provider == expected_provider
             ):
                 priority = 0
-        elif identifier_type == "did" and role in {"brand_did", "developer_did"}:
+        elif identifier_type == "did" and role in {"brand_did", "developer_did"} and classification == "confirmed":
             priority = 0
-        elif identifier_type == "handle" and role == "developer_handle":
+        elif identifier_type == "handle" and role == "developer_handle" and classification == "confirmed":
             priority = 0
-        elif identifier_type == "handle" and role == "project_handle":
-            priority = 1
         elif identifier_type == "domain" and role == "authority_domain":
             priority = 0
         elif identifier_type == "service_url_candidate" and role == "service" and classification == "candidate":
@@ -2244,12 +2239,12 @@ def normalize_website_and_service_urls(project: dict[str, Any]) -> None:
     for field_name in ("service_urls",):
         for item in project.get(field_name, []):
             if is_bluesky_profile_url(str(item or "")):
-                record_developer_profile_url(project, str(item), f"{field_name}:profile_url")
+                record_account_reference(project, str(item))
     for item in service_url_candidate_values(project):
         if is_bluesky_profile_url(str(item or "")):
-            record_developer_profile_url(project, str(item), "service_url_candidates:profile_url")
+            record_account_reference(project, str(item))
     if project.get("website_url") and is_bluesky_profile_url(str(project["website_url"])):
-        record_developer_profile_url(project, str(project["website_url"]), "website_url:profile_url")
+        record_account_reference(project, str(project["website_url"]))
     project["service_urls"] = unique_list([item for item in [normalize_confirmed_service_url(item) for item in project.get("service_urls", []) if item] if item])
     project["project_site_urls"] = unique_list([
         identifier_core.normalize_url(str(item))
@@ -2322,41 +2317,10 @@ def add_candidate_developer_account(project: dict[str, Any], handle: str, source
     )
 
 
-def handle_matches_confirmed_service_identity(project: dict[str, Any], handle: str) -> bool:
-    normalized_handle = str(handle or "").strip().lower()
-    if not normalized_handle or "." not in normalized_handle:
-        return False
-    handle_root = domain_policy_core.root_domain(normalized_handle)
-    confirmed_hosts = {
-        str(host or "").strip().lower()
-        for host in ownership_anchor_service_hosts(project)
-        if str(host or "").strip()
-    }
-    for host in confirmed_hosts:
-        host_root = domain_policy_core.root_domain(host)
-        if normalized_handle == host or normalized_handle.endswith(f".{host}"):
-            return True
-        if handle_root and host_root and handle_root == host_root:
-            return True
-    return False
-
-
-def record_developer_handle(project: dict[str, Any], handle: str, source: str, did: str = "") -> None:
-    if handle_matches_confirmed_service_identity(project, handle):
-        project["bluesky_handles"] = add_unique(project.get("bluesky_handles", []), handle)
-        add_developer_account(project, handle, source, did=did)
-        return
-    add_candidate_developer_account(project, handle, source, did=did)
-
-
-def record_developer_profile_url(project: dict[str, Any], url: str, source: str) -> None:
-    subject = extract_bluesky_profile_subject(url)
-    handle = subject.get("handle", "")
-    did = subject.get("did", "")
-    if handle:
-        record_developer_handle(project, handle, source)
-    elif did:
-        add_candidate_developer_account(project, "", source, did=did)
+def record_account_reference(project: dict[str, Any], url: str) -> None:
+    """A profile/post/feed reference carries no developer or official role."""
+    if extract_bluesky_profile_subject(url):
+        project["evidence_urls"] = add_unique(project.get("evidence_urls", []), identifier_core.normalize_url(url))
 
 
 def normalize_trust_node_value(kind: str, value: str) -> str:

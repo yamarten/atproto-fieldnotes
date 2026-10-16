@@ -2277,7 +2277,7 @@ def prune_project_urls(project: dict[str, Any], *, restore_manual_repositories: 
         cleaned_urls: list[str] = []
         for url in project.get(field_name, []):
             if project_record.is_bluesky_profile_url(url):
-                project_record.record_developer_profile_url(project, url, f"{field_name}:profile_url")
+                project_record.record_account_reference(project, url)
                 continue
             is_confirmed = field_name == "service_urls"
             normalized_candidate = identifier_core.normalize_url(str(url or ""))
@@ -2291,7 +2291,7 @@ def prune_project_urls(project: dict[str, Any], *, restore_manual_repositories: 
     cleaned_candidates: list[str] = []
     for url in project_record.service_url_candidate_values(project):
         if project_record.is_bluesky_profile_url(url):
-            project_record.record_developer_profile_url(project, url, "service_url_candidates:profile_url")
+            project_record.record_account_reference(project, url)
             continue
         normalized_candidate = identifier_core.normalize_url(str(url or ""))
         if normalized_candidate in blocked_guesses:
@@ -4092,7 +4092,7 @@ def collect_first_party_links(
             if domain_policy_core.is_same_site_family(base_url, url):
                 follow_up_urls.append(url)
         elif classification == "bluesky_profile":
-            project_record.record_developer_profile_url(project, url, source)
+            project_record.record_account_reference(project, url)
         elif classification == "same_site":
             resource_role = project_record.app_link_role_from_resource_url(url)
             if resource_role:
@@ -4638,9 +4638,7 @@ def apply_service_probe_result(
             if identifier_core.normalize_url(str(item or "")) != normalized_service_url
         ]
         project["failed_service_urls"] = project_record.add_unique(project.get("failed_service_urls", []), normalized_service_url)
-    for url in result["urls"]:
-        if supported and project_record.is_bluesky_profile_url(url):
-            project_record.record_developer_profile_url(project, url, f"service_raw_url:{normalized_service_url}")
+    integration_core.apply_developer_page_observations(project, normalized_service_url, result, supports_project=supported)
     follow_ups = collect_first_party_links(
         project,
         normalized_service_url,

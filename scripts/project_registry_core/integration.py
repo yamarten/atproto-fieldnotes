@@ -4,9 +4,10 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from . import service, naming, project_record
+from . import service, naming, project_record, developer_links
 from . import oauth_metadata
 from .identity import identifiers
+from .identity import url_alias
 from .repositories import repo_urls
 from . import trust_graph
 from .evidence import EvidenceBundle
@@ -35,6 +36,43 @@ class GitHubRepoIntegrationDependencies:
 class ServiceIntegrationDependencies:
     apply_probe: Callable[[dict[str, Any], str, dict[str, Any]], None]
     add_candidate_project_repository_url: Callable[..., None]
+
+
+def apply_developer_page_observations(project: dict[str, Any], url: str, value: dict[str, Any], *, supports_project: bool) -> None:
+    if value.get("fetch_error") or not 0 < int(value.get("status_code") or 0) < 400:
+        return
+    snapshot = value.get("developer_account_observations")
+    # Direct probes have full HTML. Legacy saved evidence only has a bounded
+    # extract, whose absence of a credit cannot invalidate an earlier witness.
+    if snapshot is None and "html" in value and "html_extract" not in value:
+        snapshot = service.collect_developer_account_observations(url, str(value.get("html") or ""))
+    if not isinstance(snapshot, dict) or snapshot.get("policy_version") != developer_links.POLICY_VERSION:
+        return
+    page = url_alias.canonical_alias_url(project, url)
+    if snapshot.get("complete") is True:
+        retained = []
+        for account in project.get("candidate_developer_accounts", []):
+            prefix, separator, source_url = str(account.get("source") or "").partition(":")
+            if separator and prefix in {"developer_page", "service_raw_url", "service_page", "service_follow_up"}:
+                if url_alias.canonical_alias_url(project, source_url) == page:
+                    continue
+            retained.append(account)
+        project["candidate_developer_accounts"] = retained
+    if not supports_project:
+        return
+    for entry in snapshot.get("accounts", []):
+        if not isinstance(entry, dict) or not entry.get("observations"):
+            continue
+        kind, account_value = str(entry.get("kind") or ""), str(entry.get("value") or "")
+        normalized = identifiers.normalize_atproto_account_identifier(account_value)
+        if not normalized or normalized[0] != kind:
+            continue
+        if any(project_record.identifier_is_blocked(project, target_kind, account_value)
+               or project_record.identifier_is_deferred(project, target_kind, account_value) for target_kind in (kind, "account")):
+            continue
+        project_record.add_candidate_developer_account(project,
+            normalized[1] if kind == "handle" else "", f"developer_page:{identifiers.normalize_url(url)}",
+            did=normalized[1] if kind == "did" else "")
 
 
 def apply_saved_service_probe(project: dict[str, Any], value: dict[str, Any]) -> None:
@@ -255,7 +293,12 @@ def apply_service_evidence(
         elif record.kind == "service_verification" and isinstance(record.value, dict):
             value = service.normalize_redirect_same_site_policy(dict(record.value))
             value["observed_at"] = record.observed_at
-            requested_url = str(value.get("requested_url") or "").rstrip("/")
+            previous = next((item for item in project.get("service_verification_results", [])
+                             if service.service_verification_result_key(item) == service.service_verification_result_key(value)), {})
+            old_time, new_time = service.observation_time(previous), service.observation_time(value)
+            if old_time and (not new_time or new_time < old_time):
+                continue
+            requested_url = identifiers.normalize_url(str(value.get("requested_url") or ""))
             if requested_url and value.get("lane") in {"static", "deep", "follow_up", "repository_homepage", "authority"} and 0 < int(value.get("status_code") or 0) < 400 and not value.get("fetch_error"):
                 page_source = f"service_page:{requested_url}"
                 replaced_predicates = {"official_account"}
@@ -318,6 +361,11 @@ def apply_investigation_evidence(
         if record.kind == "investigation_log" and isinstance(record.value, dict):
             payload = dict(record.value)
             kind = str(payload.pop("kind", ""))
+            if kind in {"bsky_actor_search", "bsky_post_search", "bsky_author_feed"} and record.context.get("policy_version") == developer_links.POLICY_VERSION:
+                target = str(payload.get("actor") if kind == "bsky_author_feed" else payload.get("query"))
+                source = f"{kind}:{target}"
+                project["candidate_developer_accounts"] = [item for item in project.get("candidate_developer_accounts", [])
+                                                           if item.get("source") != source]
             add_investigation_log(project, kind, **payload)
             continue
         if record.kind == "github_repo_search_candidate" and isinstance(record.value, dict):
@@ -337,7 +385,13 @@ def apply_investigation_evidence(
                 dependencies.add_candidate_url(project, "service_url", homepage)
             continue
         if record.kind == "developer_handle_candidate":
-            project_record.record_developer_handle(project, str(record.value or ""), record.source)
+            if record.context.get("policy_version") == developer_links.POLICY_VERSION and record.context.get("reason") == "profile_developer_claim":
+                project_record.add_candidate_developer_account(project, str(record.value or ""), record.source)
+            else:
+                project_record.record_account_reference(project, f"https://bsky.app/profile/{record.value}")
+            continue
+        if record.kind == "account_reference":
+            project_record.record_account_reference(project, f"https://bsky.app/profile/{record.value}")
             continue
         if record.kind == "source_code_reference":
             url = str(record.value or "")
@@ -767,11 +821,10 @@ def normalize_project_accounts(project: dict[str, Any]) -> None:
         dict(item)
         for item in project_record.normalize_developer_accounts(project.get("candidate_developer_accounts", []))
         if str(item.get("handle") or "").strip().lower() not in generic_platform_handles_to_ignore(project)
-        and str(item.get("handle") or "").strip() not in {
-            str(existing.get("handle") or "").strip()
-            for existing in project.get("developer_accounts", [])
-            if isinstance(existing, dict)
-        }
+        and not any(
+            item.get("did") == existing.get("did") if item.get("did") else item.get("handle") == existing.get("handle")
+            for existing in project.get("developer_accounts", []) if isinstance(existing, dict)
+        )
     ]
     surviving_handles = {
         str(item.get("handle") or "").strip()

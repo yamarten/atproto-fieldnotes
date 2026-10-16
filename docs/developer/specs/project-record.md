@@ -167,6 +167,8 @@ Editで説明を変更すると保護側になります。明示的な自動反�
 
 `surface_change`は直前の利用面確認との差、`content_changed`は保存範囲の内容hashの差です。いずれも終了・機能変更の確定事実ではありません。これらと説明の編集制御はcurrent stateなので、調査履歴の削除後も保持されます。更新は既存のproject revision検査・transactionを通り、競合成果は既存の未反映履歴へ分離します。
 
+service観測の`developer_account_observations`はHTML全体から保存上限を適用する前に作り、policy世代、対象件数、完全性、正規化したhandle/DID、元プロフィールURL・短い文脈・理由を保持します。最大32 account、各4 witness、account配列32 KiBまでです。上限による省略は`complete=false`とし、古い候補を消す不存在判定に使いません。旧観測にはこのfieldがないため、保存されたHTML抜粋だけから開発者候補を再判定しません。役割の採用・更新は[Developer account](project-boundaries.md#developer-accountの採用)を参照してください。
+
 ## URL正規化
 
 canonical fieldは`website_url`、`introduced_url`、confirmed/candidateのservice・repo identifierです。`website_url`は代表公開URLであり、service identifierとは独立しています。補助pageは`resource_url_records`に残します。
@@ -177,7 +179,7 @@ canonical fieldは`website_url`、`introduced_url`、confirmed/candidateのservi
 
 runtime codecの完全hydrate要件、無変更roundtrip、Websiteとidentifierの分離は[project_identifiers](#project_identifiers)を正本とします。実装は`persistence/runtime_view.py`が所有します。
 
-exact identifier lookupは`project_identifiers(kind, value, classification)` indexを使います。source syncで使うNSID、service URL、repository URL、domainとprovider別repositoryはproject payloadを全件hydrateしません。collection namespace、registrable namespace、service host familyなどのfuzzy候補はexact lookupの後段に分離し、安全判定を通らない一致はsuggestionに留めます。`handle`のexact lookupはnormalized indexだけを使います。`did`と`service_url_candidate`はindexで候補を絞った後、候補projectをhydrateしてcurrent payloadとの一致を確認します。
+exact identifier lookupは`project_identifiers(kind, value, classification)` indexを使います。source syncで使うNSID、service URL、repository URL、domainとprovider別repositoryはproject payloadを全件hydrateしません。collection namespace、registrable namespace、service host familyなどのfuzzy候補はexact lookupの後段に分離し、安全判定を通らない一致はsuggestionに留めます。`handle`のexact lookupはconfirmed `developer_handle`のnormalized indexだけを使い、candidateのdeveloper/project handleを除きます。`did`はconfirmed `developer_did`・`brand_did`に絞り、`service_url_candidate`と同様に候補projectをhydrateしてcurrent payloadとの一致を確認します。未採用accountが観測されたことだけでは、そのprojectへのexact一致としません。
 
 `audit-url-fields`はcanonical fieldの件数とinvariant違反を読み取り専用で報告します。
 

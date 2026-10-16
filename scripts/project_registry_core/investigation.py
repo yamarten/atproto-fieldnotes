@@ -11,6 +11,7 @@ from html import unescape
 from typing import Any, Callable
 
 from . import collector_relation_policy
+from . import developer_links
 from .identity import identifiers as identifier_core
 from .evidence import (
     CollectorFailure,
@@ -468,6 +469,11 @@ def collect_investigation_evidence(
 
     actor_handles_to_probe: list[str] = []
     bluesky_rate_limited = False
+    project_names = {str(project.get("name") or "")}
+    for url in [project.get("website_url"), *project.get("service_urls", [])]:
+        host = urllib.parse.urlparse(str(url or "")).hostname
+        if host:
+            project_names.add(host.removeprefix("www."))
     for query in build_bsky_search_queries(plan, "actor_search_queries", max_queries=2):
         observed_at = dependencies.now()
         bundle.add_record(evidence_record(
@@ -482,15 +488,15 @@ def collect_investigation_evidence(
                 lambda: budgeted(bluesky_budget, lambda: dependencies.search_bsky_actors(query, limit=5, timeout=dependencies.timeout)),
                 policy=dependencies.retry_policy,
             )
-            accepted_actors = [
-                item for item in actors
-                if dependencies.bsky_actor_relevance(project, item) >= 4
-            ]
+            claims = [(item, developer_links.profile_claim(str(item.get("description") or ""), project_names)) for item in actors]
+            accepted_actors = [(item, reason) for item, reason in claims
+                               if reason or dependencies.bsky_actor_relevance(project, item) >= 4]
             bundle.add_record(evidence_record(
                 kind="investigation_log",
                 source="bsky_actor_search",
                 classification="derived",
                 observed_at=observed_at,
+                context={"policy_version": developer_links.POLICY_VERSION},
                 value={
                     "kind": "bsky_actor_search",
                     "query": query,
@@ -499,16 +505,18 @@ def collect_investigation_evidence(
                     "at": observed_at,
                 },
             ))
-            for actor in accepted_actors:
+            for actor, reason in accepted_actors:
                 handle = str(actor.get("handle") or "")
                 if not handle:
                     continue
+                description = str(actor.get("description") or "")
                 bundle.add_record(evidence_record(
-                    kind="developer_handle_candidate",
+                    kind="developer_handle_candidate" if reason else "account_reference",
                     source=f"bsky_actor_search:{query}",
                     classification="candidate",
                     observed_at=observed_at,
                     value=handle,
+                    context={"policy_version": developer_links.POLICY_VERSION, "reason": reason, "description": description[:2000]},
                 ))
                 actor_handles_to_probe.append(handle)
             if len(unique_strings(actor_handles_to_probe)) >= 2:
@@ -545,6 +553,7 @@ def collect_investigation_evidence(
                 source="bsky_post_search",
                 classification="derived",
                 observed_at=observed_at,
+                context={"policy_version": developer_links.POLICY_VERSION},
                 value={
                     "kind": "bsky_post_search",
                     "query": query,
@@ -566,7 +575,7 @@ def collect_investigation_evidence(
                 handle = str(post.get("author_handle") or "")
                 if handle and dependencies.handle_matches_project(project, handle):
                     bundle.add_record(evidence_record(
-                        kind="developer_handle_candidate",
+                        kind="account_reference",
                         source=f"bsky_post_search:{query}",
                         classification="candidate",
                         observed_at=observed_at,
@@ -600,6 +609,7 @@ def collect_investigation_evidence(
                 source="bsky_author_feed",
                 classification="derived",
                 observed_at=observed_at,
+                context={"policy_version": developer_links.POLICY_VERSION},
                 value={
                     "kind": "bsky_author_feed",
                     "actor": handle,
@@ -617,7 +627,7 @@ def collect_investigation_evidence(
                         value=str(url),
                     ))
             bundle.add_record(evidence_record(
-                kind="developer_handle_candidate",
+                kind="account_reference",
                 source=f"bsky_author_feed:{handle}",
                 classification="candidate",
                 observed_at=observed_at,

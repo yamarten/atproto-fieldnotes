@@ -319,6 +319,21 @@ class ProjectRegistryResearchPipelineTest(ProjectRecordTestCase):
         self.assertEqual(bundle.failures, [])
         self.assertEqual(bundle.collector_results[0].request_count, 1)
 
+    def test_actor_search_requires_developer_claim_instead_of_name_relevance(self) -> None:
+        project = self.make_project("proj:developer-search")
+        project["name"] = "Maker"
+        actors = [{"handle": "author.example", "description": "Maintainer of Maker"},
+                  {"handle": "customer.example", "description": "I use Maker"}]
+        bundle = investigation_core.collect_investigation_evidence(project, {"actor_search_queries": ["Maker"]},
+            self.search_dependencies(search_bsky_actors=lambda *args, **kwargs: actors,
+                                     bsky_actor_relevance=lambda _project, actor: 0 if actor["handle"] == "author.example" else 9))
+        registry.apply_investigation_evidence(project, bundle)
+        self.assertEqual(project["candidate_developer_accounts"], [{"handle": "author.example", "source": "bsky_actor_search:Maker"}])
+        self.assertEqual(project["developer_accounts"], [])
+        self.assertIn("https://bsky.app/profile/customer.example", project["evidence_urls"])
+        claim = next(record for record in bundle.records if record.kind == "developer_handle_candidate")
+        self.assertEqual(claim.context["description"], "Maintainer of Maker")
+
     def test_github_api_records_rate_limit_headers(self) -> None:
         metrics = github_api.GitHubRequestMetrics()
         with mock.patch.object(

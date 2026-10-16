@@ -12,7 +12,7 @@ from .identity import domain_policy, identifiers
 from .repositories import project_repository_policy
 from .evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
 from .relations import relation_record
-from . import account_links, usage_material
+from . import account_links, developer_links, usage_material
 
 SUPPORTING_PAGE_PATHS = {
     "about",
@@ -81,7 +81,7 @@ SERVICE_LINK_PRIORITY_TOKENS = (
 
 def service_verification_result_key(value: dict[str, Any]) -> tuple[str, str]:
     lane = str(value.get("lane") or "static").strip().lower()
-    url = str(value.get("requested_url") or value.get("final_url") or "").strip().rstrip("/")
+    url = identifiers.normalize_url(str(value.get("requested_url") or value.get("final_url") or ""))
     return lane, url
 
 
@@ -357,6 +357,13 @@ def project_repository_relation_records(
     return records
 
 
+def collect_developer_account_observations(url: str, html: str) -> dict[str, Any]:
+    snapshot = developer_links.observe_page(url, html)
+    accounts = bounded_json_items([(0, index, item) for index, item in enumerate(snapshot["accounts"])],
+                                 max_count=developer_links.MAX_ACCOUNTS, max_bytes=32 * 1024)
+    return {**snapshot, "accounts": accounts, "complete": snapshot["complete"] and len(accounts) == snapshot["account_count"]}
+
+
 def collect_service_probe_evidence(
     project_key: str,
     requested_url: str,
@@ -397,6 +404,8 @@ def collect_service_probe_evidence(
         value["atproto_text_candidates"] = usage_material.from_html(html, collection_names)
     value["observed_html_bytes"] = len(html.encode("utf-8"))
     value["content_sha256"] = hashlib.sha256(html.encode("utf-8", errors="replace")).hexdigest() if html else ""
+    if "html" in result and not result.get("fetch_error") and 0 < int(result.get("status_code") or 0) < 400:
+        value["developer_account_observations"] = collect_developer_account_observations(requested_url, html)
     bundle = EvidenceBundle(project_key=project_key, collected_at=observed_at)
     bundle.add_record(EvidenceRecord(
         kind="service_verification",

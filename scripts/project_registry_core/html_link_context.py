@@ -83,6 +83,7 @@ class LinkContextParser(HTMLParser):
             "landmarks": [frame.tag for frame in self.stack if frame.tag in LANDMARK_TAGS],
             "container_text": "",
             "container_hint": "",
+            f"container_{self.kind}_count": 0,
             "group_text": "",
             "group_hint": "",
             f"group_{self.kind}_count": 0,
@@ -133,6 +134,9 @@ class LinkContextParser(HTMLParser):
                     if not self.links[index]["container_text"] and frame_text:
                         self.links[index]["container_text"] = frame_text
                         self.links[index]["container_hint"] = frame.hint
+                        self.links[index][f"container_{self.kind}_count"] = len({
+                            self.links[item][f"{self.kind}_identity"] for item in frame.link_indexes
+                        })
             if frame.tag in GROUP_TAGS:
                 repositories = {
                     self.links[index][f"{self.kind}_identity"]

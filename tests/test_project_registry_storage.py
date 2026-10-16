@@ -964,7 +964,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
-    def test_indexed_handle_lookup_prefers_developer_account_over_project_handle(self) -> None:
+    def test_indexed_handle_lookup_ignores_unadopted_project_handle(self) -> None:
         conn = registry.open_db()
         try:
             project_handle = self.make_project("proj:aaaaaaaaaaaa", "nsid", "app.handle.project")
@@ -976,7 +976,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
             self.assertEqual(
                 project_record.indexed_identifier_matches(conn, "handle", "SHARED.EXAMPLE.COM."),
-                [(0, developer_handle["project_key"]), (1, project_handle["project_key"])],
+                [(0, developer_handle["project_key"])],
             )
             self.assertEqual(
                 project_record.find_project_key_by_identifier(conn, "handle", "shared.example.com"),
@@ -990,12 +990,12 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         try:
             stale = self.make_project("proj:aaaaaaaaaaaa", "nsid", "app.did.stale")
             current = self.make_project("proj:zzzzzzzzzzzz", "nsid", "app.did.current")
-            current["candidate_developer_accounts"] = [{"did": "did:plc:shared"}]
+            current["developer_accounts"] = [{"did": "did:plc:shared"}]
             project_record.save_project(conn, stale)
             project_record.save_project(conn, current)
             conn.execute(
                 "INSERT INTO project_identifiers VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (stale["project_key"], 99, "did", "did:plc:shared", "developer_did", "candidate", 0, "", "{}", ""),
+                (stale["project_key"], 99, "did", "did:plc:shared", "developer_did", "confirmed", 0, "", "{}", ""),
             )
             conn.commit()
 

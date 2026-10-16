@@ -1615,10 +1615,9 @@ class ProjectRegistryProfileUrlTest(unittest.TestCase):
     def test_extracted_template_profile_url_does_not_create_developer_candidate(self) -> None:
         project = project_record.default_project_record("proj:templateprofile", "service_url", "https://skyspace.me")
 
-        project_record.record_developer_profile_url(
+        project_record.record_account_reference(
             project,
             "https://bsky.app/profile/${encodeURIComponent(profileData.handle)}`",
-            "service_raw_url:https://skyspace.me",
         )
 
         self.assertEqual(project["candidate_developer_accounts"], [])
@@ -1627,7 +1626,7 @@ class ProjectRegistryProfileUrlTest(unittest.TestCase):
             identifier_core.extract_urls('const url = `https://bsky.app/profile/${encodeURIComponent(profileData.handle)}`;'),
         )
 
-    def test_did_profile_url_becomes_candidate_account_not_service(self) -> None:
+    def test_did_profile_url_becomes_roleless_reference_not_service(self) -> None:
         profile_url = "https://bsky.app/profile/did:plc:abcdefghijklmnopqrstuvwx"
         project = project_record.default_project_record("proj:didprofile", "repo_url", "https://github.com/example/app")
         project["website_url"] = profile_url
@@ -1637,10 +1636,8 @@ class ProjectRegistryProfileUrlTest(unittest.TestCase):
 
         self.assertEqual(project["website_url"], "")
         self.assertNotIn(profile_url, project["service_urls"])
-        self.assertIn(
-            {"did": "did:plc:abcdefghijklmnopqrstuvwx", "source": "service_urls:profile_url"},
-            project["candidate_developer_accounts"],
-        )
+        self.assertEqual(project["candidate_developer_accounts"], [])
+        self.assertIn(profile_url, project["evidence_urls"])
 
     def test_developer_account_normalization_moves_did_out_of_handle_field(self) -> None:
         self.assertEqual(

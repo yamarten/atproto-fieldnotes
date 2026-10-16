@@ -39,7 +39,7 @@ def bluesky_profile_url(value: str) -> str:
     return identifiers.normalize_url(value)
 
 
-def _account_target(locator: str) -> tuple[str, str] | None:
+def account_link_target(locator: str) -> tuple[str, str] | None:
     url = bluesky_profile_url(locator)
     if not url:
         return None
@@ -79,7 +79,7 @@ def official_account_relation_records(
     requested_url: str, html: str, *, observed_at: str,
 ) -> list[EvidenceRecord]:
     by_account: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for observation in extract_link_contexts(html, requested_url, target=_account_target, kind="account"):
+    for observation in extract_link_contexts(html, requested_url, target=account_link_target, kind="account"):
         reason = account_link_reason(observation, requested_url)
         if not reason:
             continue

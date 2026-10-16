@@ -572,14 +572,15 @@ static・deep・follow_up・repository_homepage・authorityの取得成功時は
     - confirmed 扱い
   - `candidate_developer_accounts`
     - service page / follow-up / Bluesky search 由来の未確認候補
-- service/search 由来の handle は、まず `candidate_developer_accounts` に入れます
+- `developer-account-v1`では、service page上で開発・制作・保守への関与を示すプロフィールリンク、または対象projectを明示したプロフィールの自己申告だけを`candidate_developer_accounts`へ入れます。ページ上の`Built by`等のクレジット、developer/maintainerの見出しや同じ小さなcardの役割表示を使い、リンク先との局所的な対応を要求します。一般のteam所属、Followリンク、名前やdomainの一致だけではdeveloper roleを割り当てません。候補化は自己申告の真正性や現在の参加状況を検証した意味ではありません。
+- 引用、利用者の声、feed紹介、スポンサー、example、script/template内のURLは開発者候補にしません。通常のURL・リンク観測へ残します。Bluesky actor searchの名前一致、post searchやauthor feedの作者も、それだけでは開発者候補にしません。対象projectについての`Maintainer of ...`等の自己申告は候補として保存し、description・理由・policy世代を調査evidenceへ残します。
 - `bsky.app/profile/{subject}` は service URL として扱いません
   - `{subject}` が handle 構文なら `handle`、DID 構文なら `did` として account evidence に分けます
   - `profile`, `user` のような一般 path 語だけではなく、構造化された handle / DID を優先して account-scoped URL を判定します
-  - account値の正規化は公式relationと共通です。開発者候補の抽出では投稿URLからもauthorの識別子を観測できますが、それだけでは公式accountのrelationを作りません
-- confirmed に上がる主な条件:
-  - confirmed service host と handle ドメインが整合する
-  - 例: `https://example.com` と `alice.example.com`
+  - account値の正規化は公式relationと共通です。投稿・feedのauthor識別子や、Website/service fieldへ入っていたprofile URLは役割未判定の参照として残し、developer候補へ読み替えません。開発クレジットの自動判定はexact profileリンクを対象にします。
+- service/searchの検出だけではconfirmedへ上げません。手動採用と、既存のTangled repo所有者観測による登録は別経路です。同じaccountが公式・開発者の両方の役割を持つ場合も、それぞれの文脈を要求します。
+- 成功した完全な再取得では、同じpage由来の自動候補を最新の観測へ置き換えます。観測済みaliasで対応するURLも同じpageとして扱います。他page・検索由来の候補や手動採用済みaccountは、この置換では撤回しません。失敗、古い観測、旧形式の保存HTML抜粋、保存上限による不完全な観測は、候補の不存在を示す材料にしません。成功した検索も、そのquery/actor由来の候補を更新します。
+- 未採用のdeveloper account・project handleはprojectのexact lookup対象にしません。候補が載っているだけで、新規シードの追加や外部sourceの取り込みを既存projectへ確定接続しないためです。確定済みdeveloper・brand DIDの照合は維持します。
 - `developer_accounts` だけを identity 補強に使います
   - `candidate_developer_accounts` は ownership や service support の強い根拠に使わない方針
 

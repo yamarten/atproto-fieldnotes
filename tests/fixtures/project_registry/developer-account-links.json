@@ -1,0 +1,14 @@
+{
+  "description": "Graze public testimonial link observed 2026-10-16 and constructed role-boundary counterexamples. Expectations concern developer evidence, not the actual identities of the people.",
+  "cases": [
+    {"name": "graze-testimonial-feed", "html": "<section><h2>Real Curator Success</h2><p>Graze totally changed how I run my feeds.</p><p>Ændra, <a href=\"https://bsky.app/profile/did:plc:kkf4naxqmweop7dv4l2iqqf5/feed/verified-news\">Verified News Feed Operator</a></p></section>", "expected": []},
+    {"name": "hydrated-json-example", "html": "<script type=\"application/json\">{\"example\":\"https://bsky.app/profile/did:plc:placeholder/post/example\"}</script>", "expected": []},
+    {"name": "official-follow-is-not-developer-credit", "html": "<footer><a href=\"https://bsky.app/profile/maker.example\">Follow us on Bluesky</a></footer>", "expected": []},
+    {"name": "explicit-credit", "html": "<footer><p>Built by <a href=\"https://bsky.app/profile/author.example\">Alice</a></p></footer>", "expected": [{"kind": "handle", "value": "author.example"}]},
+    {"name": "maintainer-card", "html": "<section><h2>Maintainers</h2><ul><li><a href=\"https://bsky.app/profile/did:plc:maintainer\">Alice</a></li></ul></section>", "expected": [{"kind": "did", "value": "did:plc:maintainer"}]},
+    {"name": "japanese-credit", "html": "<p>開発: <a href=\"https://bsky.app/profile/author.example\">作者</a></p>", "expected": [{"kind": "handle", "value": "author.example"}]},
+    {"name": "dependency-credit", "html": "<footer><p>Powered by <a href=\"https://bsky.app/profile/dependency.example\">Dependency</a></p></footer>", "expected": []},
+    {"name": "quoted-creator-claim", "html": "<blockquote>Built by <a href=\"https://bsky.app/profile/customer.example\">Customer</a></blockquote>", "expected": []},
+    {"name": "generic-team-member", "html": "<section><h2>Team</h2><p><a href=\"https://bsky.app/profile/marketer.example\">Marketing</a></p></section>", "expected": []}
+  ]
+}

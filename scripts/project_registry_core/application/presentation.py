@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 from .. import evaluation, relations, registration, registry as core
 from ..persistence import runtime_view, storage
+from ..identity import identifiers as identifier_core
 from . import (
     decisions,
     explain,
@@ -830,10 +831,12 @@ def confirm_candidate(
             project["resolved_nsids"] = project_record.add_unique(project.get("resolved_nsids", []), normalized)
             confirmed = normalized
     elif identifier_type == "account":
-        normalized = str(value or "").strip().lower()
+        normalized = identifier_core.normalize_atproto_account_identifier(value)
         candidate = next((
             item for item in project_record.normalize_developer_accounts(list(project.get("candidate_developer_accounts", [])))
-            if normalized in {str(item.get("handle") or "").lower(), str(item.get("did") or "").lower()}
+            if normalized and normalized in {
+                identifier_core.normalize_atproto_account_identifier(str(item.get(key) or "")) for key in ("handle", "did")
+            }
         ), None)
         if candidate is None:
             confirmed = ""
@@ -841,7 +844,7 @@ def confirm_candidate(
             project_record.add_developer_account(
                 project,
                 str(candidate.get("handle") or ""),
-                str(candidate.get("source") or "web_ui"),
+                "web_ui",
                 did=str(candidate.get("did") or ""),
             )
             project["candidate_developer_accounts"] = [
