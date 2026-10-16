@@ -4,6 +4,7 @@ from project_registry_core import project_review
 
 import sqlite3
 import urllib.parse
+from datetime import datetime, timezone
 from typing import Any
 
 from project_registry_core.persistence import database as registry_database
@@ -15,6 +16,8 @@ from .. import registry as core
 from ..persistence import concurrency
 from ..persistence import runtime_view
 from project_registry_core import project_record
+from .. import collection_trust
+from ..publications import lexicon_types, publication_registry
 
 
 def inspect_pair(
@@ -32,10 +35,17 @@ def inspect_pair(
     target = project_record.ensure_project_shape(core.resolve_single_project(conn, project_key=target_project_key, seed=target_seed, seed_type=target_seed_type))
     if source["project_key"] == target["project_key"]:
         raise ValueError("source and target resolve to the same project")
+    schema_ids: set[str] = set()
+    for project in (source, target):
+        schema_ids.update(project_collection_nsids(project) | project_non_record_nsids(project))
+        schema_ids.update(item["schema_id"] for item in project.get("publication_schemas", []))
+        schema_ids.update(str(item.get("input_nsid") or "") for item in project.get("lexicon_resolution_entries", []))
+    current = publication_registry.schemas(conn, now=project_record.iso_now(), schema_ids=schema_ids)
     return inspect_merge_pair_payload(
         source,
         target,
         include_first_creator_details=include_first_creator_details,
+        current_publications=current,
     )
 
 
@@ -313,7 +323,65 @@ def project_collection_nsids(project: dict[str, Any]) -> set[str]:
         normalized = identifier_core.normalize_nsid(str(sample.get("collection") or ""))
         if normalized and project_record.namespace_from_collection_nsid(normalized):
             collections.add(normalized)
-    return collections
+    return collections - project_non_record_nsids(project)
+
+
+def project_non_record_nsids(project: dict[str, Any]) -> set[str]:
+    """Unknown legacy types remain eligible; explicit non-records do not."""
+    non_records: set[str] = set()
+    def observe(nsid: Any, kind: Any) -> None:
+        if kind in (lexicon_types.PRIMARY_TYPES - {"record"}) | {"definitions"}:
+            non_records.add(identifier_core.normalize_nsid(str(nsid or "")))
+    for item in project.get("publication_schemas", []):
+        observe(item.get("schema_id"), item.get("schema_type"))
+    for item in project.get("lexicon_schema_samples", []):
+        schema = item.get("schema") if isinstance(item.get("schema"), dict) else item
+        observe(item.get("id") or item.get("nsid") or schema.get("id"), lexicon_types.schema_type(schema))
+    for item in project.get("lexicon_resolution_entries", []):
+        observe(item.get("input_nsid") or item.get("resolved_nsid"), (item.get("publication_validation") or {}).get("schema_type"))
+    return non_records
+
+
+def project_lexicon_publishers(project: dict[str, Any]) -> tuple[dict[str, str], dict[str, list[dict[str, Any]]]]:
+    """Keep publication witnesses separate from authenticated publisher matches."""
+    verified = collection_trust.verified_publications(project)
+    mapping = {sid: str(entry["repo_did"]) for sid, entry in verified.items()}
+    details: dict[str, list[dict[str, Any]]] = {}
+    latest: dict[str, dict[str, Any]] = {}
+    for entry in project.get("lexicon_resolution_entries", []):
+        sid = str(entry.get("input_nsid") or entry.get("resolved_nsid") or "")
+        if sid and str(entry.get("resolved_at") or "") >= str(latest.get(sid, {}).get("resolved_at") or ""):
+            latest[sid] = entry
+    for sid, entry in latest.items():
+        details[sid] = [{"did": entry.get("repo_did", ""), "source": "lexicon_resolution",
+                         "record_uri": entry.get("record_uri", ""), "observed_at": entry.get("resolved_at", ""),
+                         "status": "validated_observation" if sid in verified else "unverified",
+                         "included_in_comparison": sid in verified,
+                         "publication_validation": entry.get("publication_validation", {})}]
+    for item in project.get("publication_schemas", []):
+        sid = str(item.get("schema_id") or "")
+        did = str(item.get("publisher_did") or "")
+        try:
+            fresh = datetime.fromisoformat(str(item.get("next_verification_at") or "").replace("Z", "+00:00")) > datetime.now(timezone.utc)
+        except (ValueError, TypeError):
+            fresh = False
+        included = bool(did.startswith("did:") and item.get("status") == "verified" and fresh
+                        and not item.get("attribution_conflict"))
+        if included:
+            mapping[sid] = did
+        else:
+            # A current catalog state supersedes an older resolution witness.
+            mapping.pop(sid, None)
+        details.setdefault(sid, []).append({"did": did, "source": "publication_schemas",
+            "record_uri": f"at://{did}/com.atproto.lexicon.schema/{sid}" if did else "",
+            "observed_at": item.get("checked_at", ""), "next_verification_at": item.get("next_verification_at", ""),
+            "status": item.get("status", "pending"), "included_in_comparison": included,
+            "schema_type": item.get("schema_type", "unknown"), "publishers": item.get("publishers", []),
+            "authority_dids": item.get("authority_dids", []), "attribution_conflict": item.get("attribution_conflict", False)})
+        if not included:
+            for witness in details[sid]:
+                witness["included_in_comparison"] = False
+    return mapping, details
 
 
 def project_collection_first_creator_dids(project: dict[str, Any]) -> set[str]:
@@ -360,6 +428,7 @@ def inspect_merge_pair_payload(
     target: dict[str, Any],
     *,
     include_first_creator_details: bool = False,
+    current_publications: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     source = project_record.ensure_project_shape(source)
     target = project_record.ensure_project_shape(target)
@@ -379,10 +448,30 @@ def inspect_merge_pair_payload(
     )
     strict_overlap = project_merge.batch_strict_overlap(source, target)
     moderate_overlap = project_merge.batch_moderate_overlap(source, target)
-    heuristic_overlap = (
-        project_merge.batch_moderate_overlap(source, target, first_creator_lookup=project_collection_first_creator_dids)
-        if include_first_creator_details else {}
-    )
+    # Refresh only auxiliary evidence, after the normal candidate decisions.
+    def auxiliary_project(project: dict[str, Any]) -> dict[str, Any]:
+        if current_publications is None:
+            return project
+        saved = {item["schema_id"]: item for item in project.get("publication_schemas", [])}
+        nsids = project_collection_nsids(project) | project_non_record_nsids(project) | set(saved)
+        nsids.update(str(item.get("input_nsid") or "") for item in project.get("lexicon_resolution_entries", []))
+        return {**project, "publication_schemas": [{**saved.get(sid, {}), **current_publications.get(sid, {})}
+                for sid in sorted(set(saved) | (nsids & set(current_publications)))]}
+
+    source = auxiliary_project(source)
+    target = auxiliary_project(target)
+    source_publishers, source_publisher_details = project_lexicon_publishers(source)
+    target_publishers, target_publisher_details = project_lexicon_publishers(target)
+    source_details = project_collection_first_creator_details(source) if include_first_creator_details else {}
+    target_details = project_collection_first_creator_details(target) if include_first_creator_details else {}
+    source_creators = {sid: item["did"] for sid, item in source_details.items() if item["status"] == "found"}
+    target_creators = {sid: item["did"] for sid, item in target_details.items() if item["status"] == "found"}
+    def overlap(a: dict[str, str], b: dict[str, str]) -> list[str]:
+        return sorted(set(a.values()) & set(b.values()))
+    heuristic_overlap = dict(moderate_overlap) if include_first_creator_details else {}
+    creator_overlap = overlap(source_creators, target_creators)
+    if creator_overlap:
+        heuristic_overlap["collection_first_record_creator_dids"] = creator_overlap
     summary: dict[str, Any] = {
         "source_project_key": source["project_key"],
         "target_project_key": target["project_key"],
@@ -400,12 +489,24 @@ def inspect_merge_pair_payload(
         "suggested_multi_tenant_suffixes": project_merge.merge_pair_multi_tenant_suffix_suggestions(source, target),
         "first_creator_details_included": bool(include_first_creator_details),
         "first_creator_overlap": heuristic_overlap,
+        "source_lexicon_publisher_dids": source_publishers,
+        "target_lexicon_publisher_dids": target_publishers,
+        "source_lexicon_publisher_details": source_publisher_details,
+        "target_lexicon_publisher_details": target_publisher_details,
+        "did_comparison": {
+            "publisher_publisher": overlap(source_publishers, target_publishers),
+            "source_publisher_target_first_observer": overlap(source_publishers, target_creators) if include_first_creator_details else None,
+            "source_first_observer_target_publisher": overlap(source_creators, target_publishers) if include_first_creator_details else None,
+            "first_observer_first_observer": creator_overlap if include_first_creator_details else None,
+        },
+        "source_non_record_nsids": sorted(project_non_record_nsids(source)),
+        "target_non_record_nsids": sorted(project_non_record_nsids(target)),
     }
     if include_first_creator_details:
-        summary["source_collection_first_creator_dids"] = project_collection_first_creator_did_map(source)
-        summary["target_collection_first_creator_dids"] = project_collection_first_creator_did_map(target)
-        summary["source_collection_first_creator_details"] = project_collection_first_creator_details(source)
-        summary["target_collection_first_creator_details"] = project_collection_first_creator_details(target)
+        summary["source_collection_first_creator_dids"] = source_creators
+        summary["target_collection_first_creator_dids"] = target_creators
+        summary["source_collection_first_creator_details"] = source_details
+        summary["target_collection_first_creator_details"] = target_details
     return summary
 
 

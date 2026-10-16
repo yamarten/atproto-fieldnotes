@@ -157,7 +157,7 @@ Firefox拡張のポップアップ試作は、`embed=popup`のWeb UIをiframeへ
 
 `registry.finalize_project_shape`は採用抑止条件の適用、identityの整理、派生viewの更新を順に組み立てる。除外・保留の適用は候補の正規化前後に必要なため順序を維持する。アカウントの照合・補完は`integration.py`、repository viewの正規化は`project_record.py`、代表名の確定は`naming.py`が担当する。保存済みLLM根拠のアカウントは不適切な観測を除くが、project本体へのhandle補完や候補重複の除去を遡及適用しない。
 
-`application/merge.py`が統合recordをfinalizeして、競合検査・識別子移送・alias更新・保存を同じtransactionで行う。`project_merge.py`はregistryやapplicationをimportしない。first creatorによる補助照合は、明示的な詳細検査でのみapplicationが取得関数を渡す。識別子の採用・除外・保留照合と手動repoの参照は`project_record.py`に集約する。
+`application/merge.py`が統合recordをfinalizeして、競合検査・識別子移送・alias更新・保存を同じtransactionで行う。`project_merge.py`はregistryやapplicationをimportしない。マージ比較の補助DID照合はapplicationが保存済みLexicon発行元と明示照会したrecord初回観測者を区別して組み立て、候補判定へ混ぜない。識別子の採用・除外・保留照合と手動repoの参照は`project_record.py`に集約する。
 
 authority domain・tenant単位の分割も`application/merge.py`が新旧projectの更新・finalize・競合検査・保存を担当する。tenant分割候補の対話表示・選択・再表示は`commands/maintenance.py`、候補生成は`maintenance/source_config.py`を使う。監査・修復はregistryの通常の採用・正規化規則を呼び、独自の採用規則を持たない。
 

@@ -744,12 +744,13 @@ DBから比較集合を読む単発計算では、名前・Website・status、re
 - Web merge review は、両projectのmerge identity hostが同じregistrable domain配下の別tenantに見える場合、未登録の `custom_multi_tenant_suffixes` 候補を表示します
   - 例: `foo.example.com` と `bar.example.com` なら `example.com`
   - 追加操作は `config/domain-overrides.json` を更新するだけで、既存 `separate_project` decision は自動解除しません
-- collection first-creator heuristic は通常のWeb merge reviewでは初期計算しません
-  - Webでは「初回作成者の情報を取得（外部通信）」を押した時だけ `listReposByCollection` の先頭DIDを補足情報として取得します
-  - 取得後は「一致」「マージ元の初回作成者DID」「マージ先の初回作成者DID」をそのまま表示します。「マージ元の照会結果」「マージ先の照会結果」の詳細だけを、それぞれ閉じた折り畳みで表示します
-  - 照会collectionには保存済みのcase-preservingなNSID identifierを使います。`listReposByCollection`が返さないcollectionや取得失敗は、空欄にせず`not_found` / `error`として表示します
-  - この補足表示は primary の `source_pair_candidate` / `target_pair_candidate` には混ぜません
-  - CLIからheuristicを判定へ含める導線はありません
+- Web merge reviewの「Lexicon発行元とrecord初回観測者」は、人間の比較を補助するDID照合です。所有者や絶対的な最初の作成者は断定しません
+  - 保存済みのLexicon発行元は初期表示します。`lexicon_resolution_entries`の検証済み観測と`publication_schemas`を使い、DBの現在のpublication catalog・検証状態を読み直します。出典、record URI、観測日時、検証状態は「発行元の出典と検証状態」で追えます。`did_publishes_schema` edge単独や未検証のschema投稿を検証済み発行元へ昇格しません
+  - 発行元の一致比較には`collection_trust.verified_publications`を満たす観測、または期限内で帰属競合のないcatalogの検証済みpublisherを使います。catalogがpending・invalid・deleted・期限切れを示す場合は古い発行元で補完せず、診断詳細に保存情報を残します
+  - 「record初回観測者を照会（外部通信）」を押した時だけ`listReposByCollection`の先頭DIDを取得します。保存済みのcase-preservingなNSIDを使い、型が判明した非recordを照会対象から除外します。型不明の既存NSIDは従来どおり照会し、取得できない場合と失敗は`not_found` / `error`として表示します
+  - 発行元同士、マージ元の発行元とマージ先の初回観測者、マージ元の初回観測者とマージ先の発行元、初回観測者同士を区別して直接表示します。record未照会の比較は`未照会`とし、一致なしと区別します。取得後の主要結果は直接表示し、「マージ元の照会結果」「マージ先の照会結果」の診断詳細をそれぞれ閉じた折り畳みで表示します
+  - APIの`did_comparison`は上記4方向の一致DID配列を返し、未照会の方向は`null`です。双方のNSID→DID map・出典詳細・非record除外一覧も返します。既存の`first_creator_*` fieldはrecord初回観測者の結果を保持します
+  - この補助情報は通常の候補スコア、`source_pair_candidate` / `target_pair_candidate`、自動マージ条件へ追加しません。CLIからheuristicを判定へ含める導線もありません
 
 ### merge候補planの追加安全策
 

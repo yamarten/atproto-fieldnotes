@@ -1051,6 +1051,41 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         self.assertIn("source_collection_first_creator_details", payload)
         self.assertIn("target_collection_first_creator_details", payload)
 
+    def test_merge_pair_reads_current_catalog_and_compares_publishers_without_network(self) -> None:
+        from datetime import datetime, timedelta, timezone
+        from project_registry_core.application import merge
+        from project_registry_core.publications import publication_registry
+        conn = registry.open_db()
+        try:
+            for key in ("proj:111111111111", "proj:222222222222"):
+                project = project_record.fetch_project(conn, key)
+                project["publication_schemas"] = [{"schema_id": "app.example.post", "schema_type": "record", "status": "pending"}]
+                project_record.save_project(conn, project)
+        finally:
+            conn.close()
+        current = {"app.example.post": {"schema_id": "app.example.post", "schema_type": "definitions",
+            "status": "verified", "publisher_did": "did:web:publisher.example",
+            "checked_at": "2026-10-13T15:21:40+00:00",
+            "next_verification_at": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()}}
+        path = "/api/merge-pair?source_project_key=proj:111111111111&target_project_key=proj:222222222222"
+        with mock.patch.object(publication_registry, "schemas", return_value=current), mock.patch.object(
+            merge.http_transport, "request_json", side_effect=AssertionError("unexpected external request")
+        ) as network:
+            status, initial, _ = self.request(path)
+            self.assertEqual(status, 200)
+            self.assertEqual(initial["did_comparison"]["publisher_publisher"], ["did:web:publisher.example"])
+            self.assertIsNone(initial["did_comparison"]["first_observer_first_observer"])
+            status, explicit, _ = self.request(path + "&include_first_creator_details=1")
+            self.assertEqual(status, 200)
+            self.assertEqual(explicit["source_collection_first_creator_details"], {})
+            self.assertEqual(explicit["source_non_record_nsids"], ["app.example.post"])
+            network.assert_not_called()
+        conn = registry.open_db()
+        try:
+            self.assertEqual(project_record.fetch_project(conn, "proj:111111111111")["publication_schemas"][0]["status"], "pending")
+        finally:
+            conn.close()
+
     def test_investigation_history_detail_and_replay(self) -> None:
         status, runs, _ = self.request("/api/projects/proj:111111111111/investigation-runs")
         self.assertEqual(status, 200)
