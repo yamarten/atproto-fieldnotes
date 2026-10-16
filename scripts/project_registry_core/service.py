@@ -12,7 +12,7 @@ from .identity import domain_policy, identifiers
 from .repositories import project_repository_policy
 from .evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
 from .relations import relation_record
-from . import usage_material
+from . import account_links, usage_material
 
 SUPPORTING_PAGE_PATHS = {
     "about",
@@ -423,17 +423,9 @@ def collect_service_probe_evidence(
         subject_component_role=subject_component_role,
     ):
         bundle.add_record(record)
-    for link in result.get("links", []) if isinstance(result.get("links"), list) else []:
-        if not isinstance(link, dict):
-            continue
-        url = str(link.get("url") or link.get("href") or "").rstrip("/")
-        host = urllib.parse.urlparse(url).netloc.lower()
-        if host in {"bsky.app", "staging.bsky.app"} and "/profile/" in urllib.parse.urlparse(url).path:
-            bundle.add_record(relation_record(
-                source=f"service_page:{requested_url}", classification="confirmed", observed_at=observed_at,
-                subject_type="website", subject_value=requested_url.rstrip("/"), predicate="official_account",
-                object_type="account", object_value=url, locator=requested_url, method="first_party_link",
-            ))
+    if not result.get("fetch_error") and 0 < int(result.get("status_code") or 0) < 400:
+        for record in account_links.official_account_relation_records(requested_url, html, observed_at=observed_at):
+            bundle.add_record(record)
     page_type = "website" if lane == "repository_homepage" else "service"
     final_url = str(result.get("final_url") or "")
     if final_url and final_url.rstrip("/") != requested_url.rstrip("/"):

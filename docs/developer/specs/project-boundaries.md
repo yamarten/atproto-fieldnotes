@@ -551,6 +551,20 @@ project site候補化は、対象ページがprojectを代表する可能性を�
 
 docs/blog、support/status/privacyPolicy/termsOfService等の同一site補助ページは`resource_url_records`へ残します。投稿・profile・listなど役割を判定できないcontent URLは、単に同一siteという理由では保存しません。代表補助ページをURL+roleでまとめ、project全体、role単位、host+role単位の保存上限を適用します。confirmed、直接の出所を持つもの、短い入口URL、既知roleを優先して絞ります。上限は追加・collector patch・guard・hydrate・projectのマージ・saveの各境界で再適用します。
 
+### Websiteが示す公式Bluesky account
+
+service pageからの`official_account`は、`bsky.app`または`staging.bsky.app`の`/profile/{account}`だけを対象とします。投稿・feed・list等の下位URLからプロフィールを導出しません。HTTP取得が成功し、取得したHTML内で次のいずれかを確認できたリンクを`confirmed` relationとして保存します。
+
+- `rel=me`、または`Follow us on Bluesky`・`Our Bluesky account`等の自己案内。
+- header・nav・footer、またはsocialと明示された欄で、`Bluesky`等のSNSラベル・画像altを持つリンク。
+- 同じ案内欄で、siteのhost（先頭の`www.`を除く）と一致するhandleがリンクラベルに表示されるリンク。
+
+article・blockquote・figure、引用・投稿・人物紹介・testimonial・contributor等の文脈と、`Built by`等の制作者クレジットは上記より優先して除外します。URL、人物名、handleだけの本文リンクや`View … on Bluesky`だけでは公式性を断定しません。HTMLの文脈を取得できない場合にも、link一覧だけから補いません。条件に合わないリンクは公式relationを作らず、保存budget内のページ観測に留めます。
+
+判定はHTMLの保存上限を適用する前に行い、relationのcontextへpolicy世代と短いリンク文脈を保持します。これはwebsiteがそのaccountを公式として案内しているという方向付きの判断であり、そのwebsiteやaccountのproject帰属、handle/DIDの実在・真正性を検証したことではありません。account identifier、developer、所有、通常のmerge根拠への自動採用は行いません。比較用merge policy shadowではconfirmed relationを構成要素間の直接関係として参照します。
+
+static・deep・follow_up・repository_homepage・authorityの取得成功時は、同じ`service_page:{URL}` sourceの旧公式account relationを今回の結果へ置換します。取得失敗では過去観測を消しません。旧`first_party_link` relationは文脈なしに確定していたため、既存データの補正はread-only監査と承認を伴う限定保守操作で扱い、通常load/saveで暗黙に消去しません。成功した通常再収集でも置換できますが、再収集されないページや取得失敗中の誤分類は残ります。
+
 ### Developer accountの採用
 
 - 現在の account まわりは二層です

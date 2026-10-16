@@ -256,8 +256,11 @@ def apply_service_evidence(
             value = service.normalize_redirect_same_site_policy(dict(record.value))
             value["observed_at"] = record.observed_at
             requested_url = str(value.get("requested_url") or "").rstrip("/")
-            if requested_url and value.get("lane") in {"static", "deep", "follow_up", "repository_homepage"} and 0 < int(value.get("status_code") or 0) < 400 and not value.get("fetch_error"):
+            if requested_url and value.get("lane") in {"static", "deep", "follow_up", "repository_homepage", "authority"} and 0 < int(value.get("status_code") or 0) < 400 and not value.get("fetch_error"):
                 page_source = f"service_page:{requested_url}"
+                replaced_predicates = {"official_account"}
+                if value.get("lane") != "authority":
+                    replaced_predicates.add("project_repository")
                 project["relation_evidence"] = normalize_relation_records([
                     item
                     for item in project.get("relation_evidence", [])
@@ -265,7 +268,7 @@ def apply_service_evidence(
                         isinstance(item, dict)
                         and str(item.get("source") or "").rstrip("/") == page_source
                         and str((item.get("relation") or {}).get("predicate") or "")
-                        in {"project_repository", "official_account"}
+                        in replaced_predicates
                     )
                 ])
             project["service_verification_results"] = service.merge_service_verification_results(

@@ -1,0 +1,29 @@
+{
+  "description": "Minimal structural examples. Coves labels/profile/post were observed in the read-only DB at 2026-10-14T17:19:05+00:00; Wisp and A New Social illustrate site social links and separate author credit. HTML is reduced, not a saved full page.",
+  "cases": [
+    {
+      "name": "airglow site handle in footer and unrelated automation author",
+      "url": "https://airglow.run",
+      "html": "<main><article>by <a href=\"https://bsky.app/profile/kipclip.com\">@kipclip.com</a></article></main><footer><a href=\"https://bsky.app/profile/airglow.run\" aria-label=\"@airglow.run on Bluesky (opens in new tab)\">@airglow.run</a></footer>",
+      "expected": ["https://bsky.app/profile/airglow.run"]
+    },
+    {
+      "name": "coves embedded third-party profile and post",
+      "url": "https://coves.social",
+      "html": "<main><article><a href=\"https://bsky.app/profile/highkin.bsky.social\" aria-label=\"View Sean Highkin on Bluesky\">Sean Highkin @highkin.bsky.social</a><a href=\"https://bsky.app/profile/highkin.bsky.social/post/3mxsopobais23\">View on Bluesky</a></article></main>",
+      "expected": []
+    },
+    {
+      "name": "wisp site account and creator credit",
+      "url": "https://wisp.place",
+      "html": "<footer><div><h4>Contact</h4><a href=\"https://bsky.app/profile/nekomimi.pet\">@nekomimi.pet</a></div><p>Built by <a href=\"https://bsky.app/profile/nekomimi.pet\">Bluesky</a></p><div class=\"footer-bottom\"><span>Built with ♡ by @nekomimi.pet</span><nav><a href=\"/privacy\">Privacy Policy</a><a href=\"https://bsky.app/profile/wisp.place\">Bluesky</a></nav></div></footer>",
+      "expected": ["https://bsky.app/profile/wisp.place"]
+    },
+    {
+      "name": "a new social labeled icon in social group",
+      "url": "https://www.anew.social",
+      "html": "<div class=\"home-social-logos\"><a href=\"https://bsky.app/profile/anew.social\"><img src=\"/bluesky_logo.svg\" alt=\"Bluesky Logo\"></a></div>",
+      "expected": ["https://bsky.app/profile/anew.social"]
+    }
+  ]
+}
