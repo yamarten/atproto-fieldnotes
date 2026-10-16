@@ -172,8 +172,13 @@ loadMergeDetail("a", "b").then(async () => {
   assert.ok(!visibleResults.includes("did-match-legend"));
   assert.ok(!creatorSection.includes("数字で内訳"));
   assert.ok(!creatorSection.includes("現在"));
-  assert.match(creatorSection, /開発者・考案者/);
-  assert.match(creatorSection, /公開実装が登録時刻順に返す先頭DID/);
+  assert.match(creatorSection, /Lexicon開発者/);
+  assert.ok(!creatorSection.includes("開発者・考案者"));
+  assert.match(creatorSection, /bsky.networkへの照会結果の先頭DID/);
+  assert.match(creatorSection, /同サービスでの観測時刻順/);
+  assert.match(creatorSection, /2026-10-17確認/);
+  assert.ok(creatorSection.includes('href="https://github.com/bluesky-social/indigo/blob/3beb6e491b793834f6c66aed9963a255f56f1b6b/cmd/collectiondir/pebble.go#L330-L364"'));
+  assert.match(creatorSection, /target="_blank" rel="noreferrer">collectiondirの公開実装<\/a>/);
   assert.match(visibleResults, /class="did-match-matrix"/);
   assert.equal((visibleResults.match(/class="did-match-count"/g) || []).length, 2);
   assert.ok(!creatorSection.includes('id="load-first-creator-heuristic"'));
