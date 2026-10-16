@@ -271,6 +271,8 @@ runtime codecは、loadして無変更saveした場合にidentifier、relation�
 - `context_json`: operation、score、bounded extractなどの補助情報
 - `observed_at`
 
+relationのsubject/objectはidentifier行への外部キーではなく、関係内に保存した種類と値です。identifier候補へ採用できる対象には同じ識別表現を使います。公式atproto accountを指す`official_account`のobjectは、観測したプロフィールURLに書かれた`handle`または`did`とその値に正規化し、開発者accountの`developer_handle`・`developer_did`成分と共通の規則を使います。handleは小文字化して末尾の`.`を除き、DIDは文字の大小を保持します。元URLはrelationのcontextへ残します。handleとDIDを現在の解決結果で置換・統合せず、同じaccount recordに両者があっても別々の識別子として扱います。公式性を判定する条件は[公式Bluesky account](project-boundaries.md#websiteが示す公式bluesky-account)を参照してください。
+
 relationの`classification=confirmed`は、保存したpredicateの方向付き事実を直接観測または確定できたことを表します。subject/object identifierがproject構成要素としてconfirmedであることや、そのrelationを信頼経路へ無条件に利用できることは表しません。identifierの採用状態と、信頼経路への利用可否は別のpolicyで評価します。帰属、信頼、採用の責務境界は[登録プロジェクトへの帰属と信頼](project-boundaries.md)を参照してください。
 
 主要predicate:

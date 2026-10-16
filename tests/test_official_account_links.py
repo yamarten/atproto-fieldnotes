@@ -6,6 +6,8 @@ import unittest
 
 from helpers import TempRegistryDbTestCase, registry
 from project_registry_core import account_links, project_record, service
+from project_registry_core.identity import identifiers
+from project_registry_core.persistence import runtime_view
 from project_registry_core.evidence import EvidenceBundle
 from project_registry_core.relations import normalize_relation_records, relation_record
 
@@ -31,27 +33,48 @@ class OfficialAccountLinksTest(unittest.TestCase):
         for case in fixture["cases"]:
             with self.subTest(case=case["name"]):
                 records = account_links.official_account_relation_records(case["url"], case["html"], observed_at=NOW)
-                self.assertEqual([record.value["object"]["value"] for record in records], case["expected"])
+                self.assertEqual([record.value["object"] for record in records], case["expected"])
 
     def test_only_exact_profile_endpoints_are_accounts(self) -> None:
         for suffix in ("/post/key", "/feed/key", "/lists/key", "/follows", "/followers", "/starter-pack/key", "/x/profile/other"):
             with self.subTest(suffix=suffix):
                 url = ACCOUNT + suffix
                 self.assertEqual(accounts(collect(f'<footer><a href="{url}" rel="me">Follow us on Bluesky</a></footer>', links=[{"url": url}])), [])
-        for url in ("https://bsky.app/x/profile/app.example", "https://bsky.app/profile/", "https://bsky.app/profile/app.example%2Fpost", "https://bsky.app.evil/profile/app.example", "ftp://bsky.app/profile/app.example"):
+        for url in ("https://bsky.app/x/profile/app.example", "https://bsky.app/profile/", "https://bsky.app/profile/not-a-handle", "https://bsky.app/profile/app.example%2Fpost", "https://bsky.app.evil/profile/app.example", "ftp://bsky.app/profile/app.example"):
             with self.subTest(url=url):
                 self.assertEqual(account_links.bluesky_profile_url(url), "")
 
     def test_profile_url_can_use_did_staging_query_and_trailing_slash(self) -> None:
         for url, expected in (
-            (ACCOUNT + "/?ref=site#about", ACCOUNT),
-            ("https://staging.bsky.app/profile/did:plc:abc", "https://staging.bsky.app/profile/did:plc:abc"),
-            ("https://bsky.app/profile/did:web:app.example", "https://bsky.app/profile/did:web:app.example"),
-            ("https://bsky.app/profile/did:web:app.example%3A443", "https://bsky.app/profile/did:web:app.example%3A443"),
+            (ACCOUNT + "/?ref=site#about", {"type": "handle", "value": "app.example"}),
+            ("https://staging.bsky.app/profile/did:plc:abc", {"type": "did", "value": "did:plc:abc"}),
+            ("https://bsky.app/profile/did:web:app.example", {"type": "did", "value": "did:web:app.example"}),
+            ("https://bsky.app/profile/did:web:app.example%253A443", {"type": "did", "value": "did:web:app.example%3A443"}),
+            ("https://bsky.app/profile/did:key:z6MAbC.", {"type": "did", "value": "did:key:z6MAbC."}),
         ):
             with self.subTest(url=url):
                 records = accounts(collect(f'<a href="{url}" rel="me">Profile</a>'))
-                self.assertEqual(records[0].value["object"]["value"], expected)
+                self.assertEqual(records[0].value["object"], expected)
+                self.assertEqual(records[0].context["observations"][0]["locator"], identifiers.normalize_url(url))
+
+    def test_profile_aliases_share_the_observed_handle_without_resolving_did(self) -> None:
+        urls = (
+            "https://bsky.app/profile/App.Example",
+            "https://staging.bsky.app/profile/app.example",
+            "http://bsky.app/profile/app.example./?source=footer",
+        )
+        records = accounts(collect('<footer>' + ''.join(f'<a href="{url}">Bluesky</a>' for url in urls) + '</footer>'))
+        self.assertEqual([record.value["object"] for record in records], [{"type": "handle", "value": "app.example"}])
+        self.assertEqual(len(records[0].context["observations"]), 3)
+
+    def test_handle_and_did_are_separate_observations_even_for_a_known_developer(self) -> None:
+        html = '<footer>' + ''.join(f'<a href="https://bsky.app/profile/{value}">Bluesky</a>' for value in
+                                  ("app.example", "did:key:z6MAbC", "did:key:z6Mabc")) + '</footer>'
+        self.assertEqual([record.value["object"] for record in accounts(collect(html))], [
+            {"type": "handle", "value": "app.example"},
+            {"type": "did", "value": "did:key:z6MAbC"},
+            {"type": "did", "value": "did:key:z6Mabc"},
+        ])
 
     def test_self_declaration_and_rel_me_are_kept_with_evidence(self) -> None:
         for attrs, label, reason in (
@@ -102,6 +125,28 @@ class OfficialAccountLinksTest(unittest.TestCase):
 
 
 class OfficialAccountPersistenceTest(TempRegistryDbTestCase):
+    def test_relation_endpoints_match_developer_identifier_components_without_role_adoption(self) -> None:
+        project = self.make_project("proj:test", "service_url", SITE)
+        project["candidate_developer_accounts"] = [{"handle": "App.Example.", "did": "did:key:z6MAbC", "source": "test"}]
+        bundle = collect('<footer><a href="https://bsky.app/profile/APP.EXAMPLE">Bluesky</a>'
+                         '<a href="https://bsky.app/profile/did:key:z6MAbC">Bluesky</a></footer>')
+        registry.apply_service_evidence(project, bundle)
+        conn = registry.open_db()
+        try:
+            project_record.save_project(conn, project)
+            conn.commit()
+            saved = project_record.fetch_project(conn, project["project_key"])
+            for relation in saved["relation_evidence"]:
+                obj = relation["relation"]["object"]
+                matches = conn.execute('SELECT role,classification FROM project_identifiers WHERE project_key=? AND kind=? AND value=?',
+                                       (project["project_key"], obj["type"], obj["value"])).fetchall()
+                self.assertEqual([(row["role"], row["classification"]) for row in matches], [(f'developer_{obj["type"]}', "candidate")])
+            self.assertEqual(saved["developer_accounts"], [])
+            self.assertEqual(saved["candidate_developer_accounts"], [{"handle": "app.example", "did": "did:key:z6MAbC", "source": "test"}])
+            self.assertEqual(conn.execute("SELECT value FROM project_identifiers WHERE project_key=? AND kind='account'", (project["project_key"],)).fetchone()[0], "did:key:z6MAbC")
+        finally:
+            conn.close()
+
     def test_recollection_removes_ambiguous_legacy_profile_and_post(self) -> None:
         project = self.make_project("proj:test", "service_url", SITE)
         project["relation_evidence"] = normalize_relation_records([relation_record(
@@ -141,7 +186,7 @@ class OfficialAccountPersistenceTest(TempRegistryDbTestCase):
                     relations = saved["relation_evidence"]
                     own = [item for item in relations if item["source"] == f"service_page:{SITE}"]
                     self.assertEqual(len(own), 1)
-                    self.assertEqual(own[0]["relation"]["object"]["value"], ACCOUNT)
+                    self.assertEqual(own[0]["relation"]["object"], {"type": "handle", "value": "app.example"})
                     self.assertEqual(own[0]["context"]["policy_version"], account_links.POLICY_VERSION)
                     self.assertEqual({item["source"] for item in relations}, {f"service_page:{SITE}", other["source"], manual["source"]})
                     self.assertEqual(conn.execute("SELECT count(*) FROM project_identifiers WHERE project_key=? AND kind='account'", (project["project_key"],)).fetchone()[0], 0)
@@ -155,6 +200,35 @@ class OfficialAccountPersistenceTest(TempRegistryDbTestCase):
         before = project["relation_evidence"]
         registry.apply_service_evidence(project, collect("", status_code=0, fetch_error="timeout"))
         self.assertEqual(project["relation_evidence"], before)
+
+
+class AtprotoAccountNormalizationTest(unittest.TestCase):
+    def test_developer_normalization_and_persistence_use_the_same_identifier_rules(self) -> None:
+        entries = [
+            {"handle": " APP.Example. ", "did": "did:key:z6MAbC", "source": "test"},
+            {"handle": "did:plc:abc", "source": "test"},
+            {"handle": "not-a-handle", "did": "not-a-did"},
+        ]
+        expected = [{"handle": "app.example", "did": "did:key:z6MAbC", "source": "test"}, {"did": "did:plc:abc", "source": "test"}]
+        self.assertEqual(project_record.normalize_developer_accounts(entries), expected)
+        project = project_record.default_project_record("proj:test", "service_url", SITE)
+        project["developer_accounts"] = entries
+        self.assertEqual([row.value for row in runtime_view.project_identifiers(project) if row.role == "developer_account"],
+                         ["did:key:z6MAbC", "did:plc:abc"])
+        for account in expected:
+            for kind, value in account.items():
+                if kind in {"handle", "did"}:
+                    self.assertEqual(identifiers.normalize_atproto_account_identifier(value), (kind, value))
+
+    def test_developer_normalization_keeps_distinct_did_case(self) -> None:
+        entries = [{"did": value, "source": "test"} for value in ("did:key:z6MAbC", "did:key:z6Mabc")]
+        self.assertEqual(project_record.normalize_developer_accounts(entries), entries)
+
+    def test_developer_profile_extraction_can_observe_an_author_without_claiming_officiality(self) -> None:
+        url = ACCOUNT + "/post/key"
+        self.assertEqual(project_record.extract_bluesky_profile_subject(url), {"handle": "app.example"})
+        self.assertEqual(identifiers.extract_bluesky_profile_subject(url), {})
+        self.assertEqual(accounts(collect(f'<a href="{url}">Follow us on Bluesky</a>')), [])
 
 
 if __name__ == "__main__":

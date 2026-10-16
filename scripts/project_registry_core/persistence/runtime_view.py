@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import copy
 import datetime as dt
-import re
 from typing import Any, Iterable, Mapping
 
 from ..identity import identifiers
@@ -34,8 +33,7 @@ RUNTIME_INTERNAL_FIELDS = {
     RUNTIME_ADOPTION_ROWS,
     RUNTIME_INVESTIGATION_RUN_ID,
 }
-ATPROTO_HANDLE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", re.IGNORECASE)
-DID_RE = re.compile(r"^did:[a-z0-9]+:[A-Za-z0-9._:%-]+$", re.IGNORECASE)
+ATPROTO_HANDLE_RE = identifiers.ATPROTO_HANDLE_RE
 CLASSIFICATIONS = {"confirmed", "candidate", "derived", "heuristic"}
 
 
@@ -47,32 +45,6 @@ def _unique(values: Iterable[str]) -> list[str]:
             continue
         seen.add(value)
         output.append(value)
-    return output
-
-
-def _normalized_developer_account(item: Mapping[str, Any]) -> dict[str, str]:
-    handle = str(item.get("handle") or "").strip()
-    did = str(item.get("did") or "").strip()
-    source = str(item.get("source") or "").strip()
-    if DID_RE.fullmatch(handle):
-        if not did or did.lower() == handle.lower():
-            did = handle
-        handle = ""
-    if handle:
-        handle = handle.rstrip(".")
-    if handle and not ATPROTO_HANDLE_RE.fullmatch(handle):
-        handle = ""
-    if did and not DID_RE.fullmatch(did):
-        did = ""
-    if not handle and not did:
-        return {}
-    output: dict[str, str] = {}
-    if handle:
-        output["handle"] = handle.lower()
-    if did:
-        output["did"] = did
-    if source:
-        output["source"] = source
     return output
 
 
@@ -308,7 +280,7 @@ def _derive_project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdent
         for item in project.get(field, []):
             if not isinstance(item, dict):
                 continue
-            account = _normalized_developer_account(item)
+            account = identifiers.normalize_atproto_account(item)
             if not account:
                 continue
             value = str(account.get("did") or account.get("handle") or "")
@@ -648,7 +620,7 @@ def hydrate(
             project[target].append(value)
         elif kind == "account":
             if role == "developer_account":
-                account = _normalized_developer_account(copy.deepcopy(metadata) or {"handle": value})
+                account = identifiers.normalize_atproto_account(copy.deepcopy(metadata) or {"handle": value})
                 if account:
                     target = "developer_accounts" if classification == "confirmed" else "candidate_developer_accounts"
                     project[target].append(account)

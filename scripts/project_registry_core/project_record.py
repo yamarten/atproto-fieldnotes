@@ -470,38 +470,16 @@ def normalize_developer_accounts(entries: list[Any]) -> list[dict[str, str]]:
     output: list[dict[str, str]] = []
     seen: set[tuple[str, str, str]] = set()
     for item in entries:
-        handle = ""
-        did = ""
-        source = ""
-        if isinstance(item, dict):
-            handle = str(item.get("handle") or "").strip()
-            did = str(item.get("did") or "").strip()
-            source = str(item.get("source") or "").strip()
-        elif isinstance(item, str):
-            handle = str(item).strip()
-        if DID_RE.fullmatch(handle):
-            if not did or did.lower() == handle.lower():
-                did = handle
-            handle = ""
-        if handle:
-            handle = handle.rstrip(".")
-        if handle and not ATPROTO_HANDLE_RE.fullmatch(handle):
-            handle = ""
-        if handle:
-            handle = handle.lower()
-        if not handle and not did:
+        if not isinstance(item, (dict, str)):
             continue
-        key = (handle.lower(), did.lower(), source)
+        account = identifier_core.normalize_atproto_account(item if isinstance(item, dict) else {"handle": item})
+        if not account:
+            continue
+        handle, did, source = (account.get(key, "") for key in ("handle", "did", "source"))
+        key = (handle.lower(), did, source)
         if key in seen:
             continue
         seen.add(key)
-        account: dict[str, str] = {}
-        if handle:
-            account["handle"] = handle
-        if did:
-            account["did"] = did
-        if source:
-            account["source"] = source
         output.append(account)
     return output
 
@@ -1975,25 +1953,13 @@ def is_asset_like_url(url: str) -> bool:
     lowered_path = parsed.path.lower()
     return any(lowered_path.endswith(ext) for ext in IMAGE_EXTENSIONS)
 
-ATPROTO_HANDLE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", re.IGNORECASE)
+ATPROTO_HANDLE_RE = identifier_core.ATPROTO_HANDLE_RE
 
-DID_RE = re.compile(r"^did:[a-z0-9]+:[A-Za-z0-9._:%-]+$", re.IGNORECASE)
+DID_RE = identifier_core.DID_RE
 
 
 def extract_bluesky_profile_subject(url: str) -> dict[str, str]:
-    normalized = identifier_core.normalize_url(identifier_core.sanitize_extracted_url(url))
-    parsed = urllib.parse.urlparse(normalized)
-    if parsed.netloc != "bsky.app":
-        return {}
-    segments = [segment for segment in parsed.path.split("/") if segment]
-    if len(segments) < 2 or segments[0] != "profile":
-        return {}
-    subject = urllib.parse.unquote(segments[1]).strip()
-    if DID_RE.fullmatch(subject):
-        return {"did": subject}
-    if ATPROTO_HANDLE_RE.fullmatch(subject):
-        return {"handle": subject.lower()}
-    return {}
+    return identifier_core.extract_bluesky_profile_subject(url, allow_subpaths=True)
 
 
 def is_bluesky_profile_url(url: str) -> bool:

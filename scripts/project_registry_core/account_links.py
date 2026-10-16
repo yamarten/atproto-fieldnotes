@@ -5,11 +5,12 @@ import urllib.parse
 from typing import Any
 
 from .html_link_context import extract_link_contexts
+from .identity import identifiers
 from .evidence import EvidenceRecord
 from .relations import relation_record
 
 
-POLICY_VERSION = "official-account-v1"
+POLICY_VERSION = "official-account-v2"
 EXTERNAL_CONTEXT = re.compile(
     r"\b(?:testimonial[s]?|quot(?:e[sd]?|ation[s]?)|post[s]?|feed[s]?|comment[s]?|"
     r"author[s]?|team|member[s]?|contributor[s]?|sponsor[s]?|credit[s]?|customer[s]?|"
@@ -33,21 +34,17 @@ GENERIC_LABEL = re.compile(
 
 def bluesky_profile_url(value: str) -> str:
     """Accept an account endpoint only; never derive one from a post/feed URL."""
-    try:
-        parsed = urllib.parse.urlsplit(str(value or "").strip())
-    except ValueError:
+    if not identifiers.extract_bluesky_profile_subject(value):
         return ""
-    if parsed.scheme.lower() not in {"http", "https"} or parsed.netloc.lower() not in {"bsky.app", "staging.bsky.app"}:
-        return ""
-    path = parsed.path.rstrip("/")
-    if not re.fullmatch(r"/profile/[A-Za-z0-9.:-]+", urllib.parse.unquote(path)):
-        return ""
-    return urllib.parse.urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), path, "", ""))
+    return identifiers.normalize_url(value)
 
 
 def _account_target(locator: str) -> tuple[str, str] | None:
     url = bluesky_profile_url(locator)
-    return (url, url) if url else None
+    if not url:
+        return None
+    kind, value = next(iter(identifiers.extract_bluesky_profile_subject(url).items()))
+    return url, f"{kind}:{value}"
 
 
 def account_link_reason(observation: dict[str, Any], requested_url: str) -> str:
@@ -70,7 +67,7 @@ def account_link_reason(observation: dict[str, Any], requested_url: str) -> str:
     if social_navigation and any(GENERIC_LABEL.fullmatch(label) for label in labels if label):
         return "social_navigation"
     site_host = (urllib.parse.urlsplit(requested_url).hostname or "").removeprefix("www.")
-    account = str(observation.get("account_url") or "").rsplit("/", 1)[-1]
+    account = identifiers.extract_bluesky_profile_subject(str(observation.get("account_url") or "")).get("handle", "")
     if social_navigation and site_host and account.lower() == site_host.lower() and any(
         label.lower() in {account.lower(), f"@{account.lower()}"} for label in labels
     ):
@@ -81,7 +78,7 @@ def account_link_reason(observation: dict[str, Any], requested_url: str) -> str:
 def official_account_relation_records(
     requested_url: str, html: str, *, observed_at: str,
 ) -> list[EvidenceRecord]:
-    by_account: dict[str, list[dict[str, Any]]] = {}
+    by_account: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for observation in extract_link_contexts(html, requested_url, target=_account_target, kind="account"):
         reason = account_link_reason(observation, requested_url)
         if not reason:
@@ -90,10 +87,11 @@ def official_account_relation_records(
             "locator", "text", "aria_label", "title", "descendant_label", "rel",
             "nearest_heading", "ancestor_tags", "ancestor_hints", "container_text", "group_text",
         ) if observation.get(key)}
-        by_account.setdefault(observation["account_url"], []).append({**context, "reason": reason})
+        kind, value = next(iter(identifiers.extract_bluesky_profile_subject(observation["account_url"]).items()))
+        by_account.setdefault((kind, value), []).append({**context, "reason": reason})
     return [relation_record(
         source=f"service_page:{requested_url}", classification="confirmed", observed_at=observed_at,
         subject_type="website", subject_value=requested_url.rstrip("/"), predicate="official_account",
-        object_type="account", object_value=url, locator=requested_url, method="bounded_first_party_link",
+        object_type=kind, object_value=value, locator=requested_url, method="bounded_first_party_link",
         context={"policy_version": POLICY_VERSION, "observations": observations[:8]},
-    ) for url, observations in by_account.items()]
+    ) for (kind, value), observations in by_account.items()]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import urllib.parse
+from typing import Any, Mapping
 
 
 GENERIC_ALIAS_TOKENS = {
@@ -25,6 +26,51 @@ GENERIC_ALIAS_TOKENS = {
 NSID_AUTHORITY_SEGMENT_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?")
 NSID_NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9]*")
 NSID_TEXT_TOKEN_RE = re.compile(r"[\w.-]+")
+ATPROTO_HANDLE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", re.IGNORECASE)
+DID_RE = re.compile(r"^did:[a-z0-9]+:[A-Za-z0-9._:%-]+$", re.IGNORECASE)
+
+
+def normalize_atproto_account_identifier(value: str) -> tuple[str, str] | None:
+    """Normalize one observed identifier without resolving handle/DID identity."""
+    text = str(value or "").strip()
+    if DID_RE.fullmatch(text):
+        return "did", text
+    handle = text.rstrip(".").lower()
+    if ATPROTO_HANDLE_RE.fullmatch(handle):
+        return "handle", handle
+    return None
+
+
+def normalize_atproto_account(item: Mapping[str, Any]) -> dict[str, str]:
+    handle = str(item.get("handle") or "").strip()
+    did = str(item.get("did") or "").strip()
+    source = str(item.get("source") or "").strip()
+    if DID_RE.fullmatch(handle):
+        if not did or did.lower() == handle.lower():
+            did = handle
+        handle = ""
+    output: dict[str, str] = {}
+    for kind, value in (("handle", handle), ("did", did)):
+        normalized = normalize_atproto_account_identifier(value)
+        if normalized and normalized[0] == kind:
+            output[kind] = normalized[1]
+    if output and source:
+        output["source"] = source
+    return output
+
+
+def extract_bluesky_profile_subject(url: str, *, allow_subpaths: bool = False) -> dict[str, str]:
+    """Read the identifier written in a profile URL; subpaths require opt-in."""
+    normalized = normalize_url(url)
+    parsed = urllib.parse.urlsplit(normalized)
+    if parsed.scheme not in {"http", "https"} or parsed.netloc not in {"bsky.app", "staging.bsky.app"}:
+        return {}
+    pattern = r"/profile/([^/]+)(?:/.*)?" if allow_subpaths else r"/profile/([^/]+)"
+    match = re.fullmatch(pattern, parsed.path)
+    if not match:
+        return {}
+    subject = normalize_atproto_account_identifier(urllib.parse.unquote(match.group(1)))
+    return {subject[0]: subject[1]} if subject else {}
 
 
 def normalize_url(url: str) -> str:

@@ -561,7 +561,7 @@ service pageからの`official_account`は、`bsky.app`または`staging.bsky.ap
 
 article・blockquote・figure、引用・投稿・人物紹介・testimonial・contributor等の文脈と、`Built by`等の制作者クレジットは上記より優先して除外します。URL、人物名、handleだけの本文リンクや`View … on Bluesky`だけでは公式性を断定しません。HTMLの文脈を取得できない場合にも、link一覧だけから補いません。条件に合わないリンクは公式relationを作らず、保存budget内のページ観測に留めます。
 
-判定はHTMLの保存上限を適用する前に行い、relationのcontextへpolicy世代と短いリンク文脈を保持します。これはwebsiteがそのaccountを公式として案内しているという方向付きの判断であり、そのwebsiteやaccountのproject帰属、handle/DIDの実在・真正性を検証したことではありません。account identifier、developer、所有、通常のmerge根拠への自動採用は行いません。比較用merge policy shadowではconfirmed relationを構成要素間の直接関係として参照します。
+判定はHTMLの保存上限を適用する前に行い、relationのcontextへpolicy世代と短いリンク文脈・元プロフィールURLを保持します。objectはURLをそのまま使わず、URL内で観測したhandleまたはDIDを[identifierと共通の表現](project-record.md#project_relations)へ正規化します。同じ種類・値を指すmain/staging hostやURL表記の違いは一つのrelationへまとめ、それぞれのリンク文脈を保存上限内で保持します。handleとDIDの対応は外部解決せず、観測した種類を維持します。これはwebsiteがそのaccountを公式として案内しているという方向付きの判断であり、そのwebsiteやaccountのproject帰属、handle/DIDの実在・真正性を検証したことではありません。account identifier、developer、所有、通常のmerge根拠への自動採用は行いません。比較用merge policy shadowではconfirmed relationを構成要素間の直接関係として参照します。
 
 static・deep・follow_up・repository_homepage・authorityの取得成功時は、同じ`service_page:{URL}` sourceの旧公式account relationを今回の結果へ置換します。取得失敗では過去観測を消しません。旧`first_party_link` relationは文脈なしに確定していたため、既存データの補正はread-only監査と承認を伴う限定保守操作で扱い、通常load/saveで暗黙に消去しません。成功した通常再収集でも置換できますが、再収集されないページや取得失敗中の誤分類は残ります。
 
@@ -576,6 +576,7 @@ static・deep・follow_up・repository_homepage・authorityの取得成功時は
 - `bsky.app/profile/{subject}` は service URL として扱いません
   - `{subject}` が handle 構文なら `handle`、DID 構文なら `did` として account evidence に分けます
   - `profile`, `user` のような一般 path 語だけではなく、構造化された handle / DID を優先して account-scoped URL を判定します
+  - account値の正規化は公式relationと共通です。開発者候補の抽出では投稿URLからもauthorの識別子を観測できますが、それだけでは公式accountのrelationを作りません
 - confirmed に上がる主な条件:
   - confirmed service host と handle ドメインが整合する
   - 例: `https://example.com` と `alice.example.com`

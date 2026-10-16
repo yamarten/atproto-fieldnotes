@@ -29,7 +29,7 @@ from project_registry_web.server import (
     restart_argv,
 )
 from project_registry_core.application import presentation, projects
-from project_registry_core import project_record
+from project_registry_core import project_record, service
 
 
 class FakeJobManager:
@@ -1180,6 +1180,30 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         self.assertEqual(material["collections"]["rows"][0]["collection"], "app.example.note")
         self.assertEqual(material["collections"]["rows"][0]["schemas"][0]["record_description"], "Reading notes")
         self.assertEqual(material["collections"]["rows"][0]["record_samples"][0]["fields"], ["text"])
+
+    def test_official_account_relation_uses_observed_identifier_in_detail_and_search(self) -> None:
+        with contextlib.closing(registry.open_db()) as conn:
+            project = project_record.fetch_project(conn, "proj:111111111111")
+            bundle = service.collect_service_probe_evidence(
+                project["project_key"], "https://example.com",
+                {"status_code": 200, "title": "Example", "description": "", "html":
+                 '<footer><a href="https://bsky.app/profile/Example.COM">Bluesky</a>'
+                 '<a href="https://bsky.app/profile/did:key:z6MAbC">Bluesky</a></footer>'},
+                observed_at="2026-10-16T00:00:00+00:00",
+            )
+            registry.apply_service_evidence(project, bundle)
+            project_record.save_project(conn, project)
+        status, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(status, 200)
+        relations = [item for item in detail["relations"] if item["predicate"] == "official_account"]
+        self.assertEqual([item["object"] for item in relations], [
+            {"type": "handle", "value": "example.com"}, {"type": "did", "value": "did:key:z6MAbC"},
+        ])
+        self.assertEqual(relations[0]["context"]["observations"][0]["locator"], "https://bsky.app/profile/Example.COM")
+        for kind, value in (("handle", "example.com"), ("did", "did:key:z6MAbC")):
+            status, payload, _ = self.request(f"/api/projects?relation_predicate=official_account&relation_object_type={kind}&relation_object_value={value}")
+            self.assertEqual(status, 200)
+            self.assertEqual([item["project_key"] for item in payload["items"]], ["proj:111111111111"])
 
     def test_search_uses_normalized_table_filters(self) -> None:
         cases = (
