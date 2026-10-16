@@ -1743,6 +1743,15 @@ def repo_candidate_allowed_for_project(project: dict[str, Any], url: str, *, rep
         return True
     if repository_metadata is not None and tangled_core.repository_match_reason(project, normalized, repository_metadata):
         return True
+    for item in relation_core.normalize_relation_records(project.get("relation_evidence", [])):
+        relation = item["relation"]
+        if (item["classification"] == "confirmed"
+                and relation["predicate"] == "repository_homepage"
+                and relation["method"] == "pds_repo_website"
+                and relation["subject"] == {"type": "repo", "value": normalized}
+                and relation["object"]["type"] == "website"
+                and tangled_core.repository_match_reason(project, normalized, {"website": relation["object"]["value"]})):
+            return True
     owner = repo_url_core.repo_owner_identity(normalized)
     if (
         not repo_url_allowed_for_project(project, normalized)

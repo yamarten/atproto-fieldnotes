@@ -11,7 +11,7 @@ from .identity import url_alias
 from .repositories import repo_urls
 from . import trust_graph
 from .evidence import EvidenceBundle
-from .relations import normalize_relation_records
+from .relations import normalize_relation_records, relation_record
 
 
 @dataclass(frozen=True)
@@ -125,6 +125,34 @@ def apply_collector_snapshot_evidence(
         note_failure(project, failure.message)
 
 
+def _refresh_tangled_repository_website(project: dict[str, Any], record: Any, repo_url: str, website: str) -> None:
+    relations = normalize_relation_records(project.get("relation_evidence", []))
+    existing = [item for item in relations
+                if item["source"] == record.source
+                and item["relation"]["predicate"] == "repository_homepage"
+                and item["relation"]["method"] == "pds_repo_website"
+                and item["relation"]["subject"] == {"type": "repo", "value": repo_urls.canonical_repo_url(repo_url)}]
+    observed = project_record.parse_iso(record.observed_at)
+    previous_times = [item["observed_at"] for item in existing]
+    # The ownership observation also records a newer snapshot with no website.
+    # Retain that freshness boundary after its homepage relation is removed.
+    previous_times.extend(edge["observed_at"] for edge in trust_graph.graph(project).get("edges", [])
+                          if edge.get("source") == record.source and edge.get("predicate") == "did_links_repo"
+                          and edge.get("method") == "tangled_pds_record"
+                          and edge.get("object") == {"kind": "repo_url", "value": repo_urls.canonical_repo_url(repo_url)})
+    if any((old := project_record.parse_iso(value)) and (not observed or old > observed) for value in previous_times):
+        return
+    relations = [item for item in relations if item not in existing]
+    normalized = identifiers.normalize_url(website)
+    if urllib.parse.urlparse(normalized).scheme in {"http", "https"}:
+        observation = relation_record(source=record.source, classification="confirmed", observed_at=record.observed_at,
+            subject_type="repo", subject_value=repo_url, predicate="repository_homepage",
+            object_type="website", object_value=normalized, locator=repo_url, method="pds_repo_website")
+        relations.append({"relation": observation.value, "source": record.source,
+                          "classification": observation.classification, "observed_at": record.observed_at})
+    project["relation_evidence"] = normalize_relation_records(relations)
+
+
 def apply_tangled_evidence(
     project: dict[str, Any],
     bundle: EvidenceBundle,
@@ -152,6 +180,8 @@ def apply_tangled_evidence(
         description = str(tangled_record.get("description") or "").strip()
         website = str(tangled_record.get("website") or "").strip()
         repo_url = str(value.get("repo_url") or "")
+        if repo_urls.is_supported_repo_url(repo_url):
+            _refresh_tangled_repository_website(project, record, repo_url, website)
         if did and repo_url:
             project_record.record_trust_edge(
                 project,

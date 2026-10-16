@@ -17,9 +17,9 @@ class TangledRepositoryAttributionTest(ProjectRecordTestCase):
                        developer_accounts=[{"handle": "byjp.me", "did": OWNER, "source": "manual"}])
         return project
 
-    def collect(self, project, records):
+    def collect(self, project, records, observed_at="2026-10-16T00:00:00+00:00"):
         return tangled.collect_account_repos(project, "byjp.me", tangled.TangledDependencies(
-            now=lambda: "2026-10-16T00:00:00+00:00",
+            now=lambda: observed_at,
             resolve_handle=lambda _: {"did": OWNER},
             resolve_did_document=lambda _: {},
             extract_pds_url=lambda _: "https://pds.invalid",
@@ -44,8 +44,7 @@ class TangledRepositoryAttributionTest(ProjectRecordTestCase):
         for field in ("name_candidates", "summary_candidates", "tagline_candidates"):
             self.assertEqual(project[field], [])
         self.assertEqual(project_record.service_url_candidate_values(project), [])
-        self.assertEqual(len(project["relation_evidence"]), 8)
-        self.assertEqual({x["relation"]["predicate"] for x in project["relation_evidence"]}, {"owns_repository"})
+        self.assertEqual(len([x for x in project["relation_evidence"] if x["relation"]["predicate"] == "owns_repository"]), 8)
         self.assertTrue(all(not x["eligible_for_auto_confirm"] for x in project["trust_graph"]["edges"]))
         self.assertEqual(project["project_repository_urls"], [ROOT])
 
@@ -53,6 +52,7 @@ class TangledRepositoryAttributionTest(ProjectRecordTestCase):
         project = self.project()
         project["project_repository_urls"] = []
         project["service_urls"] = ["https://app.invalid/demo?mode=one"]
+        registry.add_confirmed_identifier_decision(project, "service_url", project["service_urls"][0], source="test")
         bundle = self.collect(project, [
             {"name": "atproto-deeplink", "description": "Project library"},
             {"name": "web-client", "description": "Project client", "website": "https://APP.invalid:443/demo?mode=one"},
@@ -62,6 +62,29 @@ class TangledRepositoryAttributionTest(ProjectRecordTestCase):
         self.assertEqual(project["candidate_project_repository_urls"], [ROOT, "https://tangled.org/byjp.me/web-client"])
         self.assertEqual(project["summary_candidates"], [])
         self.assertEqual(project["name_candidates"], [])
+        finalized = registry.finalize_project_shape(project)
+        self.assertEqual(finalized["candidate_project_repository_urls"], [ROOT, "https://tangled.org/byjp.me/web-client"])
+
+    def test_website_candidate_is_rechecked_after_observation_or_anchor_changes(self):
+        project = self.project()
+        registry.add_manual_seed(project, "service_url", "https://app.invalid/demo", source="test")
+        registry.apply_tangled_evidence(project, self.collect(project, [
+            {"name": "web-client", "website": "https://app.invalid/demo"}]))
+        self.assertIn("https://tangled.org/byjp.me/web-client", registry.finalize_project_shape(project)["candidate_project_repository_urls"])
+        update = self.collect(project, [{"name": "web-client", "website": "https://other.invalid"}], "2026-10-17T00:00:00+00:00")
+        registry.apply_tangled_evidence(project, update)
+        self.assertNotIn("https://tangled.org/byjp.me/web-client", registry.finalize_project_shape(project)["candidate_project_repository_urls"])
+        registry.apply_tangled_evidence(project, self.collect(project, [{"name": "web-client", "website": "https://app.invalid/demo"}]))
+        self.assertNotIn("https://tangled.org/byjp.me/web-client", registry.finalize_project_shape(project)["candidate_project_repository_urls"])
+        registry.apply_tangled_evidence(project, self.collect(project, [{"name": "web-client"}], "2026-10-18T00:00:00+00:00"))
+        registry.apply_tangled_evidence(project, update)
+        self.assertFalse(any(item["relation"]["method"] == "pds_repo_website" for item in project["relation_evidence"]))
+
+        fresh = self.project()
+        registry.add_manual_seed(fresh, "service_url", "https://app.invalid/demo", source="test")
+        registry.apply_tangled_evidence(fresh, self.collect(fresh, [{"name": "web-client", "website": "https://app.invalid/demo"}]))
+        fresh["blocked_identifiers"] = [{"type": "service_url", "value": "https://app.invalid/demo"}]
+        self.assertEqual(registry.finalize_project_shape(fresh)["candidate_project_repository_urls"], [])
 
     def test_accepted_repository_supplies_content_and_owner(self):
         project = self.project()
@@ -148,6 +171,31 @@ class TangledRepositoryAttributionTest(ProjectRecordTestCase):
 
 
 class TangledOwnershipStorageTest(TempRegistryDbTestCase):
+    def test_exact_website_candidate_survives_save_fetch_without_becoming_confirmed(self):
+        project = self.make_project("proj:homepage", "service_url", "https://app.invalid/demo")
+        registry.add_manual_seed(project, "service_url", "https://app.invalid/demo", source="test")
+        project["name"] = "Different project name"
+        repo = "https://tangled.org/byjp.me/web-client"
+        bundle = EvidenceBundle(project_key=project["project_key"], collected_at="2026-10-16T00:00:00+00:00")
+        bundle.add_record(EvidenceRecord(kind="tangled_repo_snapshot", source="tangled_pds:byjp.me",
+            classification="candidate", observed_at=bundle.collected_at,
+            value={"owner_handle": "byjp.me", "owner_did": OWNER, "repo_url": repo,
+                   "record": {"name": "web-client", "website": "https://app.invalid/demo", "description": "Candidate content"}}))
+        registry.apply_tangled_evidence(project, bundle)
+        conn = registry.open_db()
+        try:
+            project_record.save_project(conn, registry.finalize_project_shape(project))
+            fetched = project_record.fetch_project(conn, project["project_key"])
+            self.assertEqual(fetched["candidate_project_repository_urls"], [repo])
+            self.assertEqual(fetched["project_repository_urls"], [])
+            self.assertEqual(fetched["summary_candidates"], [])
+            self.assertTrue(registry.repo_candidate_allowed_for_project(fetched, repo))
+            self.assertEqual(conn.execute("SELECT classification FROM project_identifiers WHERE project_key=? AND kind='repo_url' AND value=?", (project["project_key"], repo)).fetchone()[0], "candidate")
+            project_record.save_project(conn, registry.finalize_project_shape(fetched))
+            self.assertEqual(project_record.fetch_project(conn, project["project_key"])["candidate_project_repository_urls"], [repo])
+        finally:
+            conn.close()
+
     def test_ownership_roundtrip_does_not_become_project_repository_identifier(self):
         project = self.make_project("proj:ownership", "repo_url", ROOT)
         project["project_repository_urls"] = [ROOT]

@@ -198,6 +198,7 @@ triageへ渡す解析結果はconfirmed repoだけを対象に最大6件とし�
 - confirmed developer handleがある通常enrichでは、handle -> DID -> PDSを解決し、`com.atproto.repo.listRecords`で本人のTangled repo recordを取得します
 - 一覧の各recordはDID→repoのconfirmed `owns_repository`として保持します。これはaccountの所有観測であり、登録projectへの所属ではありません。`did_links_repo` edgeもauto-confirm対象外です。旧`project_repository`のうちDID→repoかつ`pds_list_records`の形だけを、共通relation正規化で`owns_repository`へ読み替え、元predicateをcontextへ残します。読込みは正本rowを一括更新せず、通常保存・replayでは現在の意味で保存します
 - `tangled-project-repository-v1`では、既に採用済みのrepo URL、repo名とproject名の完全一致（空白とハイフンの差を許容）、record websiteと採用済みservice／代表Websiteの正規化後の完全一致をproject固有の根拠とします。名前・websiteの一致で追加するのはcandidateまでで、project間の同一性やマージは決めません。同じowner、説明文の単語一致、過去snapshotのscoreだけでは候補登録しません。repository共通入口でもowner一致単独を候補根拠にしません
+- PDS recordのwebsiteは`repository_homepage`（method: `pds_repo_website`）として保持し、保存時も現在の採用済みservice／代表Websiteとの完全一致を再評価します。同じsource・repoの新しいrecordで置換し、websiteなしも古い観測を解除します。古い観測による上書きはしません。これにより別名repoの候補は保存後も残りますが、websiteの変更や参照先の除外後にはその根拠だけで候補を維持しません。これはpageの指定観測であり、service roleやrepoの自動採用ではありません
 - PDS recordの名称・説明・website、repo inspectionのREADME本文・リンクは、現在採用済みでblock/deferされていないrepoだけからprojectの候補情報へ反映します。候補repo・所有一覧の他repoからは反映せず、ownerをdeveloperとして自動採用することもありません。PDS由来の名称・説明のsourceにはrecord sourceにrepo URLを付け、同じownerの別repoと区別します。保存済みの誤候補や候補テキストはこの変更だけで削除せず、手動判断・他sourceを保護する既存データ補正で扱います
 - accepted source repo URLがTangledの場合は、repo root HTMLを読み、READMEを`raw/{ref}/{path}` から取得して `tangled_repo_inspection` evidenceを作ります
 - owner DID一致や共通websiteは補助根拠ですが、actorやwebsiteは複数projectに対応し得るためproject同一性の照合には使いません
