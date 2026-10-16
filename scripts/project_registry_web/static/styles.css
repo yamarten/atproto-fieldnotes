@@ -196,7 +196,6 @@ body.popup-embedded .detail-header > .operator-feedback { display: none; }
 .did-match-matrix th:first-child { text-align: left; }
 .did-match-count { min-width: 42px; padding: 4px 10px; border: 0; background: transparent; color: var(--accent); font-size: 18px; font-weight: 650; }
 .did-match-count:hover { background: var(--accent-soft); }
-.did-match-legend { margin: 0; font-size: 12px; }
 .did-match-popover { position: fixed; inset: 0; margin: auto; width: min(580px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 16px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); box-shadow: 0 6px 24px rgb(0 0 0 / 18%); }
 .did-match-popover .card-title { align-items: center; gap: 12px; margin-bottom: 12px; }
 .did-match-popover p { margin: 0; }

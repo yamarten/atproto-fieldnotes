@@ -744,12 +744,13 @@ DBから比較集合を読む単発計算では、名前・Website・status、re
 - Web merge review は、両projectのmerge identity hostが同じregistrable domain配下の別tenantに見える場合、未登録の `custom_multi_tenant_suffixes` 候補を表示します
   - 例: `foo.example.com` と `bar.example.com` なら `example.com`
   - 追加操作は `config/domain-overrides.json` を更新するだけで、既存 `separate_project` decision は自動解除しません
-- Web merge reviewの「DIDの一致」は、人間の比較を補助するDID照合です。所有者や絶対的な最初の作成者は断定しません
+- Web merge reviewの「発行者DIDの一致」は、人間の比較を補助するDID照合です。所有者や絶対的な最初の作成者は断定しません
   - 保存済みのLexicon発行元による一致数は初期表示します。`lexicon_resolution_entries`の検証済み観測と`publication_schemas`を使い、DBの現在のpublication catalog・検証状態を読み直します。出典、record URI、観測日時、検証状態は「参照したDIDと診断」で追えます。`did_publishes_schema` edge単独や未検証のschema投稿を検証済み発行元へ昇格しません
   - 発行元の一致比較には`collection_trust.verified_publications`を満たす観測、または期限内で帰属競合のないcatalogの検証済みpublisherを使います。catalogがpending・invalid・deleted・期限切れを示す場合は古い発行元で補完せず、診断詳細に保存情報を残します
-  - 「record初回観測者を照会（外部通信）」を押した時だけ`listReposByCollection`の先頭DIDを取得します。保存済みのcase-preservingなNSIDを使い、型が判明した非recordを照会対象から除外します。型不明の既存NSIDは従来どおり照会し、取得できない場合と失敗は`not_found` / `error`として表示します
-  - マージ元を行、マージ先を列とする2×2マトリクスで、発行元同士、発行元と初回観測者の交差、初回観測者同士の一致DID数を直接表示します。同じDIDが複数NSIDに現れても1件です。record未照会は「—」で0件と区別します。数字を押すと一致したDIDと双方の対応NSIDをpopoverに表示し、キーボード操作とEscape・閉じるボタンに対応します。双方のDID map・発行元の出典・照会診断・非record除外一覧は「参照したDIDと診断」の一つの折り畳みにまとめます
-  - APIの`did_comparison`は上記4方向の一致DID配列を返し、未照会の方向は`null`です。双方のNSID→DID map・出典詳細・非record除外一覧も返します。既存の`first_creator_*` fieldはrecord初回観測者の結果を保持します
+  - 「recordの発行者を照会（外部通信）」を押した時だけ`listReposByCollection`の先頭DIDを取得します。保存済みのcase-preservingなNSIDを使い、型が判明した非recordを照会対象から除外します。型不明の既存NSIDは従来どおり照会し、取得できない場合と失敗は`not_found` / `error`として表示します
+  - マージ元を行、マージ先を列とする2×2マトリクスで、行・列の見出しを「Lexicon」「record」とし、それぞれの発行者DIDの一致数を直接表示します。同じDIDが複数NSIDに現れても1件です。record未照会は「—」で0件と区別します。数字を押すと一致したDIDと双方の対応NSIDをpopoverに表示し、キーボード操作とEscape・閉じるボタンに対応します。双方のDID map・発行元の出典・照会診断・非record除外一覧は「参照したDIDと診断」の一つの折り畳みにまとめます
+  - record側は初期の発行者が開発者・考案者であることを期待し、同一projectの手掛かりとして使います。2026-10-17に確認した[collectiondirの保存・取得処理](https://github.com/bluesky-social/indigo/blob/main/cmd/collectiondir/pebble.go)はDIDとcollectionの組を初めて登録した時刻で昇順に返します。[入力](https://github.com/bluesky-social/indigo/blob/main/cmd/collectiondir/serve.go)にはRelayイベントとPDS巡回があり、recordの作成日時順ではありません。説明アイコンで意図と取得方式を伝え、表下には説明文を常設しません
+  - APIの`did_comparison`は上記4方向の一致DID配列を返し、未照会の方向は`null`です。双方のNSID→DID map・出典詳細・非record除外一覧も返します。既存の`first_creator_*` fieldはrecord側の先頭DIDの照会結果を保持します。field名から最初のrecord作成者や最初に観測されたrecordの発行者を保証しません
   - この補助情報は通常の候補スコア、`source_pair_candidate` / `target_pair_candidate`、自動マージ条件へ追加しません。CLIからheuristicを判定へ含める導線もありません
 
 ### merge候補planの追加安全策

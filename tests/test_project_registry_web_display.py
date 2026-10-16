@@ -160,7 +160,7 @@ loadMergeDetail("a", "b").then(async () => {
   assert.match(html, /<strong class="matched-identifier"[^>]*><a[^>]*href="https:\/\/common.example\/"/);
   assert.equal((html.match(/class="matched-identifier"/g) || []).length, 2);
   assert.match(html, /<details class="detail-section"><summary>候補と判断された理由<\/summary>/);
-  const creatorSection = html.match(/<section class="detail-section"><h3>DIDの一致[\s\S]*?<\/section>/)[0];
+  const creatorSection = html.match(/<section class="detail-section"><h3>発行者DIDの一致[\s\S]*?<\/section>/)[0];
   const diagnostics = [...creatorSection.matchAll(/<details\b([^>]*)><summary>(.*?)<\/summary>([\s\S]*?)<\/details>/g)];
   assert.deepEqual(diagnostics.map(item => item[2]), ["参照したDIDと診断"]);
   assert.ok(!/\bopen\b/.test(diagnostics[0][1]));
@@ -169,10 +169,15 @@ loadMergeDetail("a", "b").then(async () => {
   const visibleResults = creatorSection.replace(/<details\b[\s\S]*?<\/details>/g, "")
     .replace(/<div id="merge-did-[^"]+"[\s\S]*?<\/div><\/td>/g, "</td>");
   assert.ok(!visibleResults.includes("did:plc:"));
+  assert.ok(!visibleResults.includes("did-match-legend"));
+  assert.ok(!creatorSection.includes("数字で内訳"));
+  assert.ok(!creatorSection.includes("現在"));
+  assert.match(creatorSection, /開発者・考案者/);
+  assert.match(creatorSection, /公開実装が登録時刻順に返す先頭DID/);
   assert.match(visibleResults, /class="did-match-matrix"/);
   assert.equal((visibleResults.match(/class="did-match-count"/g) || []).length, 2);
   assert.ok(!creatorSection.includes('id="load-first-creator-heuristic"'));
-  assert.match(html, /<template><p>Lexicon発行元は保存済み/);
+  assert.match(html, /<template><p>Lexiconの発行者と、recordの初期の発行者を比較/);
   assert.match(html, /not_found/);
   api = async () => ({source:{project_key:"a"}, target:{project_key:"b"}, merge_blocked:true});
   await loadMergeDetail("a", "b", {includeFirstCreator:true});
@@ -193,7 +198,7 @@ const html = renderMergeDidComparison({
   source_non_record_nsids:[unsafe],
   source_lexicon_publisher_details:{[unsafe]:[{did:unsafe, observed_at:"2026-10-13", status:"unverified"}]}
 });
-assert.match(html, /<th scope="col">元 ↓ ／ 先 →<\/th><th scope="col">発行元<\/th><th scope="col">初回観測者<\/th>/);
+assert.match(html, /<th scope="col">元 ↓ ／ 先 →<\/th><th scope="col">Lexicon<\/th><th scope="col">record<\/th>/);
 assert.deepEqual([...html.matchAll(/class="did-match-count" popovertarget="([^"]+)"[^>]*>(\d+)<\/button>/g)].map(x=>[x[1],x[2]]), [
   ["merge-did-publisher_publisher","1"],
   ["merge-did-source_publisher_target_first_observer","2"],
@@ -207,7 +212,7 @@ assert.ok(!publisher.includes("org.source.cross"));
 const cross = html.match(/id="merge-did-source_publisher_target_first_observer"[\s\S]*?<\/div><\/td>/)[0];
 for (const nsid of ["org.source.cross","net.target.record"]) assert.ok(cross.includes(nsid));
 assert.ok(!cross.includes("org.source.a"));
-assert.match(html, /popover role="dialog" aria-label="発行元 → 初回観測者の一致内訳"/);
+assert.match(html, /popover role="dialog" aria-label="Lexicon → recordの一致内訳"/);
 assert.match(html, /popovertargetaction="hide" aria-label="内訳を閉じる"/);
 assert.match(html, /一致するDIDはありません。/);
 assert.ok(!html.includes(unsafe));
