@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import json
+from .identity import resource_identity
 import sqlite3
 import urllib.parse
 from typing import Any, Callable
@@ -372,7 +373,7 @@ def component_identifier_profile(project: dict[str, Any]) -> dict[str, set[str]]
             continue
         if project_record.identifier_is_blocked(project, item.kind, item.value) or project_record.identifier_is_deferred(project, item.kind, item.value):
             continue
-        profile[f"{item.classification}_component_identifiers"].add(json.dumps([item.kind, item.value, item.role]))
+        profile[f"{item.classification}_component_identifiers"].add(json.dumps([item.kind, resource_identity.normalize_value(item.kind, item.value), item.role]))
     return profile
 
 
@@ -399,7 +400,7 @@ def duplicate_profile(project: dict[str, Any]) -> dict[str, set[str]]:
         **component_identifier_profile(project),
         "project_repository_urls": set(project_record.project_repository_url_values(project)),
         "github_repo_urls": set(project_record.provider_repo_url_values(project, "github")),
-        "candidate_project_repository_urls": set(project.get("candidate_project_repository_urls", [])),
+        "candidate_project_repository_urls": set(repo_url_core.normalize_repo_collection(project.get("candidate_project_repository_urls", []))),
         "service_urls": set(project.get("service_urls", [])),
         "website_urls": {str(project.get("website_url") or "")} if project.get("website_url") else set(),
         "recorded_lexicon_namespaces": set(project.get("recorded_lexicon_namespaces", [])),

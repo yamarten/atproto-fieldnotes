@@ -9,6 +9,7 @@ from project_registry_core import project_review
 from project_registry_core import project_merge
 
 from .publications import lexicon_types
+from .identity import resource_identity
 
 import copy
 import datetime as dt
@@ -3241,16 +3242,30 @@ def sync_trust_edges_from_project_identity(project: dict[str, Any]) -> None:
                 eligible_for_auto_confirm=True,
                 observed_at=str(account.get("observed_at") or ""),
             )
-    for entry in project_record.normalize_lexicon_resolution_entries(project.get("lexicon_resolution_entries", [])):
+    entries = project_record.normalize_lexicon_resolution_entries(project.get("lexicon_resolution_entries", []))
+    schema_kinds = {entry["resolved_nsid"]: resource_identity.schema_node_kind(
+        (entry.get("publication_validation") or {}).get("schema_type", "record")) for entry in entries}
+    current = trust_graph_core.stored_graph(project)
+    # Replace generated witnesses of the wrong type, preserving unrelated facts.
+    current["edges"] = [edge for edge in current["edges"] if not (
+        edge["source"].startswith("lexicon_resolution:")
+        and edge["predicate"] in {"did_publishes_schema", "collection_authority_domain", "domain_publishes_lexicon_record"}
+        and any(edge["source"] == f"lexicon_resolution:{edge[side]['value']}"
+                and edge[side]["value"] in schema_kinds and edge[side]["kind"] in {"nsid", "collection"}
+                and edge[side]["kind"] != schema_kinds[edge[side]["value"]] for side in ("subject", "object"))
+    )]
+    trust_graph_core.set_graph(project, current)
+    for entry in entries:
         resolved_nsid = identifier_core.normalize_nsid(str(entry.get("resolved_nsid") or ""))
         repo_did = str(entry.get("repo_did") or "").strip()
+        schema_kind = schema_kinds[resolved_nsid]
         if repo_did and resolved_nsid:
             project_record.record_trust_edge(
                 project,
                 "did",
                 repo_did,
                 "did_publishes_schema",
-                "collection",
+                schema_kind,
                 resolved_nsid,
                 source=f"lexicon_resolution:{resolved_nsid}",
                 locator=str(entry.get("record_uri") or ""),
@@ -3263,7 +3278,7 @@ def sync_trust_edges_from_project_identity(project: dict[str, Any]) -> None:
         if resolved_nsid and authority_domain:
             project_record.record_trust_edge(
                 project,
-                "collection",
+                schema_kind,
                 resolved_nsid,
                 "collection_authority_domain",
                 "domain",
@@ -3280,7 +3295,7 @@ def sync_trust_edges_from_project_identity(project: dict[str, Any]) -> None:
                 "domain",
                 authority_domain,
                 "domain_publishes_lexicon_record",
-                "collection",
+                schema_kind,
                 resolved_nsid,
                 source=f"lexicon_resolution:{resolved_nsid}",
                 locator=str(entry.get("record_uri") or ""),
@@ -3294,7 +3309,7 @@ def sync_trust_edges_from_project_identity(project: dict[str, Any]) -> None:
 def exact_root_service_domain(service_url: str) -> str:
     normalized = identifier_core.normalize_url(service_url)
     parsed = urllib.parse.urlparse(normalized)
-    if parsed.scheme not in {"http", "https"} or parsed.path not in {"", "/"}:
+    if parsed.scheme not in {"http", "https"} or parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
         return ""
     return str(parsed.hostname or "").strip().lower().rstrip(".")
 
@@ -4257,7 +4272,7 @@ def apply_lexicon_record_result(project: dict[str, Any], nsid: str, result: dict
         trust_graph_core.remove_edges(project, source=f"lexicon_resolution:{nsid}")
     record = result["record"]
     schema = record.get("value", {})
-    schema_node_kind = "collection" if validation["schema_type"] == "record" else "nsid"
+    schema_node_kind = resource_identity.schema_node_kind(validation["schema_type"])
     resolved_nsid = identifier_core.normalize_nsid(
         str(record.get("uri", "")).rsplit("/", 1)[-1]
         or str(schema.get("id") or nsid)

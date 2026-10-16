@@ -45,6 +45,17 @@ def project() -> dict:
 
 
 class CollectionPublicationTrustUnitTest(ProjectRecordTestCase):
+    def test_query_publication_keeps_nsid_nodes_through_finalize(self) -> None:
+        p = project()
+        result = publication(B)
+        result["record"]["value"]["defs"]["main"] = {"type": "query", "output": {"encoding": "application/json"}}
+        registry.apply_lexicon_record_result(p, B, result)
+        p = registry.finalize_project_shape(p)
+        nodes = [edge[side] for edge in registry.trust_graph_core.stored_graph(p)["edges"]
+                 for side in ("subject", "object") if edge[side]["value"] == B]
+        self.assertTrue(nodes)
+        self.assertEqual({node["kind"] for node in nodes}, {"nsid"})
+
     def test_publisher_support_is_scoped_explainable_and_not_an_identity_or_merge_anchor(self) -> None:
         p = project()
         registry.apply_lexicon_record_result(p, A, publication(A))

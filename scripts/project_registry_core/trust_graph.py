@@ -6,6 +6,7 @@ import hashlib
 import json
 
 from .repositories import repository_trust
+from .identity import resource_identity
 from typing import Any, Iterable, Mapping
 
 
@@ -35,14 +36,15 @@ AUTO_CONFIRM_PREDICATES = {
 
 def node(kind: str, value: str) -> dict[str, str]:
     normalized_kind = str(kind or "").strip()
-    normalized_value = str(value or "").strip()
+    normalized_value = resource_identity.normalize_value(normalized_kind, value)
     if normalized_kind not in NODE_KINDS or not normalized_value:
         return {}
     return {"kind": normalized_kind, "value": normalized_value}
 
 
 def node_key(value: Mapping[str, Any]) -> tuple[str, str]:
-    return (str(value.get("kind") or ""), str(value.get("value") or ""))
+    kind = str(value.get("kind") or "")
+    return kind, resource_identity.normalize_value(kind, str(value.get("value") or ""))
 
 
 def edge_key(value: Mapping[str, Any]) -> tuple[str, ...]:
@@ -425,7 +427,7 @@ def upsert_evaluation(project: dict[str, Any], evaluation: Mapping[str, Any], *,
 
 
 def confirmed_by_trust_policy(project: Mapping[str, Any], kind: str, value: str) -> bool:
-    key = (kind, value)
+    key = node_key({"kind": kind, "value": value})
     # Confirmation reads saved evaluations. Rebuilding edges neither changes
     # those evaluations nor validates collection claims; URL claims separately
     # validate their current graph digest and anchor below.
@@ -441,7 +443,7 @@ def confirmed_by_trust_policy(project: Mapping[str, Any], kind: str, value: str)
             if kind in URL_NODE_KINDS:
                 from .persistence import runtime_view
                 anchor = item.get("anchor") or {}
-                if not any(identifier.kind == anchor.get("kind") and identifier.value == anchor.get("value")
+                if not any(node_key({"kind": identifier.kind, "value": identifier.value}) == node_key(anchor)
                            and identifier.classification == "confirmed"
                            for identifier in runtime_view.project_identifiers(project)):
                     return False

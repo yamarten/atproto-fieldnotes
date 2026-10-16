@@ -6,6 +6,7 @@ import datetime as dt
 from typing import Any, Iterable, Mapping
 
 from ..identity import identifiers
+from ..identity import resource_identity
 from ..repositories import repo_urls
 
 
@@ -229,15 +230,7 @@ def _derive_project_identifiers(project: Mapping[str, Any]) -> list[ProjectIdent
         metadata: dict[str, Any] | None = None,
         observed_at: str = "",
     ) -> None:
-        text = str(value or "").strip()
-        if kind == "repo_url":
-            text = repo_urls.canonical_repo_url(text)
-        elif kind in {"service_url", "site_url"}:
-            text = identifiers.normalize_url(text)
-        elif kind == "nsid":
-            text = identifiers.normalize_nsid(text)
-        elif kind in {"handle", "domain"}:
-            text = text.lower().rstrip(".")
+        text = resource_identity.normalize_value(kind, value)
         if not text or classification not in CLASSIFICATIONS:
             return
         key = (kind, text, role)

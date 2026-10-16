@@ -103,9 +103,11 @@ class RepositoryHomepageObservationTest(_RepositoryHomepageObservationFixtures, 
                     for repo in project["project_repository_urls"]:
                         io.github_repo(repo, homepage=url)
                     io.page(url)
+                    io.page(url + "/")
                     with io:
                         enriched = enrichment_pipeline.enrich_project(conn, project)
                     self.assertEqual([call.args[0] for call in io.http.call_args_list].count(url), 1)
+                    self.assertEqual([call.args[0] for call in io.http.call_args_list].count(url + "/"), 1)
                     observations = [item for item in enriched["service_verification_results"]
                                     if item["requested_url"] == url]
                     self.assertEqual([item["lane"] for item in observations],

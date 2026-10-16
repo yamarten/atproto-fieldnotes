@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import urllib.parse
 from typing import Any
+from . import identifiers
 
 
 def normalize_origin(url: str) -> str:
@@ -26,8 +27,8 @@ def observed_url_aliases(project: dict[str, Any]) -> list[dict[str, str]]:
         relation = item.get("relation") or {}
         if not isinstance(relation, dict) or relation.get("predicate") != "redirects_to":
             continue
-        alias = normalize_origin(str((relation.get("subject") or {}).get("value") or ""))
-        canonical = normalize_origin(str((relation.get("object") or {}).get("value") or ""))
+        alias = identifiers.normalize_url(str((relation.get("subject") or {}).get("value") or ""))
+        canonical = identifiers.normalize_url(str((relation.get("object") or {}).get("value") or ""))
         if alias and canonical and root_www_pair(alias, canonical) and (alias, canonical) not in seen:
             seen.add((alias, canonical))
             aliases.append({"alias": alias, "canonical": canonical, "reason": "confirmed_redirect", "confidence": "confirmed"})
@@ -36,10 +37,10 @@ def observed_url_aliases(project: dict[str, Any]) -> list[dict[str, str]]:
         if not isinstance(result, dict):
             continue
         digest = str(result.get("content_sha256") or "")
-        url = normalize_origin(str(result.get("final_url") or result.get("requested_url") or ""))
+        url = identifiers.normalize_url(str(result.get("final_url") or result.get("requested_url") or ""))
         if digest and url:
             fingerprints.setdefault(digest, []).append(url)
-    preferred = normalize_origin(str(project.get("website_url") or ""))
+    preferred = identifiers.normalize_url(str(project.get("website_url") or ""))
     for urls in fingerprints.values():
         unique = list(dict.fromkeys(urls))
         if len(unique) != 2 or not root_www_pair(unique[0], unique[1]):
@@ -53,17 +54,17 @@ def observed_url_aliases(project: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def canonical_alias_url(project: dict[str, Any], url: str) -> str:
-    normalized = normalize_origin(url)
+    normalized = identifiers.normalize_url(url)
     for item in list(project.get("url_aliases", [])) + observed_url_aliases(project):
-        if str(item.get("confidence") or "") == "confirmed" and normalize_origin(str(item.get("alias") or "")) == normalized:
-            return normalize_origin(str(item.get("canonical") or "")) or normalized
-    return str(url or "").strip().rstrip("/")
+        if str(item.get("confidence") or "") == "confirmed" and identifiers.normalize_url(str(item.get("alias") or "")) == normalized:
+            return identifiers.normalize_url(str(item.get("canonical") or "")) or normalized
+    return normalized
 
 
 def apply_url_aliases(project: dict[str, Any]) -> None:
     project["url_aliases"] = observed_url_aliases(project)
     canonical_urls = {
-        normalize_origin(str(item.get("canonical") or ""))
+        identifiers.normalize_url(str(item.get("canonical") or ""))
         for item in project["url_aliases"]
         if item.get("confidence") == "confirmed"
     }
@@ -73,7 +74,7 @@ def apply_url_aliases(project: dict[str, Any]) -> None:
         for item in values
         if canonical_alias_url(project, str(item)) not in canonical_urls
         or canonical_alias_url(project, str(item)) not in {
-            normalize_origin(str(project.get("website_url") or "")),
-            *(normalize_origin(str(url)) for url in project.get("service_urls", [])),
+            identifiers.normalize_url(str(project.get("website_url") or "")),
+            *(identifiers.normalize_url(str(url)) for url in project.get("service_urls", [])),
         }
     ))

@@ -341,11 +341,13 @@ def noncurrent_identifier_matches(
 ) -> list[tuple[int, str]]:
     standing_priority = {"former": 2, "non_production": 3}
     matches: dict[str, int] = {}
+    github = kind == "repo_url" and value.startswith("https://github.com/")
+    value_expression = "value COLLATE NOCASE" if github else "value"
     for row in conn.execute(
-        """
+        f"""
         SELECT project_key, standing
         FROM project_noncurrent_identifiers INDEXED BY idx_project_noncurrent_identifiers_lookup
-        WHERE kind=? AND value=?
+        WHERE kind=? AND {value_expression}=?
         """,
         (kind, value),
     ):

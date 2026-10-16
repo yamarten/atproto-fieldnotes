@@ -5,6 +5,7 @@ import re
 import time
 import urllib.error
 import urllib.parse
+from .repositories import repo_urls as repo_url_core
 from dataclasses import dataclass, field
 from html import unescape
 from typing import Any, Callable
@@ -819,13 +820,13 @@ def collect_repository_evidence(
             context={"line": int(item.get("line") or 0)},
         ))
     for url in readme_urls:
-        parsed = urllib.parse.urlparse(url)
-        object_type = "repo" if parsed.netloc in {"github.com", "tangled.org", "codeberg.org", "gitlab.com", "git.sr.ht"} else "website"
+        object_type = "repo" if repo_url_core.is_supported_repo_url(url) else "website"
         bundle.add_record(relation_record(
             source=f"{dependencies.provider}_readme:{repo_url}", classification="candidate", observed_at=observed_at,
             subject_type="repo", subject_value=normalized_repo_url,
             predicate="project_repository" if object_type == "website" else "mentions_collection",
-            object_type=object_type, object_value=url.rstrip("/"), locator="README", method="readme_link",
+            object_type=object_type, object_value=url, locator="README", method="readme_link",
+            context={"referenced_url": url},
         ))
     request_count = 1
     cache_hits = 0

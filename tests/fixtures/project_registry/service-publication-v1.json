@@ -6,7 +6,7 @@
       "source": "saved README of flo-bit/svelte-atproto-client-oauth",
       "text": "# svelte atproto client oauth demo\ntry it here: http://flo-bit.dev/svelte-atproto-client-oauth/\nthis is a scaffold for how to get client side oauth working with sveltekit and atproto using the atcute libraries.",
       "expected": [
-        "http://flo-bit.dev/svelte-atproto-client-oauth"
+        "http://flo-bit.dev/svelte-atproto-client-oauth/"
       ]
     },
     {

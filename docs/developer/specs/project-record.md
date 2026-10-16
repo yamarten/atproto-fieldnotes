@@ -171,7 +171,7 @@ Editで説明を変更すると保護側になります。明示的な自動反�
 
 canonical fieldは`website_url`、`introduced_url`、confirmed/candidateのservice・repo identifierです。`website_url`は代表公開URLであり、service identifierとは独立しています。補助pageは`resource_url_records`に残します。
 
-現行の`normalize_url()`はscheme/host/pathを正規化し、末尾slash、query、fragmentを破棄します。queryやfragmentだけが異なるURLは同じidentifierとして扱われます。これは実装済みの現行制約ですが、queryでresource identityが変わるserviceに対して妥当かは未検証です。具体例が出るまでは例外や別URL型を追加しません。
+`normalize_url()`は[資源同一性の共通規則](#識別値の正規化と資源同一性)に従い、root以外の末尾slash、query、fragmentを保持します。候補／確定で異なるURLへ丸めません。ブラウザ補助導線の応答・シード提案と手動利用判断の根拠URLは、一時的な認証情報を残さないためquery・fragmentを除きます。この表示・記録用途の除去は資源同一性の判定とは別で、ブラウザ入口の内部照合と採用済みserviceの指定には完全なURLを使います。Firefox拡張は従来どおりURLを渡す前にもquery・fragmentを除くため、拡張経由ではqueryごとのsurfaceを区別する材料を渡しません。
 
 ## Runtime viewとexact lookup
 
@@ -254,6 +254,26 @@ load時は専用runtime codecがnormalized child tableを読み、collector/eval
 runtime codecは、loadして無変更saveした場合にidentifier、relation、decision、adoption rowのclassification、role、primary、provider、metadata、observed_at、採用来歴を維持します。candidateのowned NSIDやcandidate developer DIDなど、flat runtime fieldだけでは表現できないrowは内部runtime stateから保存します。
 
 削除済みalias fieldも生成・保存しません。
+
+### 識別値の正規化と資源同一性
+
+`identity/resource_identity.py`が種類ごとの正規化値と比較keyを共有します。identifier、relation endpoint、trust node、block/defer、mergeの照合は同じ値規則を使い、role・採用状態・根拠sourceを資源同一性へ混ぜません。role付きclaimの照合は、正規化した資源に加えて従来どおりroleを要求します。同じDIDにdeveloperとprojectのroleがあっても、一方の採用から他方を自動採用しません。
+
+| 対象 | 共通の値規則と区別 |
+| --- | --- |
+| repository | provider別にrepository本体URLへ正規化。GitHubのowner/repoは小文字化。他providerのpathは大小文字を保持し、rename・transfer・fork・mirrorは表記だけで統合しない |
+| Web URL | scheme・hostを小文字化し、HTTPの`:80`・HTTPSの`:443`を省き、HTTP(S)のroot `/`は空pathと同一とする。その他の末尾 `/`、path、params、query、fragmentは保持し、HTTP/HTTPSやwwwの違いも機械的には統合しない |
+| handle / domain | 小文字化し末尾の`.`を除く。それぞれ別の識別体系であり、同じ文字列だけでは同じ資源としない |
+| DID / NSID | 大小文字を保持。NSIDの`at://`・`#definition`等の入力表現は従来どおりschemaのNSIDへ射影し、個別definitionの識別子としては扱わない |
+| record collection / NSID | `collection`はrecord collection、`nsid`は一般のLexicon識別子を表す。schema公開観測の型はrecordなら`collection`、query・procedure等なら`nsid`で統一する。旧型未記録の解決観測は従来のrecord扱いを保つ |
+
+relationの`repo`とidentifierの`repo_url`、relationの`website`・`service`とidentifierの`site_url`・`service_url`は、共通の資源keyへ変換できます。保存上の型名とroleは維持します。`account` wrapperのDID/handle値は対応する`did`/`handle` keyと互換で、handle→DIDの解決は正規化に含めません。
+
+repository内のfile/tree/issue等を指した元URLはrelationの`context.original_endpoints`へ、READMEリンクは`context.referenced_url`にも保持します。値の正規化によって同じ観測keyへまとまる場合も元参照を合併し、再正規化は冪等です。新旧観測のclassificationや文脈の選択規則は維持し、古い確定理由を新しいcandidateの文脈へ継承しません。
+
+意図的に一致範囲を広げる処理は正規化と分けます。service URLのblock/deferはquery・fragment等のないURLに限って同じoriginのpath配下も抑止します。ブラウザ入口の親URL一致は利便性のための`descendant`一致で、完全一致とは区別します。観測済みwww aliasはredirectまたは同一contentによる対応URLだけに適用し、host全体のpathへ広げません。同一contentによるaliasはこの用途の便宜的な扱いで、汎用の資源同一性keyには反映しません。
+
+無変更roundtripの保存維持は上記の契約どおりです。旧DB rowを読んだだけでは一括書換えず、新規生成・更新時に正規化します。旧GitHub rowの大小文字はexact lookupでも吸収します。過去に削除されたquery等は保存値だけから復元できないため推測で補いません。
 
 ## `project_relations`
 

@@ -6,6 +6,7 @@ from typing import Any
 
 from . import collector_relation_policy
 from .repositories import repo_urls
+from .identity import resource_identity
 from .evidence import EVIDENCE_CLASSIFICATIONS, EvidenceEntity, EvidenceRecord, RelationEvidence
 
 
@@ -23,8 +24,36 @@ RELATION_PREDICATES = {
 CLASSIFICATION_RANK = {"heuristic": 0, "candidate": 1, "derived": 2, "confirmed": 3}
 
 
+def _normalize_relation(relation: RelationEvidence, context: dict[str, Any]) -> tuple[RelationEvidence, dict[str, Any]]:
+    payload = relation.to_dict()
+    originals = list(context.get("original_endpoints", []))
+    for side in ("subject", "object"):
+        entity = payload[side]
+        value = resource_identity.normalize_value(entity["type"], entity["value"])
+        if value and value != entity["value"]:
+            original = {"side": side, **entity}
+            if original not in originals:
+                originals.append(original)
+            payload[side] = {**entity, "value": value}
+    if originals:
+        context = {**context, "original_endpoints": originals}
+    return RelationEvidence.from_dict(payload), context
+
+
+def _merge_context(first: dict[str, Any], second: dict[str, Any], *, latest_only: bool = False) -> dict[str, Any]:
+    merged = dict(second) if latest_only else {**first, **second}
+    originals = list(first.get("original_endpoints", []))
+    for original in second.get("original_endpoints", []):
+        if original not in originals:
+            originals.append(original)
+    if originals:
+        merged["original_endpoints"] = originals
+    return merged
+
+
 def relation_dedupe_key(value: dict[str, Any]) -> tuple[str, ...]:
     relation = RelationEvidence.from_dict(dict(value.get("relation") or value.get("value") or value))
+    relation, _ = _normalize_relation(relation, {})
     return (
         relation.subject.type,
         relation.subject.value,
@@ -60,13 +89,14 @@ def relation_record(
         locator=locator,
         method=method,
     )
+    relation, normalized_context = _normalize_relation(relation, context or {})
     return EvidenceRecord(
         kind="relation",
         source=source,
         classification=classification,  # type: ignore[arg-type]
         observed_at=observed_at,
         value=relation.to_dict(),
-        context=context or {},
+        context=normalized_context,
     )
 
 
@@ -82,6 +112,7 @@ def normalize_relation_records(values: Any) -> list[dict[str, Any]]:
             continue
         if relation.predicate not in RELATION_PREDICATES:
             continue
+        relation, context = _normalize_relation(relation, dict(item.get("context") or {}))
         classification = str(item.get("classification") or "candidate")
         if classification not in EVIDENCE_CLASSIFICATIONS:
             classification = "candidate"
@@ -90,7 +121,7 @@ def normalize_relation_records(values: Any) -> list[dict[str, Any]]:
             "source": str(item.get("source") or ""),
             "classification": classification,
             "observed_at": str(item.get("observed_at") or ""),
-            "context": dict(item.get("context") or {}),
+            "context": context,
         }
         key = relation_dedupe_key(normalized)
         if key not in indexes:
@@ -102,13 +133,16 @@ def normalize_relation_records(values: Any) -> list[dict[str, Any]]:
             relation.subject.type, relation.object.type
         } in ({"repo", "website"}, {"repo", "service"}):
             if normalized["observed_at"] >= existing["observed_at"]:
+                normalized["context"] = _merge_context(existing["context"], normalized["context"], latest_only=True)
                 output[indexes[key]] = normalized
+            else:
+                existing["context"] = _merge_context(normalized["context"], existing["context"], latest_only=True)
             continue
         if CLASSIFICATION_RANK[classification] > CLASSIFICATION_RANK[existing["classification"]]:
             existing["classification"] = classification
         if normalized["observed_at"] > existing["observed_at"]:
             existing["observed_at"] = normalized["observed_at"]
-        existing["context"] = {**existing["context"], **normalized["context"]}
+        existing["context"] = _merge_context(existing["context"], normalized["context"])
     return output
 
 
@@ -173,12 +207,11 @@ def oauth_metadata_candidates(base_url: str, links: Any, html: str = "") -> list
 
 
 def identifier_is_guarded(project: dict[str, Any], identifier_type: str, value: str) -> bool:
-    normalized = str(value or "").strip().lower().rstrip("/")
     for field in ("blocked_identifiers", "deferred_identifiers"):
         for item in project.get(field, []):
             if not isinstance(item, dict) or str(item.get("type") or "") != identifier_type:
                 continue
-            if str(item.get("value") or "").strip().lower().rstrip("/") == normalized:
+            if resource_identity.matches_guard(identifier_type, value, str(item.get("value") or ""), descendants=True):
                 return True
     return False
 

@@ -24,7 +24,7 @@ def save_feedback(conn: sqlite3.Connection, *, project_key: str, kind: str, reas
         attributes = {}
     elif kind == "service-usage":
         field = "service_usage_decisions"
-        service_url = page_url(service_url)
+        service_url = page_url(service_url, preserve_target=True)
         nsid = identifiers.normalize_nsid(nsid)
         if not identifiers.is_valid_nsid(nsid):
             raise ValueError("a valid collection NSID is required")
@@ -35,7 +35,7 @@ def save_feedback(conn: sqlite3.Connection, *, project_key: str, kind: str, reas
         if not clear and not reason:
             raise ValueError("reason is required for service usage")
         attributes = {"service_url": service_url, "nsid": nsid,
-                      "source_url": page_url(source_url) if source_url else service_url}
+                      "source_url": page_url(source_url or service_url)}
     else:
         raise ValueError("unknown feedback kind")
     entries = operator_feedback.normalize_history(project.get(field))

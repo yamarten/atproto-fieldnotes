@@ -16,6 +16,7 @@ from project_registry_core.persistence import database as registry_database
 from project_registry_core.identity import domain_policy as domain_policy_core
 from project_registry_core import evaluation as evaluation_core
 from project_registry_core.identity import identifiers as identifier_core
+from project_registry_core.identity import resource_identity
 from project_registry_core.persistence import identifier_storage
 from project_registry_core import relations as relation_core
 from project_registry_core.repositories import repo_urls as repo_url_core
@@ -634,13 +635,7 @@ def canonical_seed_value(seed_type: str, seed_value: str) -> str:
     if seed_type == "nsid":
         extracted = extract_collection_nsid(seed_value)
         return extracted or identifier_core.normalize_nsid(seed_value)
-    if seed_type == "repo_url":
-        return repo_url_core.canonical_repo_url(seed_value)
-    if seed_type in {"handle", "domain"}:
-        return str(seed_value or "").strip().lower().rstrip(".")
-    if seed_type.endswith("_url"):
-        return identifier_core.normalize_url(seed_value)
-    return seed_value
+    return resource_identity.normalize_value(seed_type, seed_value)
 
 
 def lexicon_namespace_for_project(nsid: str) -> str:
@@ -834,15 +829,7 @@ def apply_technical_interest_state(project: dict[str, Any]) -> dict[str, Any]:
 
 
 def normalize_blocked_identifier_value(identifier_type: str, value: str) -> str:
-    if identifier_type == "service_url":
-        return identifier_core.normalize_url(value)
-    if identifier_type == "repo_url":
-        return repo_url_core.canonical_repo_url(value)
-    if identifier_type == "nsid":
-        return identifier_core.normalize_nsid(value)
-    if identifier_type in {"handle", "domain"}:
-        return str(value or "").strip().lower().rstrip(".")
-    return str(value or "").strip()
+    return resource_identity.normalize_value(identifier_type, value)
 
 
 def normalize_blocked_identifiers(entries: list[Any]) -> list[dict[str, str]]:
@@ -1551,7 +1538,7 @@ def project_matches_identifier(project: dict[str, Any], identifier_type: str, id
     if identifier_type == "resolved_nsid":
         return (0, True) if normalized in [identifier_core.normalize_nsid(str(item)) for item in project.get("resolved_nsids", []) if item] else (99, False)
     if identifier_type == "repo_url":
-        return (0, True) if normalized in [identifier_core.normalize_url(str(item)) for item in project_repository_url_values(project) if item] else (99, False)
+        return (0, True) if normalized in project_repository_url_values(project) else (99, False)
     if identifier_type == "did":
         if str(project.get("brand_did") or "").strip() == normalized:
             return 0, True
@@ -1598,11 +1585,13 @@ def indexed_identifier_matches(
     if kind not in {"service_url", "repo_url", "nsid", "did", "handle", "domain"} or not normalized:
         return []
 
+    github = kind == "repo_url" and normalized.startswith("https://github.com/")
+    value_expression = "value COLLATE NOCASE" if github else "value"
     rows = conn.execute(
-        """
+        f"""
         SELECT project_key, role, classification, provider
         FROM project_identifiers INDEXED BY idx_project_identifiers_lookup
-        WHERE kind = ? AND value = ?
+        WHERE kind = ? AND {value_expression} = ?
         """,
         (kind, normalized),
     ).fetchall()
@@ -2004,7 +1993,7 @@ def normalize_service_candidate_url(url: str) -> str | None:
         for token in NOISY_SERVICE_PATH_TOKENS
     ):
         return None
-    normalized = urllib.parse.urlunparse((parsed.scheme.lower(), lowered_host, "", "", "", ""))
+    normalized = identifier_core.normalize_url(cleaned)
     if is_explicitly_non_project_service_url(normalized):
         return None
     return normalized
@@ -2373,17 +2362,7 @@ def record_developer_profile_url(project: dict[str, Any], url: str, source: str)
 def normalize_trust_node_value(kind: str, value: str) -> str:
     if kind == "service_url":
         return normalize_confirmed_service_url(value) or ""
-    if kind == "repo_url":
-        return repo_url_core.canonical_repo_url(value)
-    if kind in {"collection", "nsid"}:
-        return identifier_core.normalize_nsid(value)
-    if kind == "domain":
-        return str(value or "").strip().lower().rstrip(".")
-    if kind == "handle":
-        return str(value or "").strip().lower().rstrip(".")
-    if kind == "did":
-        return str(value or "").strip()
-    return ""
+    return resource_identity.normalize_value(kind, value) if kind in trust_graph_core.NODE_KINDS else ""
 
 
 def trust_node(kind: str, value: str) -> dict[str, str]:
@@ -2818,9 +2797,8 @@ def identifier_is_blocked(project: dict[str, Any], identifier_type: str, value: 
     normalized = normalize_blocked_identifier_value(identifier_type, value)
     if not normalized:
         return False
-    if identifier_type == "service_url":
-        return any(service_url_matches_guard(normalized, item) for item in blocked_identifier_values(project, identifier_type))
-    return normalized in blocked_identifier_values(project, identifier_type)
+    return any(resource_identity.matches_guard(identifier_type, normalized, item, descendants=True)
+               for item in blocked_identifier_values(project, identifier_type))
 
 
 def deferred_identifier_values(project: dict[str, Any], identifier_type: str) -> set[str]:
@@ -2835,27 +2813,12 @@ def identifier_is_deferred(project: dict[str, Any], identifier_type: str, value:
     normalized = normalize_blocked_identifier_value(identifier_type, value)
     if not normalized:
         return False
-    if identifier_type == "service_url":
-        return any(service_url_matches_guard(normalized, item) for item in deferred_identifier_values(project, identifier_type))
-    return normalized in deferred_identifier_values(project, identifier_type)
+    return any(resource_identity.matches_guard(identifier_type, normalized, item, descendants=True)
+               for item in deferred_identifier_values(project, identifier_type))
 
 
 def service_url_matches_guard(value: str, guard_value: str) -> bool:
-    normalized = identifier_core.normalize_url(value)
-    guard = identifier_core.normalize_url(guard_value)
-    if not normalized or not guard:
-        return False
-    if normalized == guard:
-        return True
-    parsed = urllib.parse.urlparse(normalized)
-    guard_parsed = urllib.parse.urlparse(guard)
-    if parsed.scheme != guard_parsed.scheme or parsed.netloc.lower() != guard_parsed.netloc.lower():
-        return False
-    guard_path = guard_parsed.path.rstrip("/")
-    if not guard_path:
-        return True
-    path = parsed.path.rstrip("/")
-    return path.startswith(f"{guard_path}/")
+    return resource_identity.matches_guard("service_url", value, guard_value, descendants=True)
 
 
 def manual_repo_urls(project: dict[str, Any]) -> set[str]:

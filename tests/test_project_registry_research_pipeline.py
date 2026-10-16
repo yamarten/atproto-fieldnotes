@@ -665,13 +665,13 @@ class ProjectRegistryResearchPipelineTest(ProjectRecordTestCase):
 
     def test_replay_normalizes_legacy_homepage_relation_and_stale_edge(self) -> None:
         repo_url = "https://github.com/example/app"
-        homepage = "https://app.example.com/path"
+        homepage = "https://app.example.com/path/"
         project = self.make_project("proj:repository-replay", "repo_url", repo_url)
         legacy_relation = {
             "relation": {
                 "subject": {"type": "repo", "value": f"{repo_url}/tree/main"},
                 "predicate": "project_repository",
-                "object": {"type": "service", "value": f"{homepage}/"},
+                "object": {"type": "service", "value": homepage},
                 "locator": repo_url,
                 "method": "github_homepage",
             },
@@ -1196,18 +1196,18 @@ class ProjectRegistryResearchPipelineTest(ProjectRecordTestCase):
 
         registry.apply_service_evidence(project, bundle)
         self.assertIn(
-            "https://github.com/ACregan/scribe-atp-sdk",
+            "https://github.com/acregan/scribe-atp-sdk",
             project["candidate_project_repository_urls"],
         )
 
         shaped = registry.finalize_project_shape(project)
 
         self.assertIn(
-            "https://github.com/ACregan/scribe-atp-sdk",
+            "https://github.com/acregan/scribe-atp-sdk",
             shaped["candidate_project_repository_urls"],
         )
         self.assertTrue(any(
-            item.get("url") == "https://github.com/ACregan/scribe-atp-sdk"
+            item.get("url") == "https://github.com/acregan/scribe-atp-sdk"
             and item.get("confidence") == "candidate"
             for item in shaped["source_repo_records"]
         ))

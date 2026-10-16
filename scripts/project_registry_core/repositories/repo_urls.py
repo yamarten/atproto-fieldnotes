@@ -95,7 +95,7 @@ def infer_repo_provider(url: str) -> str:
 def canonical_repo_url(url: str) -> str:
     provider = infer_repo_provider(url)
     if provider == "github":
-        return normalize_github_repo_url(url) or identifiers.normalize_url(url)
+        return (normalize_github_repo_url(url) or identifiers.normalize_url(url)).lower()
     if provider == "tangled":
         return normalize_tangled_repo_url(url) or identifiers.normalize_url(url)
     if provider in KNOWN_FORGE_REPO_HOSTS or provider in KNOWN_FORGE_REPO_HOSTS_WITH_USER_PREFIX:
@@ -104,12 +104,8 @@ def canonical_repo_url(url: str) -> str:
 
 
 def repo_identity_key(url: str) -> str:
-    """Return a comparison key without changing the displayed canonical URL."""
-    canonical = canonical_repo_url(url)
-    parsed = urllib.parse.urlparse(canonical)
-    if parsed.netloc.lower() == "github.com":
-        return canonical.lower()
-    return canonical
+    """Return the shared canonical repository value used for comparison."""
+    return canonical_repo_url(url)
 
 
 def repo_owner_identity(url: str) -> str:
@@ -127,7 +123,7 @@ def normalize_repo_collection(urls: list[str], *, provider: str | None = None) -
     for url in urls:
         parsed = urllib.parse.urlparse(identifiers.normalize_url(url))
         if provider == "github" or parsed.netloc == "github.com":
-            normalized = normalize_github_repo_url(url)
+            normalized = canonical_repo_url(url) if normalize_github_repo_url(url) else None
         elif provider == "tangled" or parsed.netloc == "tangled.org":
             normalized = normalize_tangled_repo_url(url)
         elif parsed.netloc in KNOWN_FORGE_REPO_HOSTS | KNOWN_FORGE_REPO_HOSTS_WITH_USER_PREFIX:

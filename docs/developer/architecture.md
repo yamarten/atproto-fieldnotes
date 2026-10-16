@@ -142,7 +142,7 @@ Firefox拡張のポップアップ試作は、`embed=popup`のWeb UIをiframeへ
 | `identity/domain_policy.py` | 同梱PSLとhosting suffix設定によるdomain・tenant境界。依存・PSL欠落はエラー |
 | `transport/http_transport.py` | outbound URL検証、内部host遮断、redirect先再検証、HTTP呼出し |
 | `transport/atproto.py` | Bluesky認証・session更新・投稿／profile取得、DNS・DID解決、Lexicon取得と応答解析。registry・project record・保存層に依存せず、採用判断は呼出元で行う |
-| `identity/identifiers.py` / `repositories/repo_urls.py` | URL・NSID・alias・atproto accountの共通正規化、repo provider・owner判定 |
+| `identity/identifiers.py` / `identity/resource_identity.py` / `repositories/repo_urls.py` | URL・NSID・atproto account・repositoryの共通正規化と資源key、型選択、明示的なguard範囲、repo provider・owner判定。role別の採用判断は行わない |
 | `naming.py` | title短縮、名前候補の保持・除外・採点・選定。識別情報は`project_record.py`から読み、取得・DB保存・registryへの依存を持たない |
 | `transport/llm_transport.py` | command/互換endpoint呼出し、応答解析、timeout・error・metrics。prompt構築と適用は外側 |
 

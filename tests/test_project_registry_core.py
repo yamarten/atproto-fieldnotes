@@ -92,10 +92,10 @@ class ProjectRegistryIdentifierHelperTest(unittest.TestCase):
 
         self.assertEqual(project_review.evaluate_promotion(project), [])
 
-    def test_normalize_url_preserves_path_but_drops_query_and_fragment(self) -> None:
+    def test_normalize_url_preserves_resource_path_query_and_fragment(self) -> None:
         self.assertEqual(
             identifier_core.normalize_url("HTTPS://Example.COM/docs/?page=1#intro"),
-            "https://example.com/docs",
+            "https://example.com/docs/?page=1#intro",
         )
 
     def test_normalize_nsid_accepts_at_uri_and_fragment(self) -> None:

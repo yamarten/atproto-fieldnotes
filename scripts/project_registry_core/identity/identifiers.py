@@ -46,7 +46,7 @@ def normalize_atproto_account(item: Mapping[str, Any]) -> dict[str, str]:
     did = str(item.get("did") or "").strip()
     source = str(item.get("source") or "").strip()
     if DID_RE.fullmatch(handle):
-        if not did or did.lower() == handle.lower():
+        if not did or did == handle:
             did = handle
         handle = ""
     output: dict[str, str] = {}
@@ -65,7 +65,7 @@ def extract_bluesky_profile_subject(url: str, *, allow_subpaths: bool = False) -
     parsed = urllib.parse.urlsplit(normalized)
     if parsed.scheme not in {"http", "https"} or parsed.netloc not in {"bsky.app", "staging.bsky.app"}:
         return {}
-    pattern = r"/profile/([^/]+)(?:/.*)?" if allow_subpaths else r"/profile/([^/]+)"
+    pattern = r"/profile/([^/]+)(?:/.*)?" if allow_subpaths else r"/profile/([^/]+)/?"
     match = re.fullmatch(pattern, parsed.path)
     if not match:
         return {}
@@ -76,14 +76,24 @@ def extract_bluesky_profile_subject(url: str, *, allow_subpaths: bool = False) -
 def normalize_url(url: str) -> str:
     try:
         parsed = urllib.parse.urlparse(str(url or "").strip())
+        scheme = (parsed.scheme or "https").lower()
+        port = parsed.port if scheme in {"http", "https"} else None
     except ValueError:
         return ""
-    scheme = (parsed.scheme or "https").lower()
-    host = parsed.netloc.lower()
+    userinfo, separator, authority = parsed.netloc.rpartition("@")
+    host = authority if separator else parsed.netloc
+    if scheme in {"http", "https"}:
+        host = host.lower()
+    if (scheme, port) in {("http", 80), ("https", 443)}:
+        host = host.rsplit(":", 1)[0]
+    if separator:
+        host = userinfo + "@" + host
     if scheme in {"http", "https"} and not host:
         return ""
-    path = parsed.path.rstrip("/")
-    return urllib.parse.urlunparse((scheme, host, path, "", "", ""))
+    # An empty HTTP path and '/' name the same resource. Other trailing
+    # slashes, query parameters, and fragments can identify different targets.
+    path = "" if parsed.path == "/" and scheme in {"http", "https"} else parsed.path
+    return urllib.parse.urlunparse((scheme, host, path, parsed.params, parsed.query, parsed.fragment))
 
 
 def sanitize_extracted_url(raw_url: str) -> str:

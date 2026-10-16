@@ -8,6 +8,7 @@ from typing import Any
 
 from .. import operator_feedback, project_record
 from ..identity import identifiers
+from ..identity import resource_identity
 from ..repositories import repo_urls
 from ..persistence.concurrency import consistent_read
 from . import presentation
@@ -17,7 +18,8 @@ FORGE_HOSTS = {"github.com", "tangled.org", "codeberg.org", "gitlab.com", "git.s
 SHARED_HOSTS = FORGE_HOSTS | {"bsky.app", "pds.ls", "pdsls.dev"}
 
 
-def page_url(value: str) -> str:
+def page_url(value: str, *, preserve_target: bool = False) -> str:
+    """Validate a URL; redact transient browser parameters except for matching."""
     try:
         parsed = urllib.parse.urlsplit(str(value).strip())
         if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
@@ -25,7 +27,9 @@ def page_url(value: str) -> str:
         parsed.port
     except ValueError as error:
         raise ValueError("an HTTP(S) page URL without credentials is required") from error
-    return identifiers.normalize_url(urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", "")))
+    if not preserve_target:
+        parsed = parsed._replace(query="", fragment="")
+    return identifiers.normalize_url(urllib.parse.urlunsplit(parsed))
 
 
 def _domain_namespace(value: str) -> str:
@@ -74,14 +78,15 @@ def search(conn: sqlite3.Connection, query: str, *, limit: int = 50) -> dict[str
 
 @consistent_read
 def resolve_page(conn: sqlite3.Connection, url: str) -> dict[str, Any]:
-    normalized = page_url(url)
+    normalized = page_url(url, preserve_target=True)
+    public_url = page_url(url)
     parsed = urllib.parse.urlsplit(normalized)
     paths = [parsed.path]
     path = parsed.path
     while path:
         path = path.rsplit("/", 1)[0]
         paths.append(path)
-    values = {urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, path, "", "")) for path in paths}
+    values = {normalized, *(urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, path, "", "")) for path in paths)}
     # Repository URL normalization knows the provider's repository boundary.
     repository = repo_urls.canonical_repo_url(normalized) if parsed.hostname in FORGE_HOSTS else ""
     if repository:
@@ -91,23 +96,26 @@ def resolve_page(conn: sqlite3.Connection, url: str) -> dict[str, Any]:
         SELECT i.project_key, i.kind, i.value, i.role, i.classification,
                p.name, p.tracking_state, p.introduced_url
         FROM project_identifiers i JOIN projects p ON p.project_key = i.project_key
-        WHERE i.value IN ({placeholders}) AND i.classification IN ('confirmed', 'candidate')
+        WHERE (i.value IN ({placeholders}) OR (i.kind='repo_url' AND i.value COLLATE NOCASE=?))
+          AND i.classification IN ('confirmed', 'candidate')
           AND ((i.kind = 'service_url' AND i.role = 'service')
             OR (i.kind = 'site_url' AND i.role = 'project_site')
             OR (i.kind = 'repo_url' AND i.role = 'project_repository'))
         ORDER BY i.project_key, i.value
-    """, sorted(values)).fetchall()
+    """, [*sorted(values), repository if parsed.hostname == "github.com" else ""]).fetchall()
     matches: dict[str, dict[str, Any]] = {}
     for row in rows:
         stored = urllib.parse.urlsplit(row["value"])
-        if parsed.hostname in SHARED_HOSTS and row["value"] != normalized:
-            if row["kind"] != "repo_url" or not repository or row["value"] != repository:
+        same_page = resource_identity.key("website", row["value"]) == resource_identity.key("website", normalized)
+        same_repo = bool(repository) and row["kind"] == "repo_url" and resource_identity.key("repo_url", row["value"]) == resource_identity.key("repo_url", repository)
+        if parsed.hostname in SHARED_HOSTS and not same_page:
+            if not same_repo:
                 continue
-        if row["kind"] == "repo_url" and row["value"] != normalized and row["value"] != repository:
+        if row["kind"] == "repo_url" and not same_page and not same_repo:
             continue
         # Root service URLs on ordinary hosts may match descendants. A path
         # prefix is always a complete segment, never a sibling such as /app-2.
-        if row["value"] != repository and (stored.netloc != parsed.netloc or stored.scheme != parsed.scheme):
+        if not same_repo and (stored.netloc != parsed.netloc or stored.scheme != parsed.scheme):
             continue
         item = matches.setdefault(row["project_key"], {
             "project_key": row["project_key"], "name": row["name"],
@@ -115,7 +123,7 @@ def resolve_page(conn: sqlite3.Connection, url: str) -> dict[str, Any]:
         })
         item["matches"].append({
             "kind": row["kind"], "value": row["value"], "classification": row["classification"],
-            "match": "exact" if row["value"] == normalized else "repository" if row["kind"] == "repo_url" else "descendant",
+            "match": "exact" if same_page else "repository" if row["kind"] == "repo_url" else "descendant",
         })
     url_match_count = len(matches)
     _add_nsid_matches(conn, normalized, matches)
@@ -124,10 +132,10 @@ def resolve_page(conn: sqlite3.Connection, url: str) -> dict[str, Any]:
         match["kind"] != "nsid" and match["classification"] == "confirmed" for match in items[0]["matches"]
     )
     return {
-        "url": normalized, "items": items,
+        "url": public_url, "items": items,
         "project_key": items[0]["project_key"] if automatic else "",
         "status": "matched" if automatic else "choose" if items else "unmatched",
-        "seed": repository or normalized, "url_match_count": url_match_count,
+        "seed": repository or public_url, "url_match_count": url_match_count,
     }
 
 

@@ -15,6 +15,7 @@ from typing import Any, Mapping
 
 from .persistence import identifier_storage
 from .identity import identifiers
+from .identity import resource_identity
 from . import relations
 from .persistence import runtime_view
 from . import trust_graph
@@ -190,7 +191,7 @@ def verified_publications(project: Mapping[str, Any]) -> dict[str, dict[str, Any
 
 def evaluate_publisher_support(project: Mapping[str, Any], nsid: str) -> dict[str, Any]:
     publications = verified_publications(project)
-    node_kind = lambda value: "collection" if publications.get(value, {}).get("publication_validation", {}).get("schema_type", "record") == "record" else "nsid"
+    node_kind = lambda value: resource_identity.schema_node_kind(publications.get(value, {}).get("publication_validation", {}).get("schema_type", "record"))
     candidate = trust_graph.node(node_kind(nsid), nsid)
     unsupported = {"auto_confirm": False, "reason": "no_scoped_publication_path", "candidate": candidate, "policy_version": POLICY_VERSION}
     claims = {item.value: item for item in runtime_view.project_identifiers(project)

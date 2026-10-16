@@ -113,7 +113,7 @@ GitHub repository metadataのhomepageは、repository管理者がそのURLをWeb
 
 #### 資源同一性の補足
 
-resource identityは、二つのidentifierが同じ外部resourceまたはその時系列上のaliasを指すかを扱います。repositoryではproviderの不変repository IDを共有するrename/transfer前後、accountでは相互検証されたDIDとcurrent handle、service surfaceではcanonical URLや移転履歴が代表例です。mirror、fork、同一content、同じowner、同じhostは、それぞれ別resource間でも成立する関係として扱います。
+resource identityは、二つのidentifierが同じ外部resourceまたはその時系列上のaliasを指すかを扱います。役割や取得経路によらない[種類ごとの正規化](project-record.md#識別値の正規化と資源同一性)を標準とし、意図的に狭く・広く照合する用途はその範囲と理由を別に定めます。repositoryではproviderの不変repository IDを共有するrename/transfer前後、accountでは相互検証されたDIDとcurrent handle、service surfaceではcanonical URLや移転履歴が代表例です。mirror、fork、同一content、同じowner、同じhostは、それぞれ別resource間でも成立する関係として扱います。
 
 現行graphは観測されたidentifierをnodeとして保持し、aliasらしい値を暗黙に一つへ畳みません。identityを確認する直接relationと、projectへの帰属relationを分けます。
 
@@ -354,7 +354,7 @@ raw redirectや同一content表示は観測であり、それだけでcanonical 
 - handleとDIDは別nodeですが同じ論理的accountを表し得るため、account relationの保存先は観測sourceに応じて分かれます。
 - `domain_publishes_lexicon_record`は現行実装のpredicateです。DNSによるpublisher DID委譲と、そのDID repoにmatching schema recordがあることを一つに畳んでいるため、新設計では別事実として扱う案です。
 - 同じ観測から両方向のedgeを生成する場合、両edgeに同じsource、locator、methodなどのprovenanceを保持します。由来の共通性は往路・復路への利用を妨げません。
-- `collection`は現行どおりrecord collectionを主対象とします。permission-set、XRPC、record以外のLexiconへ一般化する場合は`nsid` nodeとsubtypeを将来検討します。
+- `collection`はrecord collectionを表します。schema公開の取得・identity同期・発行元の限定信頼評価では、record以外のLexiconを`nsid` nodeで扱い、保存された`schema_type`を共通の型選択へ使います。型が分かるquery等から`collection` nodeを生成しません。
 
 #### マトリクス外の関係と観測
 
