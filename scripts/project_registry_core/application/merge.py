@@ -145,6 +145,8 @@ def merge_projects(
         "merged_website_url": merged.get("website_url", ""),
         "merged_service_urls": merged.get("service_urls", []),
         "merged_tagline": merged.get("tagline", ""),
+        "merged_summary": merged.get("summary", ""),
+        "merged_promotion_priority": project_review.active_promotion_priority_adjustment(merged),
         "merged_tagline_is_provisional": merged.get("tagline_is_provisional", False),
         "merged_service_status": merged.get("service_status", ""),
         "merged_project_repository_urls": merged.get("project_repository_urls", []),

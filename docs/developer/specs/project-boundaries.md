@@ -840,6 +840,8 @@ DBから比較集合を読む単発計算では、名前・Website・status、re
 
 意図は、collection/lexicon project が後から service 本体の editorial 情報を上書きしないようにすることです。
 
+マージ方向とこの優先規則は別です。targetのproject keyを残し、sourceのkeyをaliasにします。編集情報の比較が同点ならtargetを優先します。両方に`introduced_url`または有効な低優先度判断がある場合もtargetを優先し、低優先度のsource側判断は解除履歴に残します。一方、時刻は下記のmin/maxで統合します。Webの方向反転は残すIDと競合時の優先側を選ぶための操作で、すべてのfieldをtargetから採る指定ではありません。
+
 この統合規則は既存recordの説明文を遡及修正する処理ではありません。既存説明の訂正はprofile更新または手動修正として扱います。
 
 ### 観測・調査時刻の統合

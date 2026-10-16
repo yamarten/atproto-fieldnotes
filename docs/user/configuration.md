@@ -82,4 +82,6 @@ chmod 600 .envrc
 
 候補収集に使う外部情報源の有効・無効、URL、検索条件、対象範囲、リクエスト上限は[config/sources.json](../../config/sources.json)で管理します。同梱設定は、このプロジェクトの公開紹介アカウントを検索し、公開Semble collectionを収集する設定です。別の紹介活動に使う場合は`introduced_search.query`を変更し、Sembleの対象は`semble_collections.tracked_collections`で選びます。収集しない情報源は`enabled: false`にします。認証値はsource設定へ書かず、上記の環境変数へ設定します。
 
+Semble取り込みは、選んだ公開リンク集を候補発見の入口として使います。リンク集への掲載は所有関係や紹介適性の保証ではなく、登録後の調査と判断が必要です。同梱collectionの選定理由・期待する収集範囲は未整理で、atproto関連全体を網羅する設定とは扱いません。
+
 ドメインの区切りを判断するPublic Suffix List（PSL）にないホスティングサービスの接尾辞を追加する場合だけ、任意の`config/domain-overrides.json`を用意します。未作成なら同梱PSLと既定の規則を使います。[設定例](../../config/domain-overrides.example.json)と接尾辞変更の影響確認に使う`audit-source-config`を参照してください。

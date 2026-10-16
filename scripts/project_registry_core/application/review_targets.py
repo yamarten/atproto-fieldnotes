@@ -48,6 +48,20 @@ def failure_target(run_id: str, failure: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def with_review_state(target: dict[str, Any], active_decisions: list[dict[str, Any]]) -> dict[str, Any]:
+    """Project review attention onto evidence without changing its truth or adoption."""
+    decisions = [
+        item for item in active_decisions
+        if item["kind"] in {"dismiss_review_target", "defer_review_target"}
+        and item["target_type"] == target["target_type"]
+        and item["target_value"] == target["target_value"]
+    ]
+    status = "open"
+    if decisions:
+        status = "dismissed" if any(item["kind"] == "dismiss_review_target" for item in decisions) else "deferred"
+    return {**target, "status": status, "decisions": decisions}
+
+
 def available_targets(conn: sqlite3.Connection, project_key: str) -> dict[str, dict[str, Any]]:
     output: dict[str, dict[str, Any]] = {}
     for row in conn.execute(

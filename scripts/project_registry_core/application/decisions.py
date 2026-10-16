@@ -300,13 +300,15 @@ def set_review_target(
     project = core.resolve_single_project(conn, project_key=project_key)
     available = review_targets.available_targets(conn, str(project["project_key"]))
     target = available.get(str(target_value))
-    if target is None or target["target_type"] != target_type:
+    if not clear and (target is None or target["target_type"] != target_type):
         raise ValueError("review target is stale or does not belong to this project")
     kind = "dismiss_review_target" if action == "dismiss" else "defer_review_target" if action == "defer" else ""
     if not kind:
         raise ValueError("review target action must be dismiss or defer")
     now = project_record.iso_now()
     entries = [dict(item) for item in project.get("review_target_decisions", []) if isinstance(item, dict)]
+    if clear and not any(item.get("kind") == kind and item.get("target_type") == target_type and item.get("target_value") == target_value for item in entries):
+        raise ValueError("review decision does not belong to this project")
     for item in entries:
         if item.get("kind") == kind and item.get("target_type") == target_type and item.get("target_value") == target_value and not item.get("cleared_at"):
             item["cleared_at"] = now

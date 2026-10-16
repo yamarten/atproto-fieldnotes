@@ -14,7 +14,7 @@ from io import BytesIO
 
 from helpers import ROOT, ProjectRecordTestCase, TempRegistryDbTestCase, registry
 
-from project_registry_core import project_merge
+from project_registry_core import project_merge, project_review
 from project_registry_core.identity import domain_policy
 from project_registry_core import introduced_review
 from project_registry_core.persistence import storage
@@ -966,6 +966,29 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         self.assertEqual(reverse_payload["target"]["project_key"], "proj:111111111111")
         self.assertEqual(reverse_payload["merged_preview"]["target_project_key"], "proj:111111111111")
 
+    def test_merge_preview_separates_direction_from_editorial_preference(self) -> None:
+        conn = registry.open_db()
+        try:
+            for key, label in [("proj:111111111111", "source"), ("proj:222222222222", "target")]:
+                project = project_record.fetch_project(conn, key)
+                project["summary"] = f"{label} description"
+                project["introduced_url"] = f"https://example.test/{label}"
+                project_review.set_promotion_priority_on_project(project, lowered=True, reason=label)
+                project_record.save_project(conn, project)
+            conn.commit()
+        finally:
+            conn.close()
+        previews = []
+        for source, target in [("111111111111", "222222222222"), ("222222222222", "111111111111")]:
+            status, payload, _ = self.request(f"/api/merge-pair?source_project_key=proj:{source}&target_project_key=proj:{target}")
+            self.assertEqual(status, 200)
+            previews.append(payload["merged_preview"])
+        self.assertEqual(previews[0]["merged_summary"], previews[1]["merged_summary"])
+        self.assertEqual(previews[0]["introduced_url"], "https://example.test/target")
+        self.assertEqual(previews[1]["introduced_url"], "https://example.test/source")
+        self.assertEqual(previews[0]["merged_promotion_priority"]["reason"], "target")
+        self.assertEqual(previews[1]["merged_promotion_priority"]["reason"], "source")
+
     def test_merge_pair_includes_multi_tenant_suffix_suggestion(self) -> None:
         conn = registry.open_db()
         try:
@@ -1551,6 +1574,9 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         self.assertEqual(status, 200)
         active = payload["detail"]["decisions"]["active"]
         self.assertTrue(any(item["kind"] == "dismiss_review_target" for item in active))
+        relation = next(item for item in payload["detail"]["relations"] if item["review_target"]["target_value"] == relation_target["target_value"])
+        self.assertEqual(relation["review_target"]["status"], "dismissed")
+        self.assertEqual(relation["classification"], detail["relations"][0]["classification"])
 
         status, payload, _ = self.request(
             "/api/projects/proj:111111111111/defer-review-target",
@@ -1564,6 +1590,20 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         )
         self.assertEqual(status, 200)
         self.assertTrue(any(item["kind"] == "defer_review_target" for item in payload["detail"]["decisions"]["active"]))
+        self.assertEqual(payload["detail"]["investigation"]["failures"][0]["review_target"]["status"], "deferred")
+
+        status, payload, _ = self.request(
+            "/api/projects/proj:111111111111/clear-review-target",
+            method="POST",
+            payload={
+                "expected_revision": payload["detail"]["revision"],
+                "target_type": relation_target["target_type"],
+                "target_value": relation_target["target_value"],
+                "review_action": "dismiss",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["detail"]["relations"][0]["review_target"]["status"], "open")
 
         account = next(item for item in payload["detail"]["identifiers"] if item["value"] == "did:plc:developer")
         self.assertFalse(account["actions"]["confirm"])
@@ -1585,6 +1625,40 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         self.assertEqual(status, 200)
         confirmed = next(item for item in payload["detail"]["identifiers"] if item["value"] == "did:plc:developer")
         self.assertEqual(confirmed["classification"], "confirmed")
+
+    def test_review_target_expiry_and_clear_after_target_changes(self) -> None:
+        _, detail, _ = self.request("/api/projects/proj:111111111111")
+        target = detail["relations"][0]["review_target"]
+        status, payload, _ = self.request(
+            "/api/projects/proj:111111111111/defer-review-target", method="POST",
+            payload={"expected_revision": detail["revision"], "target_type": target["target_type"], "target_value": target["target_value"]},
+        )
+        self.assertEqual(status, 200)
+        conn = registry.open_db()
+        try:
+            conn.execute("UPDATE project_decisions SET expires_at = '2000-01-01T00:00:00+00:00' WHERE kind = 'defer_review_target'")
+            conn.commit()
+            _, detail, _ = self.request("/api/projects/proj:111111111111")
+            self.assertEqual(detail["relations"][0]["review_target"]["status"], "open")
+            conn.execute("UPDATE project_relations SET locator = 'new/location.json' WHERE project_key = 'proj:111111111111'")
+            conn.commit()
+        finally:
+            conn.close()
+        _, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertNotEqual(detail["relations"][0]["review_target"]["target_value"], target["target_value"])
+        self.assertEqual(detail["relations"][0]["review_target"]["status"], "open")
+        status, payload, _ = self.request(
+            "/api/projects/proj:111111111111/clear-review-target", method="POST",
+            payload={"expected_revision": detail["revision"], "target_type": target["target_type"], "target_value": target["target_value"], "review_action": "defer"},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(any(item["kind"] == "defer_review_target" and item["cleared_at"] for item in payload["detail"]["decisions"]["history"]))
+        _, other, _ = self.request("/api/projects/proj:222222222222")
+        status, _, _ = self.request(
+            "/api/projects/proj:222222222222/clear-review-target", method="POST",
+            payload={"expected_revision": other["revision"], "target_type": target["target_type"], "target_value": target["target_value"], "review_action": "defer"},
+        )
+        self.assertEqual(status, 400)
 
     def test_identity_identifier_defer_accepts_account_and_handle_types(self) -> None:
         status, detail, _ = self.request("/api/projects/proj:111111111111")

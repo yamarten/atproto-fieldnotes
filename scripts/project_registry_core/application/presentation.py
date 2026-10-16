@@ -736,6 +736,9 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "explanations": explain.explain_project_state(prepared, merge_pending=True),
     }
     payload["merge_target_revision"] = ""
+    review_rows = [*payload["relations"], *((payload["investigation"] or {}).get("failures", []))]
+    for item in review_rows:
+        item["review_target"] = review_targets.with_review_state(item["review_target"], payload["decisions"]["active"])
     identifiers = payload["identifiers"]
     primary_account = next((item for item in identifiers if item["family"] == "identity" and "account" in item["kinds"]), None)
     payload["overview"] = {
