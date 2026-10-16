@@ -160,27 +160,58 @@ loadMergeDetail("a", "b").then(async () => {
   assert.match(html, /<strong class="matched-identifier"[^>]*><a[^>]*href="https:\/\/common.example\/"/);
   assert.equal((html.match(/class="matched-identifier"/g) || []).length, 2);
   assert.match(html, /<details class="detail-section"><summary>候補と判断された理由<\/summary>/);
-  const creatorSection = html.match(/<section class="detail-section"><h3>Lexicon発行元とrecord初回観測者[\s\S]*?<\/section>/)[0];
+  const creatorSection = html.match(/<section class="detail-section"><h3>DIDの一致[\s\S]*?<\/section>/)[0];
   const diagnostics = [...creatorSection.matchAll(/<details\b([^>]*)><summary>(.*?)<\/summary>([\s\S]*?)<\/details>/g)];
-  assert.deepEqual(diagnostics.map(item => item[2]), ["マージ元の照会結果", "マージ先の照会結果", "発行元の出典と検証状態"]);
-  for (const item of diagnostics) {
-    assert.ok(!/\bopen\b/.test(item[1]));
-    assert.ok(!item[3].includes("<details"));
-  }
-  assert.match(diagnostics[0][3], /not_found/);
-  assert.match(diagnostics[1][3], /error/);
-  const visibleResults = creatorSection.replace(/<details\b[\s\S]*?<\/details>/g, "");
-  for (const [label, did] of [["マージ元のrecord初回観測者DID", "source"], ["マージ先のrecord初回観測者DID", "target"]]) {
-    assert.match(visibleResults, new RegExp(`<dt>${label}</dt><dd><pre>[\\s\\S]*?did:plc:${did}`));
-  }
+  assert.deepEqual(diagnostics.map(item => item[2]), ["参照したDIDと診断"]);
+  assert.ok(!/\bopen\b/.test(diagnostics[0][1]));
+  assert.ok(!diagnostics[0][3].includes("<details"));
+  for (const value of ["not_found", "error", "did:plc:source", "did:plc:target"]) assert.ok(diagnostics[0][3].includes(value));
+  const visibleResults = creatorSection.replace(/<details\b[\s\S]*?<\/details>/g, "")
+    .replace(/<div id="merge-did-[^"]+"[\s\S]*?<\/div><\/td>/g, "</td>");
+  assert.ok(!visibleResults.includes("did:plc:"));
+  assert.match(visibleResults, /class="did-match-matrix"/);
+  assert.equal((visibleResults.match(/class="did-match-count"/g) || []).length, 2);
   assert.ok(!creatorSection.includes('id="load-first-creator-heuristic"'));
-  assert.match(visibleResults, /初回観測者同士の一致<\/dt><dd>did:plc:shared/);
   assert.match(html, /<template><p>Lexicon発行元は保存済み/);
   assert.match(html, /not_found/);
   api = async () => ({source:{project_key:"a"}, target:{project_key:"b"}, merge_blocked:true});
   await loadMergeDetail("a", "b", {includeFirstCreator:true});
   assert.match(nodes.get("detail").innerHTML, /<p class="notice">別プロジェクト指定によりマージが制限/);
 }).catch(error => { console.error(error); process.exitCode = 1; });
+''')
+
+    def test_merge_did_matrix_maps_each_direction_and_escapes_breakdown(self):
+        self.run_javascript(r'''
+const unsafe = '<img src=x onerror=alert(1)>';
+const html = renderMergeDidComparison({
+  did_comparison:{publisher_publisher:["did:plc:pub"],
+    source_publisher_target_first_observer:["did:plc:cross", unsafe],
+    source_first_observer_target_publisher:[], first_observer_first_observer:null},
+  source_lexicon_publisher_dids:{"org.source.a":"did:plc:pub", "org.source.b":"did:plc:pub", "org.source.cross":"did:plc:cross", [unsafe]:unsafe},
+  target_lexicon_publisher_dids:{"net.target.pub":"did:plc:pub"},
+  target_collection_first_creator_dids:{"net.target.record":"did:plc:cross"},
+  source_non_record_nsids:[unsafe],
+  source_lexicon_publisher_details:{[unsafe]:[{did:unsafe, observed_at:"2026-10-13", status:"unverified"}]}
+});
+assert.match(html, /<th scope="col">元 ↓ ／ 先 →<\/th><th scope="col">発行元<\/th><th scope="col">初回観測者<\/th>/);
+assert.deepEqual([...html.matchAll(/class="did-match-count" popovertarget="([^"]+)"[^>]*>(\d+)<\/button>/g)].map(x=>[x[1],x[2]]), [
+  ["merge-did-publisher_publisher","1"],
+  ["merge-did-source_publisher_target_first_observer","2"],
+  ["merge-did-source_first_observer_target_publisher","0"]
+]);
+assert.match(html, /aria-label="未照会">—/);
+assert.ok(!html.includes('id="merge-did-first_observer_first_observer"'));
+const publisher = html.match(/id="merge-did-publisher_publisher"[\s\S]*?<\/div><\/td>/)[0];
+for (const nsid of ["org.source.a","org.source.b","net.target.pub"]) assert.ok(publisher.includes(nsid));
+assert.ok(!publisher.includes("org.source.cross"));
+const cross = html.match(/id="merge-did-source_publisher_target_first_observer"[\s\S]*?<\/div><\/td>/)[0];
+for (const nsid of ["org.source.cross","net.target.record"]) assert.ok(cross.includes(nsid));
+assert.ok(!cross.includes("org.source.a"));
+assert.match(html, /popover role="dialog" aria-label="発行元 → 初回観測者の一致内訳"/);
+assert.match(html, /popovertargetaction="hide" aria-label="内訳を閉じる"/);
+assert.match(html, /一致するDIDはありません。/);
+assert.ok(!html.includes(unsafe));
+assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
 ''')
 
     def test_relation_display_separates_entities_and_escapes_values(self):
