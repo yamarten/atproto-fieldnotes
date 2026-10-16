@@ -749,9 +749,27 @@ DBから比較集合を読む単発計算では、名前・Website・status、re
   - 発行元の一致比較には`collection_trust.verified_publications`を満たす観測、または期限内で帰属競合のないcatalogの検証済みpublisherを使います。catalogがpending・invalid・deleted・期限切れを示す場合は古い発行元で補完せず、診断詳細に保存情報を残します
   - 「recordの発行者を照会（外部通信）」を押した時だけ`listReposByCollection`の先頭DIDを取得します。保存済みのcase-preservingなNSIDを使い、型が判明した非recordを照会対象から除外します。型不明の既存NSIDは従来どおり照会し、取得できない場合と失敗は`not_found` / `error`として表示します
   - マージ元を行、マージ先を列とする2×2マトリクスで、行・列の見出しを「Lexicon」「record」とし、それぞれの発行者DIDの一致数を直接表示します。同じDIDが複数NSIDに現れても1件です。record未照会は「—」で0件と区別します。数字を押すと一致したDIDと双方の対応NSIDをpopoverに表示し、キーボード操作とEscape・閉じるボタンに対応します。双方のDID map・発行元の出典・照会診断・非record除外一覧は「参照したDIDと診断」の一つの折り畳みにまとめます
-  - record側は初期の発行者がLexicon開発者であることを期待し、同一projectの手掛かりとして使います。2026-10-17に確認した[collectiondirの保存・取得処理](https://github.com/bluesky-social/indigo/blob/3beb6e491b793834f6c66aed9963a255f56f1b6b/cmd/collectiondir/pebble.go#L330-L364)はDIDとcollectionの組を初めて取り込んだ時刻を記録し、その観測時刻の昇順で返します。[入力](https://github.com/bluesky-social/indigo/blob/3beb6e491b793834f6c66aed9963a255f56f1b6b/cmd/collectiondir/serve.go#L702-L750)にはRelayイベントとPDS巡回があり、recordの作成日時順ではありません。このアプリの照会先は`https://bsky.network/xrpc/com.atproto.sync.listReposByCollection`です。説明アイコンで意図・照会先・観測時刻順の意味を伝え、対象公開実装のcommit固定リンクと確認日を示します。公開実装の確認と稼働中serviceの配置版の確認は別です。表下には説明文を常設しません
+  - record側は観測順の先頭に返るrecord発行者がLexicon開発者であることを期待し、同一projectの手掛かりとして使います。[観測順と適用限界](#record側の観測順と適用限界)を踏まえ、説明アイコンには意図と対象公開実装へのcommit固定リンクを示します。表下には説明文を常設しません
   - APIの`did_comparison`は上記4方向の一致DID配列を返し、未照会の方向は`null`です。双方のNSID→DID map・出典詳細・非record除外一覧も返します。既存の`first_creator_*` fieldはrecord側の先頭DIDの照会結果を保持します。field名から最初のrecord作成者や最初に観測されたrecordの発行者を保証しません
   - この補助情報は通常の候補スコア、`source_pair_candidate` / `target_pair_candidate`、自動マージ条件へ追加しません。CLIからheuristicを判定へ含める導線もありません
+
+#### record側の観測順と適用限界
+
+先頭DIDは、collectiondirの台帳でそのDIDとcollectionの組が最初に取り込まれた時刻に依存します。2026-10-17に確認した[保存処理](https://github.com/bluesky-social/indigo/blob/3beb6e491b793834f6c66aed9963a255f56f1b6b/cmd/collectiondir/pebble.go#L330-L364)は、未登録の組に取込時点の`time.Now()`を付け、既存の組の時刻は更新しません。[取得処理](https://github.com/bluesky-social/indigo/blob/3beb6e491b793834f6c66aed9963a255f56f1b6b/cmd/collectiondir/pebble.go#L188-L256)はその観測時刻の昇順で返します。このアプリの照会先は`https://bsky.network/xrpc/com.atproto.sync.listReposByCollection`へ固定されています。公開実装の確認と稼働中serviceの配置版の確認は別です。
+
+[入力](https://github.com/bluesky-social/indigo/blob/3beb6e491b793834f6c66aed9963a255f56f1b6b/cmd/collectiondir/serve.go#L702-L750)にはRelayイベントとPDS巡回があります。collectiondirが観測を始める前から存在したrecordの作成日時・作成順を復元する処理ではなく、初回巡回や稼働後の更新を拾った順に既存の発行者が登録され得ます。そのため、古いcollectionでは先頭DIDをLexicon開発者とみなす根拠が弱くなります。観測開始後に新しく登場したcollectionを継続して観測できた場合に期待しやすい経験則であり、作成者を認定する規則ではありません。
+
+起点は単なるprocessの起動時刻ではなく台帳の観測履歴です。既存DBを再利用する再起動では時刻を引き継ぎます。一方、[CSVからのbuild](https://github.com/bluesky-social/indigo/blob/3beb6e491b793834f6c66aed9963a255f56f1b6b/cmd/collectiondir/collectiondir.go#L198-L214)もDIDとcollectionだけを`MaybeSetCollection`へ渡すため、取り込み時点の時刻になります。接続先や台帳の再構築によって、同じcollectionの先頭DIDも変わり得ます。
+
+2026-10-17（JST）に`bsky.network`、`relay1.us-west.bsky.network`、`relay1.us-east.bsky.network`の公開APIへ、以下の3 collectionを各`limit=1`で照会しました（計9 GET、すべて200）。回答のcursorを上記公開実装のprimary key形式（collection ID・観測時刻のmilliseconds・DID）として診断用に読み、cursor内のDIDと回答の先頭DIDが一致することを確認しました。以下の日時はAPIが明示する観測日時ではなく、その形式から解釈した値です。cursorは公開契約上は不透明な値で、この解釈を通常の取得処理には使いません。
+
+| collection | bsky.network / westの先頭の観測時刻（JST） | eastの先頭の観測時刻（JST） |
+| --- | --- | --- |
+| `app.bsky.feed.post` | 2025-03-05 03:48:01.211 | 2025-03-20 05:51:32.990 |
+| `app.bsky.actor.profile` | 2025-03-05 03:48:03.809 | 2025-03-20 05:51:40.289 |
+| `com.atproto.lexicon.schema` | 2025-03-05 22:06:40.513 | 2025-03-22 11:59:48.994 |
+
+このsampleではbsky.networkとwestの先頭DID・cursorが一致し、eastとは3 collectionとも先頭DIDが異なりました。先頭DIDが接続先の観測履歴に依存することを示す観測であり、これらの日付からservice全体の稼働開始日や全collectionに共通する履歴の起点は確定できません。特定の日付以前のcollectionを一律除外する条件は設けず、人間による比較の限界として扱います。
 
 ### merge候補planの追加安全策
 
