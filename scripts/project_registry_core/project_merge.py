@@ -17,7 +17,7 @@ from project_registry_core import atproto_usage
 from project_registry_core import collection_trust
 from project_registry_core.identity import domain_policy as domain_policy_core
 from project_registry_core import editorial
-from project_registry_core.persistence import identifier_storage
+from project_registry_core.persistence import concurrency, identifier_storage
 from project_registry_core.identity import identifiers as identifier_core
 from project_registry_core import oauth_metadata
 from project_registry_core import operator_feedback
@@ -276,6 +276,83 @@ def duplicate_candidate_for_pair(
     }
 
 
+def duplicate_candidate_keys(
+    inputs: list[dict[str, Any]], target_profile: dict[str, set[str]], *,
+    check_cancelled: Callable[[], None] | None = None,
+) -> set[str] | None:
+    """Return a superset of matches without reading large project state.
+
+    Ignore guards, adoption restrictions and classification for URL/domain
+    witnesses here; the regular policy applies them after loading selected rows.
+    A namespace/creator lineage input needs saved state, so retain the complete
+    comparison set in that case. Creator overlap alone cannot produce a match.
+    """
+    if target_profile["recorded_lexicon_namespaces"]:
+        return None
+    keys: set[str] = set()
+    roots: dict[str, str] = {}
+
+    def root(host: str) -> str:
+        if host not in roots:
+            roots[host] = domain_policy_core.root_domain(host)
+        return roots[host]
+
+    for project in inputs:
+        if check_cancelled:
+            check_cancelled()
+        repos: set[str] = set()
+        services: set[str] = set()
+        hosts: set[str] = set()
+        component_match = False
+        for kind, value, role, classification in project["identifier_claims"]:
+            normalized = resource_identity.normalize_value(kind, value)
+            opposite = "confirmed" if classification == "candidate" else "candidate" if classification == "confirmed" else ""
+            if opposite and role in identifier_storage.COMPONENT_ROLES:
+                claim = json.dumps([kind, normalized, role])
+                if claim in target_profile[f"{opposite}_component_identifiers"]:
+                    component_match = True
+                    break
+            if kind == "repo_url":
+                if url := repo_url_core.canonical_repo_url(value):
+                    repos.add(url)
+            elif kind == "service_url":
+                if url := identifier_core.normalize_url(value):
+                    services.add(url)
+                    hosts.add(urllib.parse.urlparse(url).netloc.lower())
+            elif kind == "nsid":
+                if host := identifier_core.derive_authority_domain(normalized):
+                    hosts.add(host)
+            elif kind == "domain" and normalized:
+                hosts.add(normalized)
+        key = str(project["project_key"])
+        if component_match:
+            keys.add(key)
+            continue
+        for kind, value in project["confirmation_claims"]:
+            if kind == "service_url":
+                hosts.add(urllib.parse.urlparse(identifier_core.normalize_url(value)).netloc.lower())
+            elif kind == "nsid":
+                if host := identifier_core.derive_authority_domain(identifier_core.normalize_nsid(value)):
+                    hosts.add(host)
+            elif kind == "domain":
+                hosts.add(project_record.normalize_blocked_identifier_value(kind, value))
+        if (repos & (target_profile["project_repository_urls"] | target_profile["github_repo_urls"] | target_profile["candidate_project_repository_urls"])
+                or services & target_profile["service_urls"]
+                or str(project.get("website_url") or "") in target_profile["website_urls"]
+                or project_record.project_merge_aliases({**project, "project_repository_urls": list(repos)}) & target_profile["merge_aliases"]):
+            keys.add(key)
+            continue
+        for host in hosts - {""}:
+            family = root(host)
+            if family in target_profile["authority_service_families"] or any(
+                identifier_core.normalize_alias_token(value) in target_profile["domain_identity_tokens"]
+                for value in (host, family) if value
+            ):
+                keys.add(key)
+                break
+    return keys
+
+
 def compute_duplicate_candidates(
     conn: sqlite3.Connection,
     project: dict[str, Any],
@@ -295,7 +372,18 @@ def compute_duplicate_candidates(
     candidates: list[dict[str, Any]] = []
     if check_cancelled:
         check_cancelled()
-    all_projects = projects if projects is not None else project_record.list_duplicate_projects(conn, check_cancelled=check_cancelled)
+    prefilter_profile = None
+    if projects is None:
+        # Prefilter and complete comparison reads must see the same snapshot.
+        with concurrency.read_snapshot(conn):
+            inputs = project_record.list_duplicate_candidate_inputs(conn, check_cancelled=check_cancelled)
+            prefilter_profile = duplicate_profile(project)
+            keys = duplicate_candidate_keys(inputs, prefilter_profile, check_cancelled=check_cancelled)
+            if keys is not None:
+                keys.discard(str(project.get("project_key") or ""))
+            all_projects = project_record.list_duplicate_projects(conn, project_keys=keys, check_cancelled=check_cancelled)
+    else:
+        all_projects = projects
     if duplicate_profiles is None or duplicate_index is None:
         duplicate_profiles, duplicate_index = build_duplicate_candidate_index(all_projects, check_cancelled=check_cancelled)
     # A caller-supplied target may contain unsaved edits. Only reuse its indexed
@@ -305,7 +393,7 @@ def compute_duplicate_candidates(
         duplicate_profiles.get(key)
         if project_lookup is not None and project_lookup.get(key) is project
         else None
-    ) or duplicate_profile(project)
+    ) or prefilter_profile or duplicate_profile(project)
     candidate_keys: set[str] = set()
     for field, values in target_profile.items():
         opposite_field = {

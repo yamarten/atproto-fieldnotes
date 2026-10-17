@@ -33,6 +33,8 @@ unit test、実データのread-only確認、実外部取得を伴う確認は�
 
 詳細・Explainの信頼計算を変更する場合、`bin/project-registry-test -p test_trust_explanation_performance.py`で25・100・200件のLexiconに対する正規化回数の増え方、個別評価との判定・経路の一致、guard・手動seed・公開型変更、要求しないtopicの計算省略を確認できます。実時間はDB・負荷に依存するためunit testの固定秒数にはせず、実データの比較では識別子・Lexicon・relation・decision数を記録し、詳細とマージ解析、直接呼出しとHTTP、初回と反復、profile有無を分けます。
 
+単件マージの先行絞込みを変更する場合、`bin/project-registry-test -p test_duplicate_candidate_prefilter.py`でidentifierのkind・role・採用状態、repository・service・代表URL・別名・domain・confirm対象による一致、namespace入力の全件比較、snapshot・次回の更新反映・取消しを確認します。無関係な大型JSONを持つprojectを25件から100件へ増やしても、詳細な比較入力へ組み立てる対象が増えないことを検証します。`test_duplicate_project_read.py`と`test_merge_analysis_cancellation.py`は全件・batch比較との同等性、保存不可の境界、更新競合と実HTTP切断を担当します。初回性能の比較では新process／新接続と反復を区別し、OS cacheを制御していない計測をcold diskの実測と扱いません。
+
 heuristicの検証では、既知fixtureで誤りが解消することに加え、同種例・別の例への退行を確認します。特定のproject、URL、sourceだけに作用する特例では、一般の判定規則が改善したことを確かめられません。判定規則と利用者判断を分ける設計方針は[brief](../../brief.md#原則と責務境界)を参照してください。LLM調査・評価で得た誤判定、訂正、判断が分かれる例、有用な正例の再利用先は[事例保存の手順](llm-model-evaluation.md#作業中に得た事例の保存)で説明します。
 
 ### testの検証力を確かめる選択肢
