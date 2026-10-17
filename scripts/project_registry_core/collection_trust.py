@@ -189,23 +189,32 @@ def verified_publications(project: Mapping[str, Any]) -> dict[str, dict[str, Any
     )}
 
 
-def evaluate_publisher_support(project: Mapping[str, Any], nsid: str) -> dict[str, Any]:
-    publications = verified_publications(project)
+class PublisherSupport:
+    """Publication and adoption facts for one unchanged project evaluation."""
+
+    def __init__(self, project: Mapping[str, Any]) -> None:
+        self.publications = verified_publications(project)
+        self.claims = {item.value: item for item in runtime_view.project_identifiers(project)
+                       if item.kind == "nsid" and item.role == "owned_nsid"}
+        self.roots = {value: rows for value, claim in self.claims.items()
+                      if claim.classification == "confirmed"
+                      and not relations.identifier_is_guarded(project, "nsid", value)
+                      and value in self.publications
+                      and (rows := independent_adoptions(project, value))}
+
+
+def evaluate_publisher_support(project: Mapping[str, Any], nsid: str, *, prepared: PublisherSupport | None = None) -> dict[str, Any]:
+    prepared = prepared if prepared is not None else PublisherSupport(project)
+    publications = prepared.publications
     node_kind = lambda value: resource_identity.schema_node_kind(publications.get(value, {}).get("publication_validation", {}).get("schema_type", "record"))
     candidate = trust_graph.node(node_kind(nsid), nsid)
     unsupported = {"auto_confirm": False, "reason": "no_scoped_publication_path", "candidate": candidate, "policy_version": POLICY_VERSION}
-    claims = {item.value: item for item in runtime_view.project_identifiers(project)
-              if item.kind == "nsid" and item.role == "owned_nsid"}
-    if nsid not in claims or relations.identifier_is_guarded(project, "nsid", nsid):
+    if nsid not in prepared.claims or relations.identifier_is_guarded(project, "nsid", nsid):
         return unsupported
-    publications = verified_publications(project)
     target = publications.get(nsid)
     if not target:
         return unsupported
-    roots = {value: independent_adoptions(project, value) for value, claim in claims.items()
-             if value != nsid and claim.classification == "confirmed"
-             and not relations.identifier_is_guarded(project, "nsid", value)}
-    roots = {value: rows for value, rows in roots.items() if rows and value in publications
+    roots = {value: rows for value, rows in prepared.roots.items() if value != nsid
              and publications[value]["authority_domain"] == target["authority_domain"]
              and publications[value]["repo_did"] == target["repo_did"]}
     if not roots:

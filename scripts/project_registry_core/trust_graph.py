@@ -214,6 +214,22 @@ def upsert_edge(
     return candidate
 
 
+def upsert_edges(project: dict[str, Any], edges: Iterable[Mapping[str, Any]], *, generated_at: str = "") -> None:
+    """Merge a set of witnesses once, using the same ordering and conflict rules."""
+    candidates = normalize_edges(list(edges))
+    if not candidates:
+        return
+    current = stored_graph(project)
+    for candidate in candidates:
+        if repository_trust.is_repository_edge(candidate):
+            repository_trust.record_observation(project, candidate)
+        else:
+            current["edges"].append(candidate)
+            if generated_at and not current.get("generated_at"):
+                current["generated_at"] = generated_at
+    set_graph(project, current)
+
+
 def remove_edges(
     project: dict[str, Any],
     *,
@@ -281,16 +297,35 @@ def auto_confirm_edges(
     return output
 
 
-def _path_between(edges: list[dict[str, Any]], source: Mapping[str, Any], target: Mapping[str, Any]) -> list[dict[str, Any]]:
+class PreparedGraph:
+    """A graph snapshot shared only while evaluating an unchanged project."""
+
+    def __init__(self, project: Mapping[str, Any]) -> None:
+        self.edges = graph(project)["edges"]
+        self._scopes: dict[tuple[frozenset[str], frozenset[str]], dict] = {}
+
+    def outgoing(self, node_kinds: set[str], predicates: set[str] | None) -> dict:
+        key = (frozenset(node_kinds), frozenset(predicates or AUTO_CONFIRM_PREDICATES))
+        if key not in self._scopes:
+            outgoing: dict[tuple[str, str], list[dict[str, Any]]] = {}
+            for edge in auto_confirm_edges(self.edges, allowed_node_kinds=node_kinds, allowed_predicates=predicates):
+                outgoing.setdefault(node_key(edge["subject"]), []).append(edge)
+            self._scopes[key] = outgoing
+        return self._scopes[key]
+
+
+def _path_between(edges: list[dict[str, Any]], source: Mapping[str, Any], target: Mapping[str, Any],
+                  *, outgoing: dict | None = None) -> list[dict[str, Any]]:
     start = node_key(source)
     goal = node_key(target)
     if not start[0] or not goal[0]:
         return []
     if start == goal:
         return []
-    outgoing: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for edge in edges:
-        outgoing.setdefault(node_key(edge["subject"]), []).append(edge)
+    if outgoing is None:
+        outgoing = {}
+        for edge in edges:
+            outgoing.setdefault(node_key(edge["subject"]), []).append(edge)
     queue: deque[tuple[tuple[str, str], list[dict[str, Any]]]] = deque([(start, [])])
     visited = {start}
     while queue:
@@ -313,23 +348,25 @@ def directional_paths(
     anchors: Iterable[Mapping[str, Any]],
     allowed_node_kinds: set[str] | None = None,
     allowed_predicates: set[str] | None = None,
+    prepared_graph: PreparedGraph | None = None,
 ) -> list[dict[str, Any]]:
     candidate_node = node(str(candidate.get("kind") or ""), str(candidate.get("value") or ""))
     if not candidate_node:
         return []
     node_kinds = allowed_node_kinds or URL_NODE_KINDS
-    normalized_edges = auto_confirm_edges(
+    normalized_edges = [] if prepared_graph is not None else auto_confirm_edges(
         graph(project).get("edges", []),
         allowed_node_kinds=node_kinds,
         allowed_predicates=allowed_predicates,
     )
+    outgoing = prepared_graph.outgoing(node_kinds, allowed_predicates) if prepared_graph is not None else None
     output: list[dict[str, Any]] = []
     for anchor in anchors:
         anchor_node = node(str(anchor.get("kind") or ""), str(anchor.get("value") or ""))
         if not anchor_node or anchor_node["kind"] not in node_kinds:
             continue
-        forward_path = _path_between(normalized_edges, anchor_node, candidate_node)
-        backward_path = _path_between(normalized_edges, candidate_node, anchor_node)
+        forward_path = _path_between(normalized_edges, anchor_node, candidate_node, outgoing=outgoing)
+        backward_path = _path_between(normalized_edges, candidate_node, anchor_node, outgoing=outgoing)
         if forward_path or backward_path:
             output.append({
                 "anchor": anchor_node,
@@ -348,6 +385,7 @@ def evaluate_auto_confirm(
     allowed_node_kinds: set[str] | None = None,
     allowed_predicates: set[str] | None = None,
     scoped_edges: list[dict[str, Any]] | None = None,
+    prepared_graph: PreparedGraph | None = None,
 ) -> dict[str, Any]:
     candidate_node = node(str(candidate.get("kind") or ""), str(candidate.get("value") or ""))
     node_kinds = allowed_node_kinds or URL_NODE_KINDS
@@ -360,11 +398,14 @@ def evaluate_auto_confirm(
     # never use a repository (including as an intermediate hop) to adopt a service.
     if candidate_node["kind"] == "service_url":
         node_kinds = node_kinds - {"repo_url"}
-    normalized_edges = auto_confirm_edges(
+    if scoped_edges is not None and prepared_graph is not None:
+        raise ValueError("scoped_edges and prepared_graph are mutually exclusive")
+    normalized_edges = [] if prepared_graph is not None else auto_confirm_edges(
         graph(project).get("edges", []) if scoped_edges is None else scoped_edges,
         allowed_node_kinds=node_kinds,
         allowed_predicates=allowed_predicates,
     )
+    outgoing = prepared_graph.outgoing(node_kinds, allowed_predicates) if prepared_graph is not None else None
     normalized_anchors = [
         item
         for anchor in anchors
@@ -385,8 +426,8 @@ def evaluate_auto_confirm(
                 "backward_path": [],
                 "policy_version": TRUST_POLICY_VERSION,
             }
-        forward_path = _path_between(normalized_edges, anchor, candidate_node)
-        backward_path = _path_between(normalized_edges, candidate_node, anchor)
+        forward_path = _path_between(normalized_edges, anchor, candidate_node, outgoing=outgoing)
+        backward_path = _path_between(normalized_edges, candidate_node, anchor, outgoing=outgoing)
         if forward_path and backward_path:
             return {
                 "auto_confirm": True,

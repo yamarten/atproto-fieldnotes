@@ -46,6 +46,8 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 
 `application/explain.py`はCLI/Web共通で、保存済み状態とrelationから結論、適用rule、支持・反証signalを返します。外部取得・LLM・DB更新は行いません。
 
+Explainは`trust`または`all`が要求されたときだけ信頼説明を計算します。信頼説明では、identity・collectionの接続を必要になった時点でそれぞれ一度だけ一括準備し、同じ説明生成内でanchorと正規化済みgraph・policy別の経路索引、公開Lexiconと独立した採用の根拠を共有します。接続を追加した時点でgraphを作り直し、共有用のcontextはproject fieldに持たせず呼出し終了時に破棄します。説明用の評価は保存用evaluationを更新せず、調査・採用処理では従来どおり個別評価を保存します。requestをまたぐcacheや表示情報の省略は行いません。
+
 同時編集は自分のCLI、Web、worker間を想定します。Web内のmutationはlockで直列化し、process間ではproject更新番号と保存transaction内の検査で競合を検出します。詳細からのmutationは`expected_revision`を必須とし、古い詳細を`409 stale_project`で拒否します。紹介投稿の要確認はitem IDを指定し、保存時に現在の判断とproject更新番号を検査します。
 
 ### 一覧・詳細の検索経路

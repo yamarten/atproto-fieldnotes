@@ -31,6 +31,8 @@ enrichの収集から採用・保存までを確認するtestでは、`tests/enr
 
 unit test、実データのread-only確認、実外部取得を伴う確認は、それぞれ検証できる範囲が異なります。一つの成功から別の経路の成功を推定せず、未検証の範囲を区別します。
 
+詳細・Explainの信頼計算を変更する場合、`bin/project-registry-test -p test_trust_explanation_performance.py`で25・100・200件のLexiconに対する正規化回数の増え方、個別評価との判定・経路の一致、guard・手動seed・公開型変更、要求しないtopicの計算省略を確認できます。実時間はDB・負荷に依存するためunit testの固定秒数にはせず、実データの比較では識別子・Lexicon・relation・decision数を記録し、詳細とマージ解析、直接呼出しとHTTP、初回と反復、profile有無を分けます。
+
 heuristicの検証では、既知fixtureで誤りが解消することに加え、同種例・別の例への退行を確認します。特定のproject、URL、sourceだけに作用する特例では、一般の判定規則が改善したことを確かめられません。判定規則と利用者判断を分ける設計方針は[brief](../../brief.md#原則と責務境界)を参照してください。LLM調査・評価で得た誤判定、訂正、判断が分かれる例、有用な正例の再利用先は[事例保存の手順](llm-model-evaluation.md#作業中に得た事例の保存)で説明します。
 
 ### testの検証力を確かめる選択肢

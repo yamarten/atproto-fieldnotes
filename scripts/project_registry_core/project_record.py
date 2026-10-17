@@ -2333,8 +2333,7 @@ def trust_node(kind: str, value: str) -> dict[str, str]:
     return trust_graph_core.node(kind, normalize_trust_node_value(kind, value))
 
 
-def record_trust_edge(
-    project: dict[str, Any],
+def build_trust_edge(
     subject_kind: str,
     subject_value: str,
     predicate: str,
@@ -2353,8 +2352,7 @@ def record_trust_edge(
     obj = trust_node(object_kind, object_value)
     if not subject or not obj:
         return {}
-    return trust_graph_core.upsert_edge(
-        project,
+    return trust_graph_core.normalize_edge(dict(
         subject=subject,
         predicate=predicate,
         object=obj,
@@ -2365,8 +2363,33 @@ def record_trust_edge(
         eligible_for_auto_confirm=eligible_for_auto_confirm,
         observed_at=observed_at,
         context=context or {},
-        generated_at=iso_now(),
+    ))
+
+
+def record_trust_edge(
+    project: dict[str, Any],
+    subject_kind: str,
+    subject_value: str,
+    predicate: str,
+    object_kind: str,
+    object_value: str,
+    *,
+    source: str = "",
+    locator: str = "",
+    method: str = "",
+    classification: str = "candidate",
+    eligible_for_auto_confirm: bool = False,
+    observed_at: str = "",
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    candidate = build_trust_edge(
+        subject_kind, subject_value, predicate, object_kind, object_value,
+        source=source, locator=locator, method=method, classification=classification,
+        eligible_for_auto_confirm=eligible_for_auto_confirm, observed_at=observed_at, context=context,
     )
+    if not candidate:
+        return {}
+    return trust_graph_core.upsert_edge(project, **candidate, generated_at=iso_now())
 
 
 def manual_nsid_seed_supports(project: dict[str, Any], nsid: str) -> bool:
