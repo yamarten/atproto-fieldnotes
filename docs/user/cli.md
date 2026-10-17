@@ -18,7 +18,7 @@ Python本体の準備・選択・状態確認は別入口の`project-registry-py
 
 `init-db`と一部の開発補助コマンドはcommandの後に置く専用`--db-path`を使います。たとえば`validate-app-record-export`、`export-app-records`、`export-llm-evaluation-corpus`、`compare-trust-policy`、`compare-merge-policy`、`compare-identifier-storage`は指定DBを読み取り専用で参照します。これらと共通`--db-path`の併用は引数エラーです。各コマンドの引数は`--help`で確認してください。
 
-CLI/Webの手動確認には`project-registry dev-db`で架空データ5件を生成できます。保存先は各worktreeの`data/dev/survey.db`に固定し、既存fileは上書きしません。利用processを停止して`dev-db --reset`を指定すると、この入口で生成したDBだけを初期状態へ戻します。生成・リセットは外部APIやLLMを呼びません。代表データ、上書き拒否と停止の条件、CLI/Webの確認例は[共通ダミーDBの手順](../developer/workflows/change-acceptance.md#cliwebの共通ダミーdb)を参照してください。
+CLI/Webの手動確認には`project-registry dev-db`で架空データ5件を生成できます。保存先は各worktreeの`data/dev/survey.db`に固定し、既存fileは上書きしません。利用processを停止して、そのcheckoutで`dev-db --reset`を指定すると、この入口で生成したDBを旧schemaも含め現行schemaの架空データへ再生成します。既存の開発用データ・手動編集・調査履歴は破棄され、データを保持する更新ではありません。生成・リセットは外部APIやLLMを呼びません。代表データ、上書き拒否と停止の条件、CLI/Webの確認例は[共通ダミーDBの手順](../developer/workflows/change-acceptance.md#cliwebの共通ダミーdb)を参照してください。
 
 追跡状態の利用上の意味は次の通りです。
 
@@ -48,7 +48,7 @@ CLI/Webの手動確認には`project-registry dev-db`で架空データ5件を�
 | コマンド | 主な入力 | 出力 | 副作用 |
 | --- | --- | --- | --- |
 | `init-db` | `--db-path`。既定は`data/survey.db` | 作成したschema情報のJSON | 新規DBを作成。既存DBのmigrationや上書きはしない |
-| `dev-db` | 任意の`--reset`。対象pathは固定 | DB path・操作・データ件数のJSON | 架空のCLI/Web確認用DBを生成。明示リセットは生成元markerのある現行schema DBのみ |
+| `dev-db` | 任意の`--reset`。対象pathは固定 | DB path・操作・schema version・データ件数のJSON | 架空のCLI/Web確認用DBを生成。明示リセットは生成元markerのあるDBを旧schemaも含め再生成し、既存の開発用データを破棄 |
 | `add-seed` | シード、任意の`--type`、既存登録プロジェクトの`--project-key` | 登録プロジェクトと入力から決めた役割（`role`）のJSON | 常時書き込み。NSID・サービス・リポジトリを対応する役割で採用済み（`confirmed`）として保存し、採用判断を記録 |
 | `enrich` | `--project-key`、`--seed`、`--all`のいずれか。調査深度、対象の追跡状態、LLM、チェックポイントのオプション | 進捗、失敗、結果のJSON Lines | 外部接続、LLM、常時書き込み |
 | `show` | 登録プロジェクト、シード、または`--all`。任意の追跡状態フィルター | textまたはJSON | なし |

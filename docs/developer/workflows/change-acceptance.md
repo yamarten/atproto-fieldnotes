@@ -84,15 +84,17 @@ queueが提案する次のCLIコマンドには接続中DBの絶対pathを含め
 
 ### リセットと上書き拒否
 
-既存DBはそのまま再利用します。初期状態へ戻す場合は、そのDBを使うCLI、Web server、workerをすべて停止してから実行します。
+既存DBは、現行schemaならそのまま再利用できます。初期状態へ戻す場合や、コード更新後に旧schemaとして拒否された開発用DBを再生成する場合は、そのDBを使うCLI、Web server、workerをすべて停止してから、そのDBがあるcheckoutの入口で実行します。
 
 ```bash
 bin/project-registry dev-db --reset
 ```
 
-保存先は固定で、`dev-db`へ任意pathや共通`--db-path`は渡せません。通常生成は既存fileを拒否し、リセットは生成元markerと現行schemaを持つDBだけを許可します。DB・親directoryのsymlink、DBやSQLite sidecarのhard link/symlinkも拒否します。正本DBや既存の空DBをこのpathへ移してもリセットできません。未生成なら`--reset`でも新規作成します。
+`--reset`は、既存の開発用データとschemaを破棄し、現行コードのschemaと架空定義から再生成します。手動で編集・追加した登録プロジェクトや判断、調査履歴も消えます。データを保持する世代間migrationではありません。結果のJSONにはDB path、操作、生成したschema version、データ件数を返します。
 
-リセットは同じDB file内の単一transactionで全tableのデータを再投入し、途中失敗はrollbackします。WALを解除してexclusive transactionを取り、SQLiteが使用中と判断する場合は待たずに拒否します。接続を閉じたまま待機中のserver／workerの検知は保証しないため、事前停止は必要です。リセット後の通常接続は既存仕様どおりWALを有効にします。DB外の`job-schedules.json`、checkpoint、browserのlocalStorageはリセットしません。
+保存先は固定で、`dev-db`へ任意pathや共通`--db-path`は渡せません。通常生成は既存fileを拒否し、リセットは生成元markerが一致するDBだけを許可します。schema versionは1以上かつ現行version以下を受け付け、欠落・不正値・未来のversionは拒否します。DB・親directoryのsymlink、DBやSQLite sidecarのhard link/symlinkも拒否します。正本DBや既存の空DBをこのpathへ移してもリセットできません。未生成なら`--reset`でも新規作成します。
+
+リセットは同じDB file内の単一transactionでtable・view・triggerを作り直し、架空データを再投入して外部キー整合性を検証します。途中失敗は旧schemaとデータへrollbackします。WALを解除してexclusive transactionを取り、SQLiteが使用中と判断する場合は待たずに拒否します。transactionを保持していない待機中のserver／workerの検知は保証しないため、事前停止は必要です。リセット後の通常接続は既存仕様どおりWALを有効にします。DB外の`job-schedules.json`、checkpoint、browserのlocalStorageはリセットしません。
 
 `data/dev/`は正本の定期設定やcheckpointがある`data/`と分けます。定期実行を有効にすると手動操作以外でもjobが動くため、通常の画面確認例では定期実行を使いません。
 
