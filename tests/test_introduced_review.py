@@ -87,8 +87,10 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
             items = {entry["id"]: entry for entry in introduced_review.review_payload(conn)["items"]}
             self.assertEqual(items[item["id"]]["post_line"], "Choice")
             self.assertEqual(items["old"]["post_line"], "https://choice.example")
-            self.assertEqual(items[item["id"]]["matched_projects"], [
-                {"project_key": "proj:choice", "name": "Named Choice", "introduced_url": "https://example.test/older"}])
+            choice = items[item["id"]]["matched_projects"][0]
+            self.assertEqual((choice["project_key"], choice["name"], choice["introduced_url"]),
+                             ("proj:choice", "Named Choice", "https://example.test/older"))
+            self.assertIn("exact_identifier", choice["match_reasons"])
             self.assertEqual(conn.total_changes, before)
             self.assertEqual(project_record.fetch_project(conn, "proj:choice")["introduced_url"], "https://example.test/older")
         finally:
@@ -110,8 +112,8 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
             self.assertEqual(summary["updated"], 1)
             self.assertEqual(saved["introduced_url"], atproto.bsky_post_web_url(posts[0]))
             self.assertEqual(by_key[("mixed", "https://auto.example")]["status"], "auto_applied")
-            self.assertEqual(by_key[("mixed", "https://auto.example/about")]["reason"], "no_seed")
-            self.assertEqual(by_key[("plain", "https://plain.example/path")]["reason"], "text_url_not_extracted")
+            self.assertEqual(by_key[("mixed", "https://auto.example/about")]["reason"], "unmatched")
+            self.assertEqual(by_key[("plain", "https://plain.example/path")]["reason"], "unmatched")
             self.assertEqual(by_key[("empty", "")]["reason"], "no_url")
             self.assertEqual(payload["open_count"], 3)
         finally:
@@ -142,7 +144,10 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
             source = post("candidate", urls=["https://github.com/example/candidate"])
             self.sync(conn, [source])
             item = introduced_review.review_payload(conn)["items"][0]
-            self.assertEqual(item["reason"], "unmatched")
+            item = introduced_review.review_payload(conn, include_resolved=True,
+                                                     scope_key=item["scope_key"], target_id=item["id"])["items"][0]
+            self.assertEqual(item["reason"], "candidate_match")
+            self.assertEqual(item["matched_projects"][0]["project_key"], "proj:candidate")
             introduced_review.resolve_item(conn, scope_key=item["scope_key"], target_id=item["id"],
                                            action="link", project_key="proj:candidate")
             conn.close()
@@ -206,7 +211,7 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
         finally:
             conn.close()
 
-    def test_ignoring_ambiguous_url_keeps_other_automatic_url_in_same_post(self) -> None:
+    def test_another_unique_url_in_same_post_settles_ambiguous_match(self) -> None:
         conn = registry.open_db()
         try:
             self.add_project(conn, "proj:first", service="https://shared.example")
@@ -218,9 +223,10 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
             self.sync(conn, [source])
             payload = introduced_review.review_payload(conn, include_resolved=True)
             ambiguous = next(item for item in payload["items"] if item["url"] == "https://shared.example")
-            self.assertEqual(ambiguous["reason"], "multiple_projects")
+            self.assertEqual(ambiguous["status"], "auto_applied")
+            self.assertEqual(ambiguous["resolved_project_key"], "proj:first")
             self.assertEqual(next(item for item in payload["items"] if item["url"] == "https://also.example")["status"], "auto_applied")
-            introduced_review.resolve_item(conn, scope_key=ambiguous["scope_key"], target_id=ambiguous["id"], action="ignore")
+            self.assertEqual(introduced_review.review_payload(conn)["open_count"], 0)
             self.assertEqual(project_record.fetch_project(conn, "proj:first")["introduced_url"],
                              atproto.bsky_post_web_url(source))
         finally:
@@ -365,7 +371,7 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
             self.assertEqual(payload["open_count"], 1)
             self.assertEqual(payload["items"][0]["reason"], "multiple_projects")
             self.assertEqual(len(payload["items"][0]["matched_project_keys"]), 2)
-            self.assertEqual(project_record.fetch_project(conn, "proj:first")["introduced_url"], atproto.bsky_post_web_url(source))
+            self.assertEqual(project_record.fetch_project(conn, "proj:first")["introduced_url"], "")
             self.assertEqual(project_record.fetch_project(conn, "proj:second")["introduced_url"], "")
             self.sync(conn, [source], cursor="next", max_pages=1)
             self.assertEqual(introduced_review.review_payload(conn)["open_count"], 1)
@@ -376,8 +382,7 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
             self.assertEqual(project_record.fetch_project(conn, "proj:second")["introduced_url"],
                              atproto.bsky_post_web_url(source))
             introduced_review.resolve_item(conn, scope_key=item["scope_key"], target_id=item["id"], action="reopen")
-            self.assertEqual(project_record.fetch_project(conn, "proj:first")["introduced_url"],
-                             atproto.bsky_post_web_url(source))
+            self.assertEqual(project_record.fetch_project(conn, "proj:first")["introduced_url"], "")
             self.assertEqual(project_record.fetch_project(conn, "proj:second")["introduced_url"], "")
             introduced_review.resolve_item(conn, scope_key=item["scope_key"], target_id=item["id"], action="ignore")
             self.assertEqual(project_record.fetch_project(conn, "proj:first")["introduced_url"], "")
@@ -411,6 +416,225 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
             self.assertEqual(payload["items"][0]["status"], "ignored")
             self.assertEqual(payload["items"][0]["url_source"], "facet")
             self.assertEqual(project_record.fetch_project(conn, "proj:legacy")["introduced_url"], "")
+        finally:
+            conn.close()
+
+    def test_reference_resources_are_retained_without_project_review(self) -> None:
+        conn = registry.open_db()
+        try:
+            urls = ["https://github.com/example/app/pull/42", "https://github.com/example/app/issues/7",
+                    "https://discourse.atmosphere.community/t/plans/1278/5",
+                    "https://forum.example/t/launch/123", "https://docs.bsky.app/docs/advanced-guides/oauth"]
+            source = post("references", urls=urls + ["https://www.discourse.org"])
+            self.sync(conn, [source])
+            items = {i["url"]: i for i in introduced_review.review_payload(conn, include_resolved=True)["items"]}
+            self.assertTrue(all(items[url]["status"] == "reference" for url in urls))
+            self.assertEqual(items["https://www.discourse.org"]["status"], "open")
+            self.assertEqual(introduced_review.review_payload(conn)["open_count"], 1)
+            ref = items[urls[0]]
+            introduced_review.resolve_item(conn, scope_key=ref["scope_key"], target_id=ref["id"], action="review_target")
+            self.sync(conn, [source])
+            ref = next(i for i in introduced_review.review_payload(conn)["items"] if i["url"] == urls[0])
+            self.assertTrue(ref["review_as_target"])
+            with self.assertRaises(ValueError):
+                introduced_review.resolve_item(conn, scope_key=ref["scope_key"], target_id=ref["id"], action="create",
+                                               seed_type="service_url", seed_value=urls[0])
+        finally:
+            conn.close()
+
+    def test_reference_repository_hint_is_only_shared_with_same_target_line(self) -> None:
+        conn = registry.open_db()
+        try:
+            self.add_project(conn, "proj:hint", repo="https://github.com/example/hint")
+            target, reference = "https://new.example/app", "https://github.com/example/hint/pull/7"
+            source = post("hint", text=f"App: {target} ({reference})\nOther: https://unrelated.example")
+            items = introduced_review.observe_posts(conn, [source], explore=True)
+            target_item = next(i for i in items if i["url"] == target)
+            self.assertIn("proj:hint", target_item["matched_project_keys"])
+            self.assertEqual(target_item["status"], "open")
+            self.assertEqual(next(i for i in items if i["url"] == reference)["status"], "reference")
+            self.assertEqual(next(i for i in items if i["url"] == "https://unrelated.example")["matched_project_keys"], [])
+        finally:
+            conn.close()
+
+    def test_broad_candidates_have_reasons_but_do_not_auto_assign(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.add_project(conn, "proj:family", service="https://app.family.example")
+            project.update(name="Named App")
+            project_record.save_project(conn, project)
+            source = post("broad", urls=["https://docs.family.example/start"], text="Named App")
+            self.sync(conn, [source])
+            item = introduced_review.review_payload(conn)["items"][0]
+            detail = introduced_review.review_payload(conn, include_resolved=True, scope_key=item["scope_key"], target_id=item["id"])["items"][0]
+            reasons = detail["matched_projects"][0]["match_reasons"]
+            self.assertIn("merge_aliases", reasons)
+            self.assertIn("authority_service_families", reasons)
+            self.assertEqual(project_record.fetch_project(conn, "proj:family")["introduced_url"], "")
+        finally:
+            conn.close()
+
+    def test_candidate_service_is_not_an_automatic_match_and_text_can_be_rechecked(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = self.make_project("proj:weak", "service_url", "https://weak.example")
+            project["service_url_candidates"] = ["https://weak.example"]
+            project_record.save_project(conn, project)
+            self.sync(conn, [post("weak", urls=["https://weak.example"])])
+            self.assertEqual(project_record.fetch_project(conn, "proj:weak")["introduced_url"], "")
+            self.add_project(conn, "proj:text", service="https://text.example")
+            self.sync(conn, [post("text", text="See https://text.example")])
+            item = next(i for i in introduced_review.review_payload(conn)["items"] if i["url"] == "https://text.example")
+            introduced_review.resolve_item(conn, scope_key=item["scope_key"], target_id=item["id"], action="recheck")
+            self.assertTrue(project_record.fetch_project(conn, "proj:text")["introduced_url"])
+        finally:
+            conn.close()
+
+    def test_legacy_ambiguous_assignment_is_not_treated_as_resolved(self) -> None:
+        conn = registry.open_db()
+        try:
+            self.add_project(conn, "proj:first", service="https://shared.example")
+            self.add_project(conn, "proj:second", service="https://shared.example")
+            source = post("legacy-auto", urls=["https://shared.example"])
+            self.sync(conn, [source])
+            state = registry.read_sync_state(conn, "introduced", {"query": self.query})
+            item = state["watermark"]["review_items"][0]
+            item["auto_set_project_key"] = "proj:first"
+            registry.write_sync_state(conn, "introduced", {"query": self.query}, state["watermark"])
+            project = project_record.fetch_project(conn, "proj:first")
+            project["introduced_url"] = atproto.bsky_post_web_url(source)
+            project_record.save_project(conn, project)
+            conn.commit()
+            self.sync(conn, [source])
+            item = introduced_review.review_payload(conn)["items"][0]
+            self.assertEqual(item["reason"], "multiple_projects")
+            introduced_review.resolve_item(conn, scope_key=item["scope_key"], target_id=item["id"], action="ignore")
+            self.assertEqual(project_record.fetch_project(conn, "proj:first")["introduced_url"], "")
+            introduced_review.resolve_item(conn, scope_key=item["scope_key"], target_id=item["id"], action="reopen")
+            self.assertEqual(project_record.fetch_project(conn, "proj:first")["introduced_url"], atproto.bsky_post_web_url(source))
+            self.assertEqual(introduced_review.review_payload(conn)["open_count"], 1)
+        finally:
+            conn.close()
+
+    def test_create_link_repeat_sync_and_undo_keep_new_project(self) -> None:
+        conn = registry.open_db()
+        try:
+            source = post("new", urls=["https://old.example/landing"])
+            self.sync(conn, [source])
+            item = introduced_review.review_payload(conn)["items"][0]
+            result = introduced_review.resolve_item(conn, scope_key=item["scope_key"], target_id=item["id"], action="create",
+                                                     seed_type="service_url", seed_value="https://new.example/app", name="New App")
+            key = result["item"]["created_project_key"]
+            saved = project_record.fetch_project(conn, key)
+            self.assertEqual(saved["name"], "New App")
+            self.assertTrue(any(candidate["source"] == "operator_edit" for candidate in saved["name_candidates"]))
+            self.assertIn("https://new.example/app", saved["service_urls"])
+            self.assertEqual(saved["introduced_url"], atproto.bsky_post_web_url(source))
+            with self.assertRaises(ValueError):
+                introduced_review.resolve_item(conn, scope_key=item["scope_key"], target_id=item["id"], action="create",
+                                               seed_type="service_url", seed_value="https://new.example/app")
+            self.sync(conn, [source])
+            self.assertEqual(introduced_review.review_payload(conn)["open_count"], 0)
+            introduced_review.resolve_item(conn, scope_key=item["scope_key"], target_id=item["id"], action="reopen")
+            self.assertEqual(project_record.fetch_project(conn, key)["introduced_url"], "")
+            self.assertEqual(introduced_review.review_payload(conn)["open_count"], 1)
+        finally:
+            conn.close()
+
+    def test_creation_rolls_back_if_review_save_fails_and_rejects_existing_seed(self) -> None:
+        conn = registry.open_db()
+        try:
+            self.sync(conn, [post("atomic", text="No URL")])
+            item = introduced_review.review_payload(conn)["items"][0]
+            with mock.patch.object(introduced_review, "save_state", side_effect=RuntimeError("save failed")):
+                with self.assertRaisesRegex(RuntimeError, "save failed"):
+                    introduced_review.resolve_item(conn, scope_key=item["scope_key"], target_id=item["id"], action="create",
+                                                   seed_type="repo_url", seed_value="https://github.com/example/new")
+            self.assertEqual(conn.execute("SELECT count(*) FROM projects").fetchone()[0], 0)
+            self.assertEqual(introduced_review.review_payload(conn)["open_count"], 1)
+            self.add_project(conn, "proj:existing", repo="https://github.com/example/new")
+            with self.assertRaisesRegex(ValueError, "already belongs"):
+                introduced_review.resolve_item(conn, scope_key=item["scope_key"], target_id=item["id"], action="create",
+                                               seed_type="repo_url", seed_value="https://github.com/example/new")
+        finally:
+            conn.close()
+
+    def test_manual_link_follows_project_merge_and_can_be_undone(self) -> None:
+        from project_registry_core.application import merge
+        conn = registry.open_db()
+        try:
+            self.add_project(conn, "proj:source", candidate_repo="https://github.com/example/merge")
+            self.add_project(conn, "proj:target", service="https://merged.example")
+            self.sync(conn, [post("merge", urls=["https://github.com/example/merge"])])
+            item = introduced_review.review_payload(conn)["items"][0]
+            introduced_review.resolve_item(conn, scope_key=item["scope_key"], target_id=item["id"], action="link",
+                                           project_key="proj:source")
+            merge.merge_projects(conn, project_key="proj:source", target_project_key="proj:target", execute=True, force=True)
+            linked = introduced_review.review_payload(conn, include_resolved=True)["items"][0]
+            self.assertEqual(linked["linked_project"]["project_key"], "proj:target")
+            introduced_review.resolve_item(conn, scope_key=item["scope_key"], target_id=item["id"], action="reopen")
+            self.assertEqual(project_record.fetch_project(conn, "proj:target")["introduced_url"], "")
+        finally:
+            conn.close()
+
+    def test_comparison_context_reuses_prefilter_and_bounds_large_project_reads(self) -> None:
+        conn = registry.open_db()
+        try:
+            self.add_project(conn, "proj:match", repo="https://github.com/example/match")
+            for number in range(100):
+                project = self.make_project(f"proj:noise{number}", "service_url", f"https://noise{number}.invalid")
+                project["notes"] = "irrelevant state " * 1000
+                project_record.save_project(conn, project)
+            search = introduced_review.CandidateSearch(conn)
+            with mock.patch.object(project_record, "list_duplicate_candidate_inputs", wraps=project_record.list_duplicate_candidate_inputs) as inputs, \
+                 mock.patch.object(project_record, "list_duplicate_projects", wraps=project_record.list_duplicate_projects) as reads:
+                for label in ("Match", "Another linked name"):
+                    matches = introduced_review.candidate_matches(conn, {
+                        "seed_type": "repo_url", "seed_value": "https://github.com/example/match", "label": label}, search)
+                    self.assertEqual([match["project_key"] for match in matches], ["proj:match"])
+                self.assertEqual(inputs.call_count, 1)
+                self.assertEqual(reads.call_count, 1)
+                self.assertEqual(reads.call_args.kwargs["project_keys"], {"proj:match"})
+        finally:
+            conn.close()
+
+    def test_suppressed_ambiguity_does_not_prevent_undo_of_its_manual_support(self) -> None:
+        conn = registry.open_db()
+        try:
+            self.add_project(conn, "proj:first", service="https://shared.example")
+            self.add_project(conn, "proj:second", service="https://shared.example")
+            source = post("same-in-two-queries", urls=["https://shared.example"])
+            self.sync(conn, [source])
+            item = introduced_review.review_payload(conn)["items"][0]
+            introduced_review.resolve_item(conn, scope_key=item["scope_key"], target_id=item["id"], action="link", project_key="proj:first")
+            with mock.patch.object(source_sync, "search_bsky_posts_payload", return_value={"posts": [source]}):
+                source_sync.sync_introduced_entries(conn, query="another query", execute=True, all_history=True)
+            items = introduced_review.review_payload(conn, include_resolved=True)["items"]
+            other = next(i for i in items if i["query"] == "another query")
+            self.assertEqual(other["status"], "auto_applied")
+            self.assertTrue(other["resolution_only"])
+            introduced_review.resolve_item(conn, scope_key=item["scope_key"], target_id=item["id"], action="reopen")
+            self.assertEqual(project_record.fetch_project(conn, "proj:first")["introduced_url"], "")
+            self.assertEqual(introduced_review.review_payload(conn)["open_count"], 2)
+        finally:
+            conn.close()
+
+    def test_existing_unambiguous_introduction_survives_candidate_adoption(self) -> None:
+        conn = registry.open_db()
+        try:
+            source = post("old-weak-auto", urls=["https://weak.example"])
+            project = self.make_project("proj:weak", "service_url", "https://weak.example")
+            project["service_url_candidates"] = ["https://weak.example"]
+            project["introduced_url"] = atproto.bsky_post_web_url(source)
+            project_record.save_project(conn, project)
+            item = introduced_review.observe_posts(conn, [source])[0]
+            item.update(status="auto_applied", auto_set_project_key="proj:weak", matched_project_keys=["proj:weak"])
+            registry.write_sync_state(conn, "introduced", {"query": self.query}, {"review_items": [item]})
+            conn.commit()
+            self.assertEqual(introduced_review.review_payload(conn)["open_count"], 0)
+            self.sync(conn, [source])
+            self.assertEqual(introduced_review.review_payload(conn)["open_count"], 0)
+            self.assertEqual(project_record.fetch_project(conn, "proj:weak")["introduced_url"], atproto.bsky_post_web_url(source))
         finally:
             conn.close()
 

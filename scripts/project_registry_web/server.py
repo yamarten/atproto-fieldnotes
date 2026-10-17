@@ -301,6 +301,8 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                     conn, include_resolved=str(query.get("status", ["open"])[0]) == "all",
                     limit=_int(query.get("limit", [100])[0], 100),
                     offset=_int(query.get("offset", [0])[0], 0, minimum=0, maximum=1000000),
+                    scope_key=str(query.get("scope_key", [""])[0]),
+                    target_id=str(query.get("item_id", [""])[0]),
                 ))
             return
         if path == "/api/checkpoints":
@@ -485,6 +487,9 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                     action=str(payload.get("action") or ""),
                     project_key=str(payload.get("project_key") or ""),
                     replace=_boolean(payload.get("replace"), default=False),
+                    seed_type=str(payload.get("seed_type") or ""),
+                    seed_value=str(payload.get("seed_value") or ""),
+                    name=str(payload.get("name") or ""),
                 )
             self.send_json(result)
             return

@@ -611,6 +611,8 @@ def sync_introduced_entries(
             for review_item in state.get("watermark", {}).get("review_items", []):
                 if not isinstance(review_item, dict) or review_item.get("status") != "open" or review_item.get("url_source") == "text":
                     continue
+                if introduced_review.link_identity(str(review_item.get("url") or ""))[0] == "reference":
+                    continue
                 if not review_item.get("seed_type") or not review_item.get("seed_value"):
                     continue
                 retry_items.append({"seed_type": review_item["seed_type"], "seed_value": review_item["seed_value"],
@@ -651,7 +653,8 @@ def sync_introduced_entries(
         for item in entries_by_seed.values():
             seed_type = str(item["seed_type"])
             seed_value = str(item["seed_value"])
-            project_key = find_project_key_by_identifier(conn, seed_type, seed_value)
+            exact = introduced_review._matches(conn, (seed_type, seed_value))
+            project_key = exact[0] if len(exact) == 1 else None
             if project_key is None:
                 unmatched += 1
                 pending_entries.append(
@@ -710,14 +713,8 @@ def sync_introduced_entries(
             legacy_review = [item for item in legacy_review if
                              (item.get("post_web_url"), item.get("seed_type"), item.get("seed_value")) not in observed_urls]
             review_items = introduced_review.merge_items(existing_review, [*legacy_review, *observed_review])
-            for item in review_items:
-                if item.get("status") != "open" or item.get("url_source") == "text" or not item.get("seed_type"):
-                    continue
-                matches = introduced_review._matches(conn, (str(item["seed_type"]), str(item["seed_value"])))
-                item["matched_project_keys"] = matches
-                item["reason"] = introduced_review.reason_for_item(conn, item, matches)
-                if not item["reason"]:
-                    item["status"] = "auto_applied"
+            search = introduced_review.CandidateSearch(conn)
+            review_items = [introduced_review.refresh_item(conn, item, search, explore=False) for item in review_items]
             watermark["review_items"] = review_items
             watermark.pop("pending_entries", None)
             watermark["last_scan_complete"] = scan_complete

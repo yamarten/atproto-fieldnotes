@@ -99,7 +99,7 @@ Firefox拡張のポップアップ試作は、`embed=popup`のWeb UIをiframeへ
 | `application/sync.py` / `source_sync.py` | source別取得、watermark、既存projectへの接続。テキストシードの解析・参照先解決・取り込みも`source_sync.py`が担当 |
 | `application/publications.py` / `publications/publication_registry.py` | [Lexicon公開情報](specs/lexicon-publication-catalog.md)の取得・検証、保存、project候補への照合 |
 | `publications/publication_verification.py` | syncとenrichの検証結果保存。公開本文・観測時刻の照合と調査保存への接続 |
-| `introduced_review.py` | 紹介投稿のURL別要確認・手動解消。判断はqueryの`sync_state`、紹介URLはproject本体へ保存 |
+| `introduced_review.py` | 紹介投稿の対象・参考リンク分類、`project_merge`と共通の候補照合、手動紐付け・新規作成・取消。判断はqueryの`sync_state`、紹介URLはproject本体へ保存 |
 | `application/enrichment.py` | enrichの対象選択・transaction・保存・checkpoint |
 | `enrichment_pipeline.py` | 1 projectのcollector・LLM・保存前更新の実行順序。Lexicon・record sample・resource pageの収集結果をEvidenceBundleへ梱包する処理も保持 |
 | `application/enrich_prefetch.py` | LLM区間中の次の一件の先行取得。DBとLLMはcaller threadに保ち、使用前にsnapshotを照合 |
