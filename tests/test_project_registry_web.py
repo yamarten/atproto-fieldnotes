@@ -8,6 +8,7 @@ import sqlite3
 import sys
 import threading
 import types
+import urllib.parse
 from unittest import mock
 from http import HTTPStatus
 from io import BytesIO
@@ -376,10 +377,39 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         status, listed, _ = self.request("/api/introduced-review")
         self.assertEqual(status, 200)
         self.assertEqual(listed["items"][0]["post_line"], f"Candidate: {url}")
-        self.assertEqual(listed["items"][0]["matched_projects"], [
-            {"project_key": "proj:222222222222", "name": "Example Duplicate", "introduced_url": ""}])
+        candidate = listed["items"][0]["matched_projects"][0]
+        self.assertEqual((candidate["project_key"], candidate["name"], candidate["introduced_url"]),
+                         ("proj:222222222222", "Example Duplicate", ""))
+        self.assertIn("exact_identifier", candidate["match_reasons"])
         status, detail, _ = self.request("/api/projects/proj:222222222222")
         self.assertEqual(status, 200)
+        self.assertEqual(detail["project"]["introduced_url"], "")
+
+    def test_introduced_review_creates_and_links_project_atomically_over_http(self) -> None:
+        source = {"uri": "at://did:plc:example/app.bsky.feed.post/create",
+                  "author": {"handle": "example.test"}, "record": {"text": "New https://new.example/app"}}
+        with contextlib.closing(registry.open_db()) as conn:
+            registry.write_sync_state(conn, "introduced", {"query": "create"}, {
+                "review_items": introduced_review.observe_posts(conn, [source])})
+            conn.commit()
+        _, listing, _ = self.request("/api/introduced-review")
+        item = listing["items"][0]
+        query = urllib.parse.urlencode({"status": "all", "scope_key": item["scope_key"], "item_id": item["id"]})
+        status, candidates, _ = self.request(f"/api/introduced-review?{query}")
+        self.assertEqual(status, 200)
+        self.assertEqual([i["id"] for i in candidates["items"]], [item["id"]])
+        status, created, _ = self.request("/api/introduced-review/action", method="POST", payload={
+            "scope_key": item["scope_key"], "item_id": item["id"], "action": "create",
+            "seed_type": "service_url", "seed_value": "https://corrected.example/app", "name": "Created App"})
+        self.assertEqual(status, 200)
+        key = created["item"]["created_project_key"]
+        _, detail, _ = self.request(f"/api/projects/{key}")
+        self.assertEqual(detail["project"]["name"], "Created App")
+        self.assertEqual(detail["project"]["introduced_url"], "https://bsky.app/profile/example.test/post/create")
+        status, _, _ = self.request("/api/introduced-review/action", method="POST", payload={
+            "scope_key": item["scope_key"], "item_id": item["id"], "action": "reopen"})
+        self.assertEqual(status, 200)
+        _, detail, _ = self.request(f"/api/projects/{key}")
         self.assertEqual(detail["project"]["introduced_url"], "")
 
     def test_static_assets_and_api_authentication(self) -> None:

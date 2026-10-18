@@ -46,6 +46,8 @@ CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をt
 
 `application/explain.py`はCLI/Web共通で、保存済み状態とrelationから結論、適用rule、支持・反証signalを返します。外部取得・LLM・DB更新は行いません。
 
+Explainは`trust`または`all`が要求されたときだけ信頼説明を計算します。信頼説明では、identity・collectionの接続を必要になった時点でそれぞれ一度だけ一括準備し、同じ説明生成内でanchorと正規化済みgraph・policy別の経路索引、公開Lexiconと独立した採用の根拠を共有します。接続を追加した時点でgraphを作り直し、共有用のcontextはproject fieldに持たせず呼出し終了時に破棄します。説明用の評価は保存用evaluationを更新せず、調査・採用処理では従来どおり個別評価を保存します。requestをまたぐcacheや表示情報の省略は行いません。
+
 同時編集は自分のCLI、Web、worker間を想定します。Web内のmutationはlockで直列化し、process間ではproject更新番号と保存transaction内の検査で競合を検出します。詳細からのmutationは`expected_revision`を必須とし、古い詳細を`409 stale_project`で拒否します。紹介投稿の要確認はitem IDを指定し、保存時に現在の判断とproject更新番号を検査します。
 
 ### 一覧・詳細の検索経路
@@ -62,7 +64,7 @@ Firefox拡張のポップアップ試作は、`embed=popup`のWeb UIをiframeへ
 
 紹介候補一覧は完全runtime viewを使い、読込み時の正規化結果をqueueとsignalで再利用します。先行絞込みとread snapshotの契約は[評価仕様](specs/project-evaluation.md#紹介候補の表示順位保留)に従います。
 
-詳細のマージ候補は`/api/projects/{key}/merge-analysis`で別途計算し、重複候補の計算結果を推薦とExplainで共有します。比較集合は`project_record.list_duplicate_projects`が同じread snapshotから識別情報・必要なstate・identifier・decision・adoptionを組み立てます。一覧の`/api/merge-batch`は`list_batch_merge_projects`で`ignore`以外の比較入力と方向選択用のservice status・紹介URL・補助URLを読み、全件のprofile・索引・key辞書を一度作って一覧全体で共有します。これらの部分的なviewは保存不可で、requestをまたぐprojectや候補のcacheは持ちません。呼出元が比較集合を渡す経路はその集合を使います。
+詳細のマージ候補は`/api/projects/{key}/merge-analysis`で別途計算し、重複候補の計算結果を推薦とExplainで共有します。単件の比較では、`list_duplicate_candidate_inputs`が名前・代表URL・identifierの小さな列とconfirm対象だけを読み、`project_merge.duplicate_candidate_keys`が一致し得るprojectを広めに選びます。guard・採用根拠による除外はこの段階では行わず、選択したprojectだけを`list_duplicate_projects`で従来の比較入力へ組み立て、既存の判定を適用します。先行絞込みとstate・identifier・decision・adoptionの読出しは同じread snapshotです。対象自身は比較集合から除き、対象profileは同じ計算内で再利用します。保存済みnamespaceによる一致・creatorとのlineage比較を含む入力では全件の比較集合を維持します。一覧の`/api/merge-batch`は`list_batch_merge_projects`で`ignore`以外の比較入力と方向選択用のservice status・紹介URL・補助URLを読み、全件のprofile・索引・key辞書を一度作って一覧全体で共有します。これらの部分的なviewは保存不可で、requestをまたぐprojectや候補のcacheは持ちません。呼出元が比較集合を渡す経路はその集合を使います。
 
 画面遷移時はブラウザが詳細とマージ解析の通信を取り消し、request世代とproject/revisionを照合して古い結果を描画しません。`request_cancellation.py`が接続断を検知し、applicationの確認点とSQLite progress handlerで協調的に計算を止め、DB接続等を解放します。別タブへは作用せず、計算中にproject revisionが変わった結果も破棄します。中断は即時の強制終了ではなく、HTTPS中継経由では切断が上流へ伝わることが必要です。
 
@@ -97,7 +99,7 @@ Firefox拡張のポップアップ試作は、`embed=popup`のWeb UIをiframeへ
 | `application/sync.py` / `source_sync.py` | source別取得、watermark、既存projectへの接続。テキストシードの解析・参照先解決・取り込みも`source_sync.py`が担当 |
 | `application/publications.py` / `publications/publication_registry.py` | [Lexicon公開情報](specs/lexicon-publication-catalog.md)の取得・検証、保存、project候補への照合 |
 | `publications/publication_verification.py` | syncとenrichの検証結果保存。公開本文・観測時刻の照合と調査保存への接続 |
-| `introduced_review.py` | 紹介投稿のURL別要確認・手動解消。判断はqueryの`sync_state`、紹介URLはproject本体へ保存 |
+| `introduced_review.py` | 紹介投稿の対象・参考リンク分類、`project_merge`と共通の候補照合、手動紐付け・新規作成・取消。判断はqueryの`sync_state`、紹介URLはproject本体へ保存 |
 | `application/enrichment.py` | enrichの対象選択・transaction・保存・checkpoint |
 | `enrichment_pipeline.py` | 1 projectのcollector・LLM・保存前更新の実行順序。Lexicon・record sample・resource pageの収集結果をEvidenceBundleへ梱包する処理も保持 |
 | `application/enrich_prefetch.py` | LLM区間中の次の一件の先行取得。DBとLLMはcaller threadに保ち、使用前にsnapshotを照合 |

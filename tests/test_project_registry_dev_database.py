@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import os
 import shlex
 import sqlite3
@@ -35,6 +36,20 @@ class DevDatabaseTest(unittest.TestCase):
     def snapshot(self) -> list[str]:
         with contextlib.closing(sqlite3.connect(self.path)) as conn:
             return list(conn.iterdump())
+
+    def make_legacy_database(self) -> None:
+        self.prepare()
+        with contextlib.closing(sqlite3.connect(self.path)) as conn:
+            # Schema 4 predates publication storage; also exercise obsolete DDL.
+            for table in ("publication_verifications", "publication_catalog", "catalog_metadata", "pending_publication_events", "collection_inventory_members"):
+                conn.execute(f"DROP TABLE {table}")
+            conn.execute("ALTER TABLE projects ADD COLUMN obsolete_fixture_column TEXT")
+            conn.execute("CREATE TABLE obsolete_fixture_rows(value TEXT)")
+            conn.execute("INSERT INTO obsolete_fixture_rows VALUES ('keep on failure')")
+            conn.execute("CREATE VIEW obsolete_fixture_view AS SELECT * FROM obsolete_fixture_rows")
+            conn.execute("CREATE TRIGGER obsolete_fixture_trigger AFTER INSERT ON obsolete_fixture_rows BEGIN UPDATE projects SET name='Old'; END")
+            conn.execute("UPDATE registry_meta SET value='4' WHERE key='schema_version'")
+            conn.commit()
 
     def run_cli(self, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
@@ -100,15 +115,69 @@ class DevDatabaseTest(unittest.TestCase):
             self.prepare(reset=True)
         self.assertEqual(self.path.read_bytes(), before)
 
-    def test_invalid_schema_is_never_reset(self) -> None:
+    def test_legacy_schema_is_recreated_by_cli_with_current_fictional_data(self) -> None:
         self.prepare()
-        with contextlib.closing(sqlite3.connect(self.path)) as conn:
-            conn.execute("UPDATE registry_meta SET value='0' WHERE key='schema_version'")
-            conn.commit()
-        before = self.path.read_bytes()
-        with self.assertRaisesRegex(ValueError, "current schema"):
+        current = self.snapshot()
+        self.path.unlink()
+        self.make_legacy_database()
+        inode = self.path.stat().st_ino
+        with self.assertRaises(database.SchemaMismatchError):
+            database.open_database(self.path)
+        before = self.snapshot()
+        stderr = io.StringIO()
+        with mock.patch.object(registry, "ROOT", self.root), contextlib.redirect_stderr(stderr):
+            self.assertEqual(cli.main(["--db-path", str(self.path), "show", "--all"]), 1)
+        self.assertIn("dev-db --reset", stderr.getvalue())
+        self.assertIn("discard existing development data", stderr.getvalue())
+        self.assertEqual(self.snapshot(), before)
+        stdout = io.StringIO()
+        with mock.patch.object(registry, "ROOT", self.root), contextlib.redirect_stdout(stdout):
+            self.assertEqual(cli.main(["dev-db", "--reset"]), 0)
+        self.assertEqual(json.loads(stdout.getvalue())["action"], "reset")
+        self.assertEqual(self.path.stat().st_ino, inode)
+        self.assertEqual(self.snapshot(), current)
+        with contextlib.closing(database.open_database(self.path)) as conn:
+            self.assertEqual(database.database_schema_version(conn), database.SCHEMA_VERSION)
+            self.assertEqual(conn.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+            self.assertEqual(conn.execute("PRAGMA foreign_key_check").fetchall(), [])
+            self.assertTrue(presentation.project_detail(conn, project_key="proj:dddd00000002")["identifiers"])
+            self.assertTrue(storage.load_investigation_run(conn, "inv:dev-sketch-partial"))
+        result = self.run_cli("--db-path", str(self.path), "show", "--all")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Demo Sprout", result.stdout)
+
+    def test_invalid_or_future_schema_is_never_reset(self) -> None:
+        self.prepare()
+        for version in ("0", "-1", "invalid", str(database.SCHEMA_VERSION + 1), None):
+            with self.subTest(version=version):
+                with contextlib.closing(sqlite3.connect(self.path)) as conn:
+                    conn.execute("DELETE FROM registry_meta WHERE key='schema_version'")
+                    if version is not None:
+                        conn.execute("INSERT INTO registry_meta VALUES ('schema_version', ?)", (version,))
+                    conn.commit()
+                before = self.path.read_bytes()
+                with self.assertRaisesRegex(ValueError, "schema version"):
+                    self.prepare(reset=True)
+                self.assertEqual(self.path.read_bytes(), before)
+
+    def test_old_unmarked_wrong_marker_and_empty_databases_are_never_reset(self) -> None:
+        self.make_legacy_database()
+        for marker in (None, "some-other-fixture"):
+            with self.subTest(marker=marker):
+                with contextlib.closing(sqlite3.connect(self.path)) as conn:
+                    conn.execute("DELETE FROM registry_meta WHERE key='dev_fixture'")
+                    if marker:
+                        conn.execute("INSERT INTO registry_meta VALUES ('dev_fixture', ?)", (marker,))
+                    conn.commit()
+                before = self.path.read_bytes()
+                with self.assertRaisesRegex(ValueError, "not created by dev-db"):
+                    self.prepare(reset=True)
+                self.assertEqual(self.path.read_bytes(), before)
+        self.path.unlink()
+        self.path.touch()
+        with self.assertRaisesRegex(ValueError, "not created by dev-db"):
             self.prepare(reset=True)
-        self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual(self.path.read_bytes(), b"")
 
     def test_symbolic_and_hard_link_targets_are_refused(self) -> None:
         self.path.parent.mkdir(parents=True)
@@ -142,6 +211,25 @@ class DevDatabaseTest(unittest.TestCase):
             self.prepare()
         self.assertEqual(sidecar.read_text(), "do not touch")
 
+    def test_linked_sidecars_are_never_used_during_reset(self) -> None:
+        self.make_legacy_database()
+        before = self.path.read_bytes()
+        target = self.root / "other-file"
+        target.write_text("do not touch")
+        for suffix in ("-wal", "-shm", "-journal"):
+            for hard in (False, True):
+                with self.subTest(suffix=suffix, hard=hard):
+                    sidecar = Path(str(self.path) + suffix)
+                    if hard:
+                        os.link(target, sidecar)
+                    else:
+                        sidecar.symlink_to(target)
+                    with self.assertRaisesRegex(ValueError, "links"):
+                        self.prepare(reset=True)
+                    sidecar.unlink()
+                    self.assertEqual(self.path.read_bytes(), before)
+                    self.assertEqual(target.read_text(), "do not touch")
+
     def test_reset_refuses_open_reader_and_writer(self) -> None:
         self.prepare()
         before = self.snapshot()
@@ -152,6 +240,51 @@ class DevDatabaseTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "in use"):
                     self.prepare(reset=True)
                 conn.rollback()
+        self.assertEqual(self.snapshot(), before)
+
+    def test_old_schema_reset_refuses_readers_and_writers_in_both_journal_modes(self) -> None:
+        self.make_legacy_database()
+        before = self.snapshot()
+        for mode in ("WAL", "DELETE"):
+            for write in (False, True):
+                with self.subTest(mode=mode, write=write), contextlib.closing(sqlite3.connect(self.path)) as conn:
+                    conn.execute(f"PRAGMA journal_mode={mode}")
+                    conn.execute("BEGIN IMMEDIATE" if write else "BEGIN")
+                    conn.execute("SELECT * FROM projects").fetchall()
+                    with self.assertRaisesRegex(ValueError, "in use"):
+                        self.prepare(reset=True)
+                    conn.rollback()
+                self.assertEqual(self.snapshot(), before)
+
+    def test_old_schema_and_data_survive_failed_schema_install_or_seeding(self) -> None:
+        self.make_legacy_database()
+        before = self.snapshot()
+        inode = self.path.stat().st_ino
+        original_create = database.create_schema
+        def fail_create(conn, **kwargs):
+            original_create(conn, **kwargs)
+            raise RuntimeError("schema failed")
+        def fail_seed(conn):
+            project_record.save_project(conn, project_record.default_project_record("proj:partial", "nsid", "org.example.test"), commit=False)
+            raise RuntimeError("fixture failed")
+        for owner, name, failure in ((database, "create_schema", fail_create), (dev_database, "seed_database", fail_seed)):
+            with self.subTest(stage=name), mock.patch.object(owner, name, side_effect=failure):
+                with self.assertRaises(RuntimeError):
+                    self.prepare(reset=True)
+            self.assertEqual(self.path.stat().st_ino, inode)
+            self.assertEqual(self.snapshot(), before)
+
+    def test_invalid_fixture_foreign_keys_roll_back_old_schema(self) -> None:
+        self.make_legacy_database()
+        before = self.snapshot()
+        original_seed = dev_database.seed_database
+        def invalid_seed(conn):
+            counts = original_seed(conn)
+            conn.execute("INSERT INTO project_key_aliases VALUES ('proj:orphan', 'proj:missing', '', '')")
+            return counts
+        with mock.patch.object(dev_database, "seed_database", side_effect=invalid_seed):
+            with self.assertRaisesRegex(ValueError, "foreign key validation"):
+                self.prepare(reset=True)
         self.assertEqual(self.snapshot(), before)
 
     def test_failed_reset_rolls_back_all_deletions_and_partial_seeding(self) -> None:

@@ -107,6 +107,9 @@ body.popup-embedded .detail-header > .operator-feedback { display: none; }
 .introduced-project-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 8px; }
 .introduced-search { align-items: end; }
 .introduced-search label { display: grid; gap: 6px; flex: 1; min-width: 180px; }
+.introduced-create form { display: grid; gap: 12px; margin-top: 12px; }
+.introduced-create label { display: grid; gap: 6px; min-width: 0; }
+.introduced-create input, .introduced-create select { width: 100%; min-width: 0; }
 .introduced-selection { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
 .introduced-selection:empty { display: none; }
 .introduced-post-line { white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -31,6 +31,10 @@ enrichの収集から採用・保存までを確認するtestでは、`tests/enr
 
 unit test、実データのread-only確認、実外部取得を伴う確認は、それぞれ検証できる範囲が異なります。一つの成功から別の経路の成功を推定せず、未検証の範囲を区別します。
 
+詳細・Explainの信頼計算を変更する場合、`bin/project-registry-test -p test_trust_explanation_performance.py`で25・100・200件のLexiconに対する正規化回数の増え方、個別評価との判定・経路の一致、guard・手動seed・公開型変更、要求しないtopicの計算省略を確認できます。実時間はDB・負荷に依存するためunit testの固定秒数にはせず、実データの比較では識別子・Lexicon・relation・decision数を記録し、詳細とマージ解析、直接呼出しとHTTP、初回と反復、profile有無を分けます。
+
+単件マージの先行絞込みを変更する場合、`bin/project-registry-test -p test_duplicate_candidate_prefilter.py`でidentifierのkind・role・採用状態、repository・service・代表URL・別名・domain・confirm対象による一致、namespace入力の全件比較、snapshot・次回の更新反映・取消しを確認します。無関係な大型JSONを持つprojectを25件から100件へ増やしても、詳細な比較入力へ組み立てる対象が増えないことを検証します。`test_duplicate_project_read.py`と`test_merge_analysis_cancellation.py`は全件・batch比較との同等性、保存不可の境界、更新競合と実HTTP切断を担当します。初回性能の比較では新process／新接続と反復を区別し、OS cacheを制御していない計測をcold diskの実測と扱いません。
+
 heuristicの検証では、既知fixtureで誤りが解消することに加え、同種例・別の例への退行を確認します。特定のproject、URL、sourceだけに作用する特例では、一般の判定規則が改善したことを確かめられません。判定規則と利用者判断を分ける設計方針は[brief](../../brief.md#原則と責務境界)を参照してください。LLM調査・評価で得た誤判定、訂正、判断が分かれる例、有用な正例の再利用先は[事例保存の手順](llm-model-evaluation.md#作業中に得た事例の保存)で説明します。
 
 ### testの検証力を確かめる選択肢
@@ -80,15 +84,17 @@ queueが提案する次のCLIコマンドには接続中DBの絶対pathを含め
 
 ### リセットと上書き拒否
 
-既存DBはそのまま再利用します。初期状態へ戻す場合は、そのDBを使うCLI、Web server、workerをすべて停止してから実行します。
+既存DBは、現行schemaならそのまま再利用できます。初期状態へ戻す場合や、コード更新後に旧schemaとして拒否された開発用DBを再生成する場合は、そのDBを使うCLI、Web server、workerをすべて停止してから、そのDBがあるcheckoutの入口で実行します。
 
 ```bash
 bin/project-registry dev-db --reset
 ```
 
-保存先は固定で、`dev-db`へ任意pathや共通`--db-path`は渡せません。通常生成は既存fileを拒否し、リセットは生成元markerと現行schemaを持つDBだけを許可します。DB・親directoryのsymlink、DBやSQLite sidecarのhard link/symlinkも拒否します。正本DBや既存の空DBをこのpathへ移してもリセットできません。未生成なら`--reset`でも新規作成します。
+`--reset`は、既存の開発用データとschemaを破棄し、現行コードのschemaと架空定義から再生成します。手動で編集・追加した登録プロジェクトや判断、調査履歴も消えます。データを保持する世代間migrationではありません。結果のJSONにはDB path、操作、生成したschema version、データ件数を返します。
 
-リセットは同じDB file内の単一transactionで全tableのデータを再投入し、途中失敗はrollbackします。WALを解除してexclusive transactionを取り、SQLiteが使用中と判断する場合は待たずに拒否します。接続を閉じたまま待機中のserver／workerの検知は保証しないため、事前停止は必要です。リセット後の通常接続は既存仕様どおりWALを有効にします。DB外の`job-schedules.json`、checkpoint、browserのlocalStorageはリセットしません。
+保存先は固定で、`dev-db`へ任意pathや共通`--db-path`は渡せません。通常生成は既存fileを拒否し、リセットは生成元markerが一致するDBだけを許可します。schema versionは1以上かつ現行version以下を受け付け、欠落・不正値・未来のversionは拒否します。DB・親directoryのsymlink、DBやSQLite sidecarのhard link/symlinkも拒否します。正本DBや既存の空DBをこのpathへ移してもリセットできません。未生成なら`--reset`でも新規作成します。
+
+リセットは同じDB file内の単一transactionでtable・view・triggerを作り直し、架空データを再投入して外部キー整合性を検証します。途中失敗は旧schemaとデータへrollbackします。WALを解除してexclusive transactionを取り、SQLiteが使用中と判断する場合は待たずに拒否します。transactionを保持していない待機中のserver／workerの検知は保証しないため、事前停止は必要です。リセット後の通常接続は既存仕様どおりWALを有効にします。DB外の`job-schedules.json`、checkpoint、browserのlocalStorageはリセットしません。
 
 `data/dev/`は正本の定期設定やcheckpointがある`data/`と分けます。定期実行を有効にすると手動操作以外でもjobが動くため、通常の画面確認例では定期実行を使いません。
 

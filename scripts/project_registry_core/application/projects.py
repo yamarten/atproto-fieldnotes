@@ -42,6 +42,7 @@ def add_seed(
     seed: str,
     seed_type: str | None = None,
     project_key: str | None = None,
+    commit: bool = True,
 ) -> dict[str, Any]:
     resolved_type = core.detect_seed_type(seed, seed_type)
     project = core.ensure_project_for_seed(
@@ -109,7 +110,8 @@ def add_seed(
         preserve_timestamps=True,
         commit=False,
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return {
         "project_key": project["project_key"],
         "seed_type": resolved_type,

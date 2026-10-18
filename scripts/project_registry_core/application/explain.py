@@ -84,8 +84,9 @@ def explain_project_state(
         "ownership": ownership,
         "contribution": contribution,
         "merge_candidate": merge,
-        "trust": core.trust_explanation(dict(project)),
     }
+    if topic in {"all", "trust"}:
+        explanations["trust"] = core.trust_explanation(dict(project))
     if topic != "all" and topic not in explanations:
         raise ValueError(f"unknown explain topic: {topic}")
     return {

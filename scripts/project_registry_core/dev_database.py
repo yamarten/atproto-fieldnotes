@@ -55,30 +55,43 @@ def seed_database(conn: sqlite3.Connection) -> dict[str, int]:
     return {"projects": len(projects), "investigations": len(fixture["investigations"])}
 
 
+def _check_generated_database(conn: sqlite3.Connection) -> None:
+    has_meta = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='registry_meta'").fetchone()
+    marker = conn.execute("SELECT value FROM registry_meta WHERE key=?", (MARKER_KEY,)).fetchone() if has_meta else None
+    if marker is None or marker[0] != MARKER_VALUE:
+        raise ValueError("refusing to reset a DB not created by dev-db")
+    try:
+        version = database.database_schema_version(conn)
+    except ValueError as exc:
+        raise ValueError("dev DB reset requires a valid schema version") from exc
+    if version is None or not 1 <= version <= database.SCHEMA_VERSION:
+        raise ValueError(f"dev DB reset requires a known schema version (1..{database.SCHEMA_VERSION}), got {version}")
+
+
 def _reset_database(path: Path) -> dict[str, int]:
-    # Do not run schema bootstrap (executescript commits) inside this transaction.
     with closing(sqlite3.connect(path.as_uri() + "?mode=rw", uri=True, timeout=0)) as conn:
         try:
             conn.row_factory = sqlite3.Row
-            if database.database_schema_version(conn) != database.SCHEMA_VERSION:
-                raise ValueError("dev DB reset requires the current schema")
-            marker = conn.execute("SELECT value FROM registry_meta WHERE key=?", (MARKER_KEY,)).fetchone()
-            if marker is None or marker[0] != MARKER_VALUE:
-                raise ValueError("refusing to reset a DB not created by dev-db")
+            _check_generated_database(conn)
             # Leaving WAL requires other SQLite connections to release the DB.
             # Exclusive rollback-journal mode then excludes readers and writers.
             conn.execute("PRAGMA journal_mode=DELETE")
-            conn.execute("PRAGMA foreign_keys=ON")
+            # Dropping all tables must not run old FK cascades or revision triggers.
+            conn.execute("PRAGMA foreign_keys=OFF")
             conn.execute("BEGIN EXCLUSIVE")
-            tables = [row[0] for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-            )]
-            for table in tables:
-                quoted = '"' + table.replace('"', '""') + '"'
-                conn.execute(f"DELETE FROM {quoted}" + (" WHERE key != 'schema_version'" if table == "registry_meta" else ""))
-            from .publications.publication_registry import install_schema
-            install_schema(conn)
+            # Recheck after acquiring the lock: validation and replacement are atomic.
+            _check_generated_database(conn)
+            objects = conn.execute(
+                "SELECT type, name FROM sqlite_master WHERE type IN ('trigger', 'view', 'table') "
+                "AND name NOT LIKE 'sqlite_%' ORDER BY CASE type WHEN 'trigger' THEN 0 WHEN 'view' THEN 1 ELSE 2 END"
+            ).fetchall()
+            for kind, name in objects:
+                quoted = '"' + name.replace('"', '""') + '"'
+                conn.execute(f"DROP {kind.upper()} {quoted}")
+            database.create_schema(conn, commit=False)
             counts = seed_database(conn)
+            if conn.execute("PRAGMA foreign_key_check").fetchall():
+                raise ValueError("regenerated dev DB failed foreign key validation")
             conn.commit()
             return counts
         except sqlite3.OperationalError as exc:
@@ -94,7 +107,7 @@ def prepare_database(workspace_root: Path, *, reset: bool = False) -> dict[str, 
     path = _check_path(Path(workspace_root).resolve())
     if path.exists():
         if not reset:
-            raise FileExistsError(f"dev DB already exists: {path}; reuse it or stop its processes and use dev-db --reset")
+            raise FileExistsError(f"dev DB already exists: {path}; reuse it or stop its processes and use dev-db --reset to discard existing development data and recreate the current schema")
         counts = _reset_database(path)
     else:
         if any(Path(str(path) + suffix).exists() for suffix in ("-wal", "-shm", "-journal")):
@@ -114,4 +127,4 @@ def prepare_database(workspace_root: Path, *, reset: bool = False) -> dict[str, 
         except Exception:
             path.unlink()
             raise
-    return {"db_path": str(path), "action": "reset" if reset else "created", **counts}
+    return {"db_path": str(path), "action": "reset" if reset else "created", "schema_version": database.SCHEMA_VERSION, **counts}

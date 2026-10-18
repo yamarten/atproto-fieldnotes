@@ -1375,10 +1375,47 @@ def identifier_is_manual_seed(project: dict[str, Any], identifier_type: str, val
     return False
 
 
+class _TrustExplanationContext:
+    """Share preparation within one explanation; never retain it on a project."""
+
+    def __init__(self, project: dict[str, Any]) -> None:
+        self.project = project
+        self.identity_prepared = False
+        self.collection_prepared = False
+        self._graph: trust_graph_core.PreparedGraph | None = None
+        self._publisher_support: collection_trust.PublisherSupport | None = None
+        self.anchors = trusted_anchor_nodes(project)
+        self.identity_anchors = identity_trusted_anchor_nodes(project)
+        self.collection_anchors = collection_trusted_anchor_nodes(project)
+
+    def prepare(self, *, collection: bool = False) -> None:
+        if not self.identity_prepared:
+            sync_trust_edges_from_project_identity(self.project)
+            self.identity_prepared = True
+            self._graph = None
+        if collection and not self.collection_prepared:
+            sync_trust_edges_from_collection_service_anchors(self.project)
+            self.collection_prepared = True
+            self._graph = None
+
+    @property
+    def graph(self) -> trust_graph_core.PreparedGraph:
+        if self._graph is None:
+            self._graph = trust_graph_core.PreparedGraph(self.project)
+        return self._graph
+
+    @property
+    def publisher_support(self) -> collection_trust.PublisherSupport:
+        if self._publisher_support is None:
+            self._publisher_support = collection_trust.PublisherSupport(self.project)
+        return self._publisher_support
+
+
 def trust_explanation(project: dict[str, Any]) -> dict[str, Any]:
     project = project_record.ensure_project_shape(project)
     identifiers = runtime_view.project_identifiers(project)
     rows: list[dict[str, Any]] = []
+    context = _TrustExplanationContext(project)
     for item in identifiers:
         kind = "collection" if item.kind == "nsid" else item.kind
         if kind not in trust_graph_core.NODE_KINDS:
@@ -1392,19 +1429,22 @@ def trust_explanation(project: dict[str, Any]) -> dict[str, Any]:
             evaluation = trust_graph_core.evaluate_auto_confirm(
                 project,
                 candidate=node,
-                anchors=trusted_anchor_nodes(project),
+                anchors=context.anchors,
+                prepared_graph=context.graph,
             )
             directional_paths = trust_graph_core.directional_paths(
                 project,
                 candidate=node,
-                anchors=trusted_anchor_nodes(project),
+                anchors=context.anchors,
+                prepared_graph=context.graph,
             )
         elif item.kind == "nsid":
-            evaluation = trust_collection_ownership_evaluation(project, item.value)
+            evaluation = trust_collection_ownership_evaluation(project, item.value, context=context)
             directional_paths = trust_graph_core.directional_paths(
                 project,
                 candidate=node,
-                anchors=collection_trusted_anchor_nodes(project),
+                anchors=context.collection_anchors,
+                prepared_graph=context.graph,
                 allowed_node_kinds=COLLECTION_TRUST_NODE_KINDS,
                 allowed_predicates=COLLECTION_TRUST_PREDICATES,
             )
@@ -1415,11 +1455,12 @@ def trust_explanation(project: dict[str, Any]) -> dict[str, Any]:
                     "candidate_to_anchor": evaluation["backward_path"],
                 }]
         elif item.kind in IDENTITY_TRUST_NODE_KINDS:
-            evaluation = trust_auto_confirm_identifier(project, item.kind, item.value)
+            evaluation = trust_auto_confirm_identifier(project, item.kind, item.value, context=context)
             directional_paths = trust_graph_core.directional_paths(
                 project,
                 candidate=node,
-                anchors=identity_trusted_anchor_nodes(project),
+                anchors=context.identity_anchors,
+                prepared_graph=context.graph,
                 allowed_node_kinds=IDENTITY_TRUST_NODE_KINDS,
                 allowed_predicates=IDENTITY_TRUST_PREDICATES,
             )
@@ -1461,9 +1502,9 @@ def trust_explanation(project: dict[str, Any]) -> dict[str, Any]:
         "identifier_evaluations": rows,
         "edge_count": len(edges),
         "edges": edges[:100],
-        "anchors": trusted_anchor_nodes(project),
-        "identity_anchors": identity_trusted_anchor_nodes(project),
-        "collection_anchors": collection_trusted_anchor_nodes(project),
+        "anchors": context.anchors,
+        "identity_anchors": context.identity_anchors,
+        "collection_anchors": context.collection_anchors,
     }
 
 
@@ -3199,14 +3240,14 @@ IDENTITY_TRUST_PREDICATES = {
 
 
 def sync_trust_edges_from_project_identity(project: dict[str, Any]) -> None:
+    edges: list[dict[str, Any]] = []
     for account in project.get("developer_accounts", []):
         if not isinstance(account, dict):
             continue
         handle = str(account.get("handle") or "").strip().lower()
         did = str(account.get("did") or "").strip()
         if handle and did:
-            project_record.record_trust_edge(
-                project,
+            edges.append(project_record.build_trust_edge(
                 "handle",
                 handle,
                 "handle_resolves_did",
@@ -3217,10 +3258,9 @@ def sync_trust_edges_from_project_identity(project: dict[str, Any]) -> None:
                 classification="confirmed",
                 eligible_for_auto_confirm=True,
                 observed_at=str(account.get("observed_at") or ""),
-            )
+            ))
         if handle and "." in handle and not project_record.is_shared_official_identity_host(handle):
-            project_record.record_trust_edge(
-                project,
+            edges.append(project_record.build_trust_edge(
                 "domain",
                 handle,
                 "domain_exact_handle",
@@ -3231,9 +3271,8 @@ def sync_trust_edges_from_project_identity(project: dict[str, Any]) -> None:
                 classification="confirmed",
                 eligible_for_auto_confirm=True,
                 observed_at=str(account.get("observed_at") or ""),
-            )
-            project_record.record_trust_edge(
-                project,
+            ))
+            edges.append(project_record.build_trust_edge(
                 "handle",
                 handle,
                 "handle_exact_domain",
@@ -3244,7 +3283,7 @@ def sync_trust_edges_from_project_identity(project: dict[str, Any]) -> None:
                 classification="confirmed",
                 eligible_for_auto_confirm=True,
                 observed_at=str(account.get("observed_at") or ""),
-            )
+            ))
     entries = project_record.normalize_lexicon_resolution_entries(project.get("lexicon_resolution_entries", []))
     schema_kinds = {entry["resolved_nsid"]: resource_identity.schema_node_kind(
         (entry.get("publication_validation") or {}).get("schema_type", "record")) for entry in entries}
@@ -3263,8 +3302,7 @@ def sync_trust_edges_from_project_identity(project: dict[str, Any]) -> None:
         repo_did = str(entry.get("repo_did") or "").strip()
         schema_kind = schema_kinds[resolved_nsid]
         if repo_did and resolved_nsid:
-            project_record.record_trust_edge(
-                project,
+            edges.append(project_record.build_trust_edge(
                 "did",
                 repo_did,
                 "did_publishes_schema",
@@ -3276,11 +3314,10 @@ def sync_trust_edges_from_project_identity(project: dict[str, Any]) -> None:
                 classification="confirmed",
                 eligible_for_auto_confirm=True,
                 observed_at=str(entry.get("resolved_at") or ""),
-            )
+            ))
         authority_domain = str(entry.get("authority_domain") or identifier_core.derive_authority_domain(resolved_nsid)).strip().lower().rstrip(".")
         if resolved_nsid and authority_domain:
-            project_record.record_trust_edge(
-                project,
+            edges.append(project_record.build_trust_edge(
                 schema_kind,
                 resolved_nsid,
                 "collection_authority_domain",
@@ -3292,9 +3329,8 @@ def sync_trust_edges_from_project_identity(project: dict[str, Any]) -> None:
                 classification="confirmed",
                 eligible_for_auto_confirm=True,
                 observed_at=str(entry.get("resolved_at") or ""),
-            )
-            project_record.record_trust_edge(
-                project,
+            ))
+            edges.append(project_record.build_trust_edge(
                 "domain",
                 authority_domain,
                 "domain_publishes_lexicon_record",
@@ -3306,7 +3342,8 @@ def sync_trust_edges_from_project_identity(project: dict[str, Any]) -> None:
                 classification="confirmed",
                 eligible_for_auto_confirm=True,
                 observed_at=str(entry.get("resolved_at") or ""),
-            )
+            ))
+    trust_graph_core.upsert_edges(project, edges, generated_at=project_record.iso_now())
 
 
 def exact_root_service_domain(service_url: str) -> str:
@@ -3318,6 +3355,7 @@ def exact_root_service_domain(service_url: str) -> str:
 
 
 def sync_trust_edges_from_collection_service_anchors(project: dict[str, Any]) -> None:
+    edges: list[dict[str, Any]] = []
     authority_domains = {
         str(entry.get("authority_domain") or "").strip().lower().rstrip(".")
         for entry in project_record.normalize_lexicon_resolution_entries(project.get("lexicon_resolution_entries", []))
@@ -3333,8 +3371,7 @@ def sync_trust_edges_from_collection_service_anchors(project: dict[str, Any]) ->
         if not service_url or domain not in authority_domains:
             continue
         source = f"trusted_service_domain:{service_url}"
-        project_record.record_trust_edge(
-            project,
+        edges.append(project_record.build_trust_edge(
             "service_url",
             service_url,
             "service_exact_domain",
@@ -3345,9 +3382,8 @@ def sync_trust_edges_from_collection_service_anchors(project: dict[str, Any]) ->
             method="exact_root_service_domain",
             classification="confirmed",
             eligible_for_auto_confirm=True,
-        )
-        project_record.record_trust_edge(
-            project,
+        ))
+        edges.append(project_record.build_trust_edge(
             "domain",
             domain,
             "domain_exact_service",
@@ -3358,7 +3394,8 @@ def sync_trust_edges_from_collection_service_anchors(project: dict[str, Any]) ->
             method="exact_root_service_domain",
             classification="confirmed",
             eligible_for_auto_confirm=True,
-        )
+        ))
+    trust_graph_core.upsert_edges(project, edges, generated_at=project_record.iso_now())
 
 
 def collection_trusted_anchor_nodes(project: dict[str, Any]) -> list[dict[str, str]]:
@@ -3388,7 +3425,7 @@ def identity_trusted_anchor_nodes(project: dict[str, Any]) -> list[dict[str, str
     ]
 
 
-def trust_collection_ownership_evaluation(project: dict[str, Any], nsid: str) -> dict[str, Any]:
+def trust_collection_ownership_evaluation(project: dict[str, Any], nsid: str, *, context: _TrustExplanationContext | None = None) -> dict[str, Any]:
     normalized = identifier_core.normalize_nsid(nsid)
     candidate = project_record.trust_node("collection", normalized)
     if not candidate:
@@ -3402,51 +3439,66 @@ def trust_collection_ownership_evaluation(project: dict[str, Any], nsid: str) ->
             "candidate": candidate,
             "policy_version": trust_graph_core.TRUST_POLICY_VERSION,
         }
-    sync_trust_edges_from_project_identity(project)
-    sync_trust_edges_from_collection_service_anchors(project)
+    if context is None:
+        sync_trust_edges_from_project_identity(project)
+        sync_trust_edges_from_collection_service_anchors(project)
+    else:
+        context.prepare(collection=True)
     evaluation = trust_graph_core.evaluate_auto_confirm(
         project,
         candidate=candidate,
-        anchors=collection_trusted_anchor_nodes(project),
+        anchors=collection_trusted_anchor_nodes(project) if context is None else context.collection_anchors,
+        prepared_graph=None if context is None else context.graph,
         allowed_node_kinds=COLLECTION_TRUST_NODE_KINDS,
         allowed_predicates=COLLECTION_TRUST_PREDICATES,
     )
     if not evaluation.get("auto_confirm"):
-        publication_evaluation = collection_trust.evaluate_publisher_support(project, normalized)
+        publication_evaluation = collection_trust.evaluate_publisher_support(
+            project, normalized, prepared=None if context is None else context.publisher_support,
+        )
         if publication_evaluation.get("auto_confirm"):
             evaluation = publication_evaluation
-    trust_graph_core.upsert_evaluation(project, evaluation, generated_at=project_record.iso_now())
+    if context is None:
+        trust_graph_core.upsert_evaluation(project, evaluation, generated_at=project_record.iso_now())
     return evaluation
 
 
-def trust_auto_confirm_identifier(project: dict[str, Any], identifier_type: str, value: str) -> dict[str, Any]:
+def trust_auto_confirm_identifier(project: dict[str, Any], identifier_type: str, value: str, *, context: _TrustExplanationContext | None = None) -> dict[str, Any]:
     kind = "collection" if identifier_type == "nsid" else identifier_type
     candidate = project_record.trust_node(kind, value)
     if not candidate:
         return {"auto_confirm": False, "reason": "invalid_candidate", "candidate": {"kind": kind, "value": value}}
     if project_record.identifier_is_blocked(project, identifier_type, value) or project_record.identifier_is_deferred(project, identifier_type, value):
         evaluation = {"auto_confirm": False, "reason": "guarded_identifier", "candidate": candidate}
-        trust_graph_core.upsert_evaluation(project, evaluation, generated_at=project_record.iso_now())
+        if context is None:
+            trust_graph_core.upsert_evaluation(project, evaluation, generated_at=project_record.iso_now())
         return evaluation
     if identifier_type == "nsid":
-        return trust_collection_ownership_evaluation(project, value)
+        return trust_collection_ownership_evaluation(project, value, context=context)
     if identifier_type in IDENTITY_TRUST_NODE_KINDS:
-        sync_trust_edges_from_project_identity(project)
+        if context is None:
+            sync_trust_edges_from_project_identity(project)
+        else:
+            context.prepare()
         evaluation = trust_graph_core.evaluate_auto_confirm(
             project,
             candidate=candidate,
-            anchors=identity_trusted_anchor_nodes(project),
+            anchors=identity_trusted_anchor_nodes(project) if context is None else context.identity_anchors,
+            prepared_graph=None if context is None else context.graph,
             allowed_node_kinds=IDENTITY_TRUST_NODE_KINDS,
             allowed_predicates=IDENTITY_TRUST_PREDICATES,
         )
-        trust_graph_core.upsert_evaluation(project, evaluation, generated_at=project_record.iso_now())
+        if context is None:
+            trust_graph_core.upsert_evaluation(project, evaluation, generated_at=project_record.iso_now())
         return evaluation
     evaluation = trust_graph_core.evaluate_auto_confirm(
         project,
         candidate=candidate,
-        anchors=trusted_anchor_nodes(project),
+        anchors=trusted_anchor_nodes(project) if context is None else context.anchors,
+        prepared_graph=None if context is None else context.graph,
     )
-    trust_graph_core.upsert_evaluation(project, evaluation, generated_at=project_record.iso_now())
+    if context is None:
+        trust_graph_core.upsert_evaluation(project, evaluation, generated_at=project_record.iso_now())
     return evaluation
 
 

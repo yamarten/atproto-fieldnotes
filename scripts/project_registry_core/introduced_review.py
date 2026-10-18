@@ -16,13 +16,133 @@ import uuid
 from typing import Any
 
 from .identity import identifiers
-from . import project_record
+from . import naming, project_record
+from . import project_merge
+from .repositories import repo_urls
+from .persistence import concurrency, database
 from project_registry_core.registry import applog_seed_from_url
 from project_registry_core.transport.atproto import bsky_post_web_url, extract_post_link_entries
 
 
 TEXT_URL = re.compile(r"https?://[^\s<>\[\]{}\"']+", re.IGNORECASE)
 MANUAL_STATUSES = {"ignored", "linked"}
+
+
+def canonical_item_keys(conn: sqlite3.Connection, item: dict[str, Any]) -> dict[str, Any]:
+    item = copy.deepcopy(item)
+    def canonical(key: str) -> str:
+        return database.project_key_alias_target(conn, key) or key
+    for field in ("project_key", "auto_set_project_key", "cleared_auto_project_key", "created_project_key", "resolved_project_key"):
+        if item.get(field):
+            item[field] = canonical(str(item[field]))
+    item["matched_project_keys"] = list(dict.fromkeys(canonical(str(key)) for key in item.get("matched_project_keys", [])))
+    for match in item.get("candidate_matches", []):
+        match["project_key"] = canonical(str(match["project_key"]))
+    return item
+
+
+def link_identity(url: str) -> tuple[str, tuple[str, str] | None]:
+    """Classify the resource, retaining a PR's repository as a search hint."""
+    if not url:
+        return "target", None
+    seed = applog_seed_from_url(url) if url else None
+    if seed:
+        return "target", seed
+    parsed = urllib.parse.urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if repo_urls.is_supported_repo_url(url):
+        repo = repo_urls.canonical_repo_url(url)
+        if len([part for part in parsed.path.split("/") if part]) == 2:
+            return "target", ("repo_url", repo)
+        return "reference", ("repo_url", repo)
+    if host in {"github.com", "tangled.org", "tangled.sh"}:
+        return "reference", None
+    if (re.match(r"^/t/[^/]+/\d+(?:/|$)", parsed.path)
+            or host in {"bsky.app", "youtube.com", "www.youtube.com", "youtu.be",
+                        "raw.githubusercontent.com", "docs.bsky.app", "docs.tangled.org", "blog.tangled.org"}
+            or project_record.is_explicitly_non_project_service_url(url)
+            or project_record.is_asset_like_url(url)):
+        return "reference", None
+    if parsed.scheme in {"http", "https"} and host:
+        return "target", ("service_url", identifiers.normalize_url(url))
+    return "target", None
+
+
+class CandidateSearch:
+    """Request-local prefilter snapshot and lazily hydrated comparison records."""
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+        self.inputs = None
+        self.projects: dict[str, dict[str, Any]] = {}
+        self.results: dict[str, list[dict[str, Any]]] = {}
+
+    def compare(self, probe: dict[str, Any]) -> list[dict[str, Any]]:
+        cache_key = json.dumps([[(seed["type"], seed["value"]) for seed in probe.get("manual_seeds", [])],
+                                probe.get("name")], sort_keys=True)
+        if cache_key not in self.results:
+            if self.inputs is None:
+                self.inputs = project_record.list_duplicate_candidate_inputs(self.conn)
+            keys = project_merge.duplicate_candidate_keys(self.inputs, project_merge.duplicate_profile(probe))
+            if keys is None:
+                keys = {str(item["project_key"]) for item in self.inputs}
+            missing = keys - self.projects.keys()
+            if missing:
+                self.projects.update({p["project_key"]: p for p in project_record.list_duplicate_projects(
+                    self.conn, project_keys=missing)})
+            self.results[cache_key] = project_merge.compute_duplicate_candidates(
+                self.conn, probe, projects=[self.projects[key] for key in keys if key in self.projects])
+        return copy.deepcopy(self.results[cache_key])
+
+
+def candidate_matches(conn: sqlite3.Connection, item: dict[str, Any], search: CandidateSearch | None = None) -> list[dict[str, Any]]:
+    """A post supplies a small comparison probe, never a persisted project."""
+    seed = (str(item.get("seed_type") or ""), str(item.get("seed_value") or ""))
+    label = str(item.get("label") or "").strip()
+    if not all(seed) and not label:
+        return []
+    from .registry import add_manual_seed
+    probe = project_record.default_project_record("introduced:probe", *(seed if all(seed) else ("service_url", "")))
+    if all(seed):
+        add_manual_seed(probe, *seed, source="introduced_comparison")
+    # A linked name can help; the complete post describes unrelated projects.
+    if label and not TEXT_URL.search(label):
+        probe["name"] = label.split(":", 1)[0].split("：", 1)[0].strip("* ")
+    for hint in item.get("reference_seeds", []):
+        if isinstance(hint, list) and len(hint) == 2:
+            add_manual_seed(probe, *hint, source="introduced_reference")
+    matches = (search or CandidateSearch(conn)).compare(probe)
+    exact = _matches(conn, seed if all(seed) else None)
+    by_key = {match["project_key"]: match for match in matches}
+    for key in exact:
+        candidate = by_key.setdefault(key, {"project_key": key, "score": 0, "reasons": {}})
+        candidate["reasons"]["exact_identifier"] = [seed[1]]
+    return sorted(by_key.values(), key=lambda match: (match["project_key"] not in exact,
+                                                      -match["score"], match["project_key"]))
+
+
+def refresh_item(conn: sqlite3.Connection, item: dict[str, Any], search: CandidateSearch | None = None,
+                 *, explore: bool = True) -> dict[str, Any]:
+    item = canonical_item_keys(conn, item)
+    role, seed = link_identity(str(item.get("url") or ""))
+    item["link_role"] = role
+    item["seed_type"], item["seed_value"] = seed or ("", "")
+    if item.get("status") in MANUAL_STATUSES:
+        return item
+    if explore:
+        item["candidate_matches"] = candidate_matches(conn, item, search)
+    else:
+        by_key = {match["project_key"]: match for match in item.get("candidate_matches", [])}
+        for priority, key in project_record.indexed_identifier_matches(conn, *seed) if seed else []:
+            reason = "exact_identifier" if priority == 0 else "candidate_identifier"
+            by_key.setdefault(key, {"project_key": key, "score": 0, "reasons": {reason: [seed[1]]}})
+        item["candidate_matches"] = list(by_key.values())
+    item["matched_project_keys"] = [match["project_key"] for match in item["candidate_matches"]]
+    if role == "reference" and not item.get("review_as_target"):
+        item.update(status="reference", reason="reference_link")
+        return item
+    item["reason"] = reason_for_item(conn, item, item["matched_project_keys"])
+    item["status"] = "open" if item["reason"] else "auto_applied"
+    return item
 
 
 def target_post_line(text: str, url: str, facets: list[dict[str, Any]] | None = None) -> str:
@@ -111,7 +231,7 @@ def posts_for_automatic_matching(posts: list[dict[str, Any]], review_items: list
 def _matches(conn: sqlite3.Connection, seed: tuple[str, str] | None) -> list[str]:
     if seed is None:
         return []
-    return [key for _, key in project_record.indexed_identifier_matches(conn, *seed)]
+    return [key for priority, key in project_record.indexed_identifier_matches(conn, *seed) if priority == 0]
 
 
 def _reason(seed: tuple[str, str] | None, matches: list[str], *, no_url: bool = False) -> str:
@@ -127,24 +247,58 @@ def _reason(seed: tuple[str, str] | None, matches: list[str], *, no_url: bool = 
 
 
 def reason_for_item(conn: sqlite3.Connection, item: dict[str, Any], matches: list[str], *, allow_apply: bool = False) -> str:
-    if item.get("url_source") == "text":
-        return "text_url_not_extracted"
+    item.pop("resolution_only", None)
     seed = (str(item.get("seed_type") or ""), str(item.get("seed_value") or ""))
-    reason = _reason(seed if all(seed) else None, matches, no_url=not item.get("url"))
-    if reason or not matches:
-        return reason
+    exact = _matches(conn, seed if all(seed) else None)
+    # An existing introduction is independent of identifier adoption. Candidate
+    # exact matches can identify an already assigned project, never assign one.
+    existing_matches = [key for _, key in project_record.indexed_identifier_matches(conn, *seed)] if all(seed) else []
     web_url = str(item.get("post_web_url") or "")
+    # A pre-existing/manual assignment can settle a broader candidate search.
+    # The old first-of-many automatic assignment is explicitly not proof.
+    assigned = []
+    for key in existing_matches if web_url else []:
+        if not conn.execute("SELECT 1 FROM projects WHERE project_key=? AND introduced_url=?", (key, web_url)).fetchone():
+            continue
+        support = conn.execute("""SELECT json_extract(j.value,'$.status') AS status,
+                json_extract(j.value,'$.project_key') AS project_key,
+                json_extract(j.value,'$.auto_set_project_key') AS auto_key,
+                json_extract(j.value,'$.reason') AS reason
+            FROM sync_state, json_each(watermark_json,'$.review_items') j
+            WHERE kind='introduced' AND json_extract(j.value,'$.post_web_url')=?""", (web_url,)).fetchall()
+        manual = any(row["status"] == "linked" and row["project_key"] == key for row in support)
+        ambiguous = (key == item.get("auto_set_project_key") and item.get("status") != "auto_applied") or any(
+            row["status"] == "open" and row["auto_key"] == key and row["reason"] == "multiple_projects"
+            for row in support)
+        if manual or not ambiguous:
+            assigned.append(key)
+    if len(assigned) == 1:
+        item["resolved_project_key"] = assigned[0]
+        # Suppressing a duplicate question must not become independent support
+        # that prevents undoing the actual manual assignment.
+        item["resolution_only"] = len(existing_matches) > 1
+        return ""
+    item.pop("resolved_project_key", None)
+    reason = _reason(seed if all(seed) else None, exact, no_url=not item.get("url"))
+    if reason:
+        if reason == "unmatched" and matches:
+            return "multiple_projects" if len(matches) > 1 else "candidate_match"
+        return reason
+    if item.get("url_source") == "text" and not allow_apply:
+        return "text_url_not_extracted"
     if not web_url:
         return "post_url_unavailable"
-    project = project_record.fetch_project(conn, matches[0])
+    project = project_record.fetch_project(conn, exact[0])
     if project and project.get("introduced_url") and project["introduced_url"] != web_url:
         return "different_introduced_url"
     if project and not project.get("introduced_url") and not allow_apply:
         return "not_applied"
+    item["resolved_project_key"] = exact[0]
     return ""
 
 
-def observe_posts(conn: sqlite3.Connection, posts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+@concurrency.consistent_read
+def observe_posts(conn: sqlite3.Connection, posts: list[dict[str, Any]], *, explore: bool = False) -> list[dict[str, Any]]:
     output: list[dict[str, Any]] = []
     for post in posts:
         uri = str(post.get("uri") or "").strip()
@@ -160,18 +314,26 @@ def observe_posts(conn: sqlite3.Connection, posts: list[dict[str, Any]]) -> list
         links = post_links(post)
         for entry in links or [{"url": "", "label": "", "source": "none"}]:
             url = str(entry["url"])
-            seed = applog_seed_from_url(url) if url else None
-            matches = _matches(conn, seed)
+            role, seed = link_identity(url)
             item = {
                 "id": item_id(uri, url), "post_uri": uri, "post_web_url": web_url,
                 "post_text": text, "indexed_at": str(post.get("indexedAt") or record.get("createdAt") or ""),
                 "post_line": target_post_line(text, url, record.get("facets", [])),
                 "url": url, "url_source": entry["source"], "label": str(entry.get("label") or ""),
                 "seed_type": seed[0] if seed else "", "seed_value": seed[1] if seed else "",
-                "matched_project_keys": matches,
+                "link_role": role,
             }
-            reason = reason_for_item(conn, item, matches)
-            output.append({**item, "reason": reason, "status": "open" if reason else "auto_applied"})
+            output.append(item)
+    # Only a demonstrably identical line may share reference hints.
+    for item in output:
+        item["reference_seeds"] = [
+            [other["seed_type"], other["seed_value"]] for other in output
+            if other["post_uri"] == item["post_uri"] and other["link_role"] == "reference"
+            and other["seed_type"] and item["post_line"] and other["post_line"] == item["post_line"]
+            and other["id"] != item["id"]
+        ]
+    search = CandidateSearch(conn)
+    output = [refresh_item(conn, item, search, explore=explore) for item in output]
     return output
 
 
@@ -209,12 +371,12 @@ def merge_items(existing: list[dict[str, Any]], observed: list[dict[str, Any]]) 
                            and old.get("seed_type")), None)
             if old_id is not None:
                 previous = by_id.pop(old_id)
-        if previous and previous.get("status") in MANUAL_STATUSES:
+        if previous and (previous.get("status") in MANUAL_STATUSES or previous.get("review_as_target")):
             # A repeated search result never revives an operator decision.
             by_id[item["id"]] = {**item, **{
                 key: previous[key] for key in ("status", "reason", "project_key", "reviewed_at", "link_changed",
                                                "previous_introduced_url", "previous_reason", "auto_set_project_key",
-                                               "cleared_auto_project_key")
+                                               "cleared_auto_project_key", "review_as_target", "created_project_key")
                 if key in previous
             }}
         else:
@@ -237,11 +399,21 @@ def save_state(conn: sqlite3.Connection, state: dict[str, Any], watermark: dict[
     )
 
 
-def review_payload(conn: sqlite3.Connection, *, include_resolved: bool = False, limit: int = 100, offset: int = 0) -> dict[str, Any]:
+def review_payload(conn: sqlite3.Connection, *, include_resolved: bool = False, limit: int = 100, offset: int = 0,
+                   scope_key: str = "", target_id: str = "") -> dict[str, Any]:
+    with concurrency.read_snapshot(conn):
+        return _review_payload(conn, include_resolved=include_resolved, limit=limit, offset=offset,
+                               scope_key=scope_key, target_id=target_id)
+
+
+def _review_payload(conn: sqlite3.Connection, *, include_resolved: bool, limit: int, offset: int,
+                    scope_key: str, target_id: str) -> dict[str, Any]:
     rows = conn.execute("SELECT scope_key, scope_json, watermark_json, last_success_at FROM sync_state WHERE kind='introduced'").fetchall()
     items: list[dict[str, Any]] = []
     scopes: list[dict[str, Any]] = []
     for row in rows:
+        if target_id and row["scope_key"] != scope_key:
+            continue
         watermark = json.loads(row["watermark_json"] or "{}")
         scope = json.loads(row["scope_json"] or "{}")
         scopes.append({"scope_key": row["scope_key"], "query": scope.get("query", ""),
@@ -252,10 +424,16 @@ def review_payload(conn: sqlite3.Connection, *, include_resolved: bool = False, 
                        "last_scan_fetched_posts": watermark.get("last_scan_fetched_posts", 0)})
         for item in watermark.get("review_items", []):
             if isinstance(item, dict):
+                if target_id and item.get("id") != target_id:
+                    continue
                 items.append({**item, "scope_key": row["scope_key"], "query": scope.get("query", "")})
         for item in legacy_pending_items(watermark.get("pending_entries", [])):
+            if target_id and item["id"] != target_id:
+                continue
             if not any(other["id"] == item["id"] for other in items):
                 items.append({**item, "scope_key": row["scope_key"], "query": scope.get("query", "")})
+    search = CandidateSearch(conn)
+    items = [refresh_item(conn, item, search, explore=bool(target_id)) for item in items]
     items.sort(key=lambda item: (str(item.get("indexed_at") or ""), str(item.get("id") or "")), reverse=True)
     open_items = [item for item in items if item.get("status") == "open"]
     shown = items if include_resolved else open_items
@@ -274,7 +452,9 @@ def review_payload(conn: sqlite3.Connection, *, include_resolved: bool = False, 
         for key in item.get("matched_project_keys", []):
             preview = project_preview(key)
             if preview is not None:
-                item["matched_projects"].append(preview)
+                match = next((match for match in item.get("candidate_matches", []) if match["project_key"] == key), {})
+                item["matched_projects"].append({**preview, "match_reasons": match.get("reasons", {}),
+                                                 "match_score": match.get("score", 0)})
         if item.get("status") == "linked" and item.get("project_key"):
             item["linked_project"] = project_preview(item["project_key"])
     return {"items": page, "count": len(shown), "open_count": len(open_items),
@@ -291,7 +471,7 @@ def other_review_items(conn: sqlite3.Connection, scope_key: str, items: list[dic
         watermark = json.loads(row["watermark_json"] or "{}")
         others.extend({**other, "_scope_key": row["scope_key"]} for other in watermark.get("review_items", [])
                       if isinstance(other, dict))
-    return others
+    return [canonical_item_keys(conn, other) for other in others]
 
 
 def transfer_rollback(conn: sqlite3.Connection, scope_key: str, linked: dict[str, Any], previous: str) -> None:
@@ -319,7 +499,8 @@ def supports_introduced_url(item: dict[str, Any], project_key: str, post_web_url
         return False
     if item.get("status") == "linked" and item.get("project_key") == project_key:
         return True
-    if item.get("status") == "auto_applied" and project_key in item.get("matched_project_keys", []):
+    if item.get("status") == "auto_applied" and not item.get("resolution_only") and project_key == (item.get("resolved_project_key") or
+            (item.get("matched_project_keys") or [""])[0]):
         return True
     return item.get("status") == "open" and item.get("auto_set_project_key") == project_key
 
@@ -352,8 +533,9 @@ def clear_auto_assignment(conn: sqlite3.Connection, scope_key: str, item: dict[s
 
 
 def resolve_item(conn: sqlite3.Connection, *, scope_key: str, target_id: str, action: str,
-                 project_key: str = "", replace: bool = False) -> dict[str, Any]:
-    if action not in {"ignore", "link", "reopen", "recheck"}:
+                 project_key: str = "", replace: bool = False, seed_type: str = "", seed_value: str = "",
+                 name: str = "") -> dict[str, Any]:
+    if action not in {"ignore", "link", "create", "reopen", "recheck", "review_target"}:
         raise ValueError("invalid introduced review action")
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -362,11 +544,41 @@ def resolve_item(conn: sqlite3.Connection, *, scope_key: str, target_id: str, ac
             raise KeyError("introduced review scope not found")
         state = {"scope_key": scope_key, "scope": json.loads(row["scope_json"]), "last_success_at": row["last_success_at"]}
         watermark = json.loads(row["watermark_json"])
-        items = merge_items(watermark.get("review_items", []), legacy_pending_items(watermark.get("pending_entries", [])))
+        items = [canonical_item_keys(conn, item) for item in merge_items(
+            watermark.get("review_items", []), legacy_pending_items(watermark.get("pending_entries", [])))]
         item = next((entry for entry in items if entry["id"] == target_id), None)
         if item is None:
             raise KeyError("introduced review item not found")
-        if action == "link":
+        if action in {"link", "create"}:
+            if action == "link" and project_key:
+                project_key = database.project_key_alias_target(conn, project_key) or project_key
+            if action == "create":
+                if item.get("status") != "open":
+                    raise ValueError("only an open item can create a project")
+                normalized = project_record.canonical_seed_value(seed_type, seed_value.strip())
+                if seed_type not in {"repo_url", "service_url", "nsid"} or not normalized:
+                    raise ValueError("a valid project URL or NSID is required")
+                if seed_type == "nsid":
+                    if not identifiers.is_valid_nsid(normalized):
+                        raise ValueError("a valid NSID is required")
+                else:
+                    role, inferred = link_identity(identifiers.normalize_url(seed_value.strip()))
+                    # Do not silently turn a PR/topic into a project seed.
+                    if role != "target" or not inferred or inferred[0] != seed_type:
+                        raise ValueError("use a project URL, repository root, or NSID instead of a reference link")
+                if _matches(conn, (seed_type, normalized)):
+                    raise ValueError("this identifier already belongs to a project; select it for linking")
+                from .application import projects
+                project_key = project_record.allocate_new_project_key(conn)
+                project_record.save_project(conn, project_record.default_project_record(project_key, seed_type, normalized),
+                                            commit=False)
+                projects.add_seed(conn, seed=normalized, seed_type=seed_type, project_key=project_key, commit=False)
+                project = project_record.fetch_project(conn, project_key)
+                if name.strip():
+                    project["name"] = name.strip()
+                    naming.add_name_candidate(project, name.strip(), "operator_edit")
+                    project_record.save_project(conn, project, commit=False)
+                item["created_project_key"] = project_key
             if item.get("status") != "open" or not project_key:
                 raise ValueError("open item and project_key are required")
             project = project_record.fetch_project(conn, project_key)
@@ -433,19 +645,25 @@ def resolve_item(conn: sqlite3.Connection, *, scope_key: str, target_id: str, ac
                     project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True, commit=False)
             item.update(status="open", reason=str(item.get("previous_reason") or item.get("reason") or "reopened"),
                         reviewed_at="", project_key="", link_changed=False, cleared_auto_project_key="")
+        elif action == "review_target":
+            if item.get("status") not in {"open", "reference"} or link_identity(str(item.get("url") or ""))[0] != "reference":
+                raise ValueError("only a reference link can be reviewed as a target")
+            item.update(status="open", reason="reference_target", review_as_target=True)
         else:
             if item.get("status") != "open":
                 raise ValueError("reopen the manual decision before rechecking")
-            seed = (str(item.get("seed_type") or ""), str(item.get("seed_value") or ""))
-            matches = _matches(conn, seed if all(seed) else None)
-            item["matched_project_keys"] = matches
-            item["reason"] = reason_for_item(conn, item, matches, allow_apply=True)
+            item.update(refresh_item(conn, item))
+            if item.get("link_role") == "reference" and not item.get("review_as_target"):
+                item.update(status="reference", reason="reference_link")
+            else:
+                item["reason"] = reason_for_item(conn, item, item["matched_project_keys"], allow_apply=True)
             if not item["reason"]:
-                project = project_record.fetch_project(conn, matches[0])
+                project = project_record.fetch_project(conn, item["resolved_project_key"])
                 if project and not project.get("introduced_url") and item.get("post_web_url"):
                     project["introduced_url"] = item["post_web_url"]
                     project["discovery_sources"] = project_record.add_unique(project.get("discovery_sources", []), "bsky_introduced_sync")
                     project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True, commit=False)
+                    item["auto_set_project_key"] = project["project_key"]
                 item["status"] = "auto_applied"
         watermark["review_items"] = items
         watermark.pop("pending_entries", None)

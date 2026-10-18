@@ -97,12 +97,14 @@ def enable_wal_mode(conn: sqlite3.Connection) -> None:
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.executescript(
+    statements = (
         """
         CREATE TABLE IF NOT EXISTS registry_meta (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
-        );
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS projects (
             project_key TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -115,8 +117,12 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             first_seen_at TEXT NOT NULL,
             last_seen_at TEXT NOT NULL,
             last_enriched_at TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_projects_tracking_state ON projects(tracking_state);
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_projects_tracking_state ON projects(tracking_state)
+        """,
+        """
         CREATE TABLE IF NOT EXISTS project_key_aliases (
             alias_project_key TEXT PRIMARY KEY,
             canonical_project_key TEXT NOT NULL,
@@ -124,9 +130,13 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL DEFAULT '',
             CHECK(alias_project_key <> canonical_project_key),
             FOREIGN KEY(canonical_project_key) REFERENCES projects(project_key) ON DELETE CASCADE
-        );
+        )
+        """,
+        """
         CREATE INDEX IF NOT EXISTS idx_project_key_aliases_canonical
-            ON project_key_aliases(canonical_project_key);
+            ON project_key_aliases(canonical_project_key)
+        """,
+        """
         CREATE TABLE IF NOT EXISTS project_identifiers (
             project_key TEXT NOT NULL,
             ordinal INTEGER NOT NULL,
@@ -141,9 +151,13 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             PRIMARY KEY(project_key, ordinal),
             UNIQUE(project_key, kind, value, role),
             FOREIGN KEY(project_key) REFERENCES projects(project_key) ON DELETE CASCADE
-        );
+        )
+        """,
+        """
         CREATE INDEX IF NOT EXISTS idx_project_identifiers_lookup
-            ON project_identifiers(kind, value, classification);
+            ON project_identifiers(kind, value, classification)
+        """,
+        """
         CREATE TABLE IF NOT EXISTS project_relations (
             project_key TEXT NOT NULL,
             ordinal INTEGER NOT NULL,
@@ -161,13 +175,21 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             PRIMARY KEY(project_key, ordinal),
             UNIQUE(project_key, subject_type, subject_value, predicate, object_type, object_value, source, locator, method),
             FOREIGN KEY(project_key) REFERENCES projects(project_key) ON DELETE CASCADE
-        );
+        )
+        """,
+        """
         CREATE INDEX IF NOT EXISTS idx_project_relations_object
-            ON project_relations(predicate, object_type, object_value, classification);
+            ON project_relations(predicate, object_type, object_value, classification)
+        """,
+        """
         CREATE INDEX IF NOT EXISTS idx_project_relations_subject
-            ON project_relations(subject_type, subject_value, predicate, classification);
+            ON project_relations(subject_type, subject_value, predicate, classification)
+        """,
+        """
         CREATE INDEX IF NOT EXISTS idx_project_relations_source
-            ON project_relations(source, predicate, classification);
+            ON project_relations(source, predicate, classification)
+        """,
+        """
         CREATE TABLE IF NOT EXISTS project_decisions (
             project_key TEXT NOT NULL,
             ordinal INTEGER NOT NULL,
@@ -182,18 +204,26 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             metadata_json TEXT NOT NULL DEFAULT '{}',
             PRIMARY KEY(project_key, ordinal),
             FOREIGN KEY(project_key) REFERENCES projects(project_key) ON DELETE CASCADE
-        );
+        )
+        """,
+        """
         CREATE INDEX IF NOT EXISTS idx_project_decisions_kind
-            ON project_decisions(project_key, kind, expires_at);
+            ON project_decisions(project_key, kind, expires_at)
+        """,
+        """
         CREATE INDEX IF NOT EXISTS idx_project_decisions_target
-            ON project_decisions(kind, target_type, target_value, cleared_at, expires_at);
+            ON project_decisions(kind, target_type, target_value, cleared_at, expires_at)
+        """,
+        """
         CREATE TABLE IF NOT EXISTS sync_state (
             scope_key TEXT PRIMARY KEY,
             kind TEXT NOT NULL,
             scope_json TEXT NOT NULL DEFAULT '{}',
             watermark_json TEXT NOT NULL DEFAULT '{}',
             last_success_at TEXT NOT NULL
-        );
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS project_noncurrent_identifiers (
             project_key TEXT NOT NULL,
             kind TEXT NOT NULL,
@@ -206,9 +236,13 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             metadata_json TEXT NOT NULL DEFAULT '{}',
             PRIMARY KEY(project_key, kind, value, role),
             FOREIGN KEY(project_key) REFERENCES projects(project_key) ON DELETE CASCADE
-        );
+        )
+        """,
+        """
         CREATE INDEX IF NOT EXISTS idx_project_noncurrent_identifiers_lookup
-            ON project_noncurrent_identifiers(kind, value, standing);
+            ON project_noncurrent_identifiers(kind, value, standing)
+        """,
+        """
         CREATE TABLE IF NOT EXISTS project_identifier_adoptions (
             adoption_id TEXT PRIMARY KEY,
             project_key TEXT NOT NULL,
@@ -227,9 +261,13 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             review_reason TEXT NOT NULL DEFAULT '',
             origin_project_key TEXT NOT NULL DEFAULT '',
             FOREIGN KEY(project_key) REFERENCES projects(project_key) ON DELETE CASCADE
-        );
+        )
+        """,
+        """
         CREATE INDEX IF NOT EXISTS idx_project_identifier_adoptions_claim
-            ON project_identifier_adoptions(project_key, kind, value, role, cleared_at);
+            ON project_identifier_adoptions(project_key, kind, value, role, cleared_at)
+        """,
+        """
         CREATE TABLE IF NOT EXISTS project_identifier_transitions (
             transition_id TEXT PRIMARY KEY,
             project_key TEXT NOT NULL,
@@ -244,7 +282,9 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             effective_at TEXT NOT NULL DEFAULT '',
             origin_project_key TEXT NOT NULL DEFAULT '',
             FOREIGN KEY(project_key) REFERENCES projects(project_key) ON DELETE CASCADE
-        );
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS registry_identifier_exclusions (
             kind TEXT NOT NULL,
             value TEXT NOT NULL,
@@ -253,12 +293,15 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL DEFAULT '',
             cleared_at TEXT NOT NULL DEFAULT '',
             PRIMARY KEY(kind, value)
-        );
-        """
+        )
+        """,
     )
+    for statement in statements:
+        conn.execute(statement)
 
 
-def create_schema(conn: sqlite3.Connection) -> None:
+def create_schema(conn: sqlite3.Connection, *, commit: bool = True) -> None:
+    """Install current schema; commit=False keeps DDL in the caller's transaction."""
     ensure_schema(conn)
     from .concurrency import install_revision_schema
     from .storage import ensure_investigation_tables
@@ -271,7 +314,8 @@ def create_schema(conn: sqlite3.Connection) -> None:
     )
     from ..publications.publication_registry import install_schema
     install_schema(conn)
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def project_key_alias_target(conn: sqlite3.Connection, project_key: str) -> str | None:

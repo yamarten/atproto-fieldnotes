@@ -1384,6 +1384,7 @@ def list_projects(
 
 def list_duplicate_projects(
     conn: sqlite3.Connection, *, check_cancelled: Callable[[], None] | None = None,
+    project_keys: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Read-only inputs for duplicate matching, never a saveable runtime view.
 
@@ -1391,9 +1392,41 @@ def list_duplicate_projects(
     verification, current identifier rows and operator decisions.
     Descriptions, other observations and relation evidence
     do not participate in duplicate_profile or duplicate_candidate_for_pair.
-    All tables are read in one snapshot, including caller-owned transactions.
+    project_keys optionally limits all child and state reads to a superset
+    selected by the caller. All tables share one snapshot, including caller-owned
+    transactions. An empty selection reads no comparison state.
     """
-    return _list_merge_comparison_projects(conn, check_cancelled=check_cancelled)
+    return _list_merge_comparison_projects(conn, check_cancelled=check_cancelled, project_keys=project_keys)
+
+
+@concurrency.consistent_read
+def list_duplicate_candidate_inputs(
+    conn: sqlite3.Connection, *, check_cancelled: Callable[[], None] | None = None,
+) -> list[dict[str, Any]]:
+    """Small, unsavable inputs for a conservative duplicate prefilter.
+
+    Do not read state_json, child metadata, adoption provenance or decisions'
+    source references here. The selected projects still use the regular reader
+    and matching policy. Cleared confirmations deliberately remain a superset.
+    """
+    projects: dict[str, dict[str, Any]] = {}
+    for row in conn.execute("SELECT project_key, name, website_url FROM projects"):
+        if check_cancelled:
+            check_cancelled()
+        projects[str(row["project_key"])] = {**dict(row), "identifier_claims": [], "confirmation_claims": []}
+    for row in conn.execute("SELECT project_key, kind, value, role, classification FROM project_identifiers"):
+        if check_cancelled:
+            check_cancelled()
+        project = projects.get(str(row["project_key"]))
+        if project is not None:
+            project["identifier_claims"].append((row["kind"], row["value"], row["role"], row["classification"]))
+    for row in conn.execute("SELECT project_key, target_type, target_value FROM project_decisions WHERE kind = 'confirm_identifier'"):
+        if check_cancelled:
+            check_cancelled()
+        project = projects.get(str(row["project_key"]))
+        if project is not None:
+            project["confirmation_claims"].append((row["target_type"], row["target_value"]))
+    return list(projects.values())
 
 
 def list_batch_merge_projects(
@@ -1407,16 +1440,28 @@ def list_batch_merge_projects(
 def _list_merge_comparison_projects(
     conn: sqlite3.Connection, *, tracking_states: set[str] | None = None,
     batch: bool = False, check_cancelled: Callable[[], None] | None = None,
+    project_keys: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     if check_cancelled:
         check_cancelled()
     where = ""
     params: list[str] = []
+    conditions: list[str] = []
     if tracking_states is not None:
         params = sorted(normalize_tracking_state(item) for item in tracking_states if item)
         if not params:
             return []
-        where = f"WHERE tracking_state IN ({', '.join('?' for _ in params)})"
+        conditions.append(f"tracking_state IN ({', '.join('?' for _ in params)})")
+    key_filter = "project_key IN (SELECT value FROM json_each(?))"
+    key_params = []
+    if project_keys is not None:
+        if not project_keys:
+            return []
+        key_params = [dump_json(sorted(project_keys))]
+        conditions.append(key_filter)
+        params.extend(key_params)
+    where = "WHERE " + " AND ".join(conditions) if conditions else ""
+    child_where = " WHERE " + key_filter if project_keys is not None else ""
     extra_fields = ""
     if batch:
         extra_fields = """, service_status, introduced_url, tracking_state,
@@ -1425,7 +1470,7 @@ def _list_merge_comparison_projects(
     for table in ("project_identifiers", "project_decisions", "project_identifier_adoptions"):
         grouped: dict[str, list[sqlite3.Row]] = {}
         order = "created_at, adoption_id" if table == "project_identifier_adoptions" else "ordinal"
-        for row in conn.execute(f"SELECT * FROM {table} ORDER BY project_key, {order}"):
+        for row in conn.execute(f"SELECT * FROM {table}{child_where} ORDER BY project_key, {order}", key_params):
             if check_cancelled:
                 check_cancelled()
             grouped.setdefault(str(row["project_key"]), []).append(row)
@@ -2333,8 +2378,7 @@ def trust_node(kind: str, value: str) -> dict[str, str]:
     return trust_graph_core.node(kind, normalize_trust_node_value(kind, value))
 
 
-def record_trust_edge(
-    project: dict[str, Any],
+def build_trust_edge(
     subject_kind: str,
     subject_value: str,
     predicate: str,
@@ -2353,8 +2397,7 @@ def record_trust_edge(
     obj = trust_node(object_kind, object_value)
     if not subject or not obj:
         return {}
-    return trust_graph_core.upsert_edge(
-        project,
+    return trust_graph_core.normalize_edge(dict(
         subject=subject,
         predicate=predicate,
         object=obj,
@@ -2365,8 +2408,33 @@ def record_trust_edge(
         eligible_for_auto_confirm=eligible_for_auto_confirm,
         observed_at=observed_at,
         context=context or {},
-        generated_at=iso_now(),
+    ))
+
+
+def record_trust_edge(
+    project: dict[str, Any],
+    subject_kind: str,
+    subject_value: str,
+    predicate: str,
+    object_kind: str,
+    object_value: str,
+    *,
+    source: str = "",
+    locator: str = "",
+    method: str = "",
+    classification: str = "candidate",
+    eligible_for_auto_confirm: bool = False,
+    observed_at: str = "",
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    candidate = build_trust_edge(
+        subject_kind, subject_value, predicate, object_kind, object_value,
+        source=source, locator=locator, method=method, classification=classification,
+        eligible_for_auto_confirm=eligible_for_auto_confirm, observed_at=observed_at, context=context,
     )
+    if not candidate:
+        return {}
+    return trust_graph_core.upsert_edge(project, **candidate, generated_at=iso_now())
 
 
 def manual_nsid_seed_supports(project: dict[str, Any], nsid: str) -> bool:

@@ -8,6 +8,7 @@ import urllib.error
 from pathlib import Path
 
 from . import registry
+from .persistence import database
 from .commands import app_record_validation as app_record_validation_commands
 from .commands import decisions as decision_commands
 from .commands import enrichment as enrichment_commands
@@ -35,7 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     dev_parser = subparsers.add_parser("dev-db", help="Create the fictional CLI/Web DB at data/dev/survey.db.")
-    dev_parser.add_argument("--reset", action="store_true", help="Reset only a generated dev DB; stop its CLI/Web/workers first.")
+    dev_parser.add_argument("--reset", action="store_true", help="Discard generated dev DB data and recreate the current schema and fictional data, including older schemas; stop its CLI/Web/workers first.")
     dev_parser.set_defaults(func=maintenance_commands.cmd_dev_db)
 
     init_parser = subparsers.add_parser("init-db", help="Explicitly initialize a registry database.")
@@ -890,6 +891,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     except urllib.error.URLError as exc:
         print(f"[error] network request failed: {exc}", file=sys.stderr)
+        return 1
+    except database.SchemaMismatchError as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        if registry.DB_PATH.resolve() == registry.ROOT / "data" / "dev" / "survey.db":
+            print("If created by dev-db, stop its CLI/Web/workers and run project-registry dev-db --reset from this checkout to discard existing development data and recreate the current schema and fictional data.", file=sys.stderr)
         return 1
     except Exception as exc:
         print(f"[error] {exc}", file=sys.stderr)
