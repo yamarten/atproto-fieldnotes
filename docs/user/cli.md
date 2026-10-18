@@ -171,7 +171,7 @@ bin/project-registry set-atproto-usage -p PROJECT_KEY --clear
 | `sync-github-search` | repositoryから未登録候補を探す。GitHubの検索条件、ページ上限、事前選別 | リポジトリの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
 | `sync-lexicons` | record利用の観測だけでは拾えないspace・非recordも、schemaの公開から探す。公開snapshotと発行元検証 | 新規・既存projectへの候補、競合、検証残件のJSON | 外部接続。`--execute`で観測・候補を保存 |
 | `sync-collections` | 公開recordのcollectionから候補を発見し、既知collectionの活動を更新する。一覧URL、遡る期間、項目上限 | collectionの照合・作成候補のJSON | 外部接続。`--execute`で書き込み。`--save-path`はファイル書き込み |
-| `sync-semble-collections` | 選んだリンク集から候補を取り込む。設定済みSemble collection、ページ上限、遡る期間 | カード由来シードの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
+| `sync-semble-collections` | 人が集めたリンク集から、他経路で拾いにくいサービスURL・インフラの候補を補う。[収集対象の選び方](configuration.md#設定ファイルと認証情報)、ページ上限、遡る期間 | カード由来シードの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
 | `sync-tangled-repos` | Tangled上のrepositoryからatproto関連候補を探す。Jetstream v2 snapshot、sequence、項目上限 | Tangledリポジトリの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |
 
 情報源ごとに発見できる範囲が異なります。検索や一覧にないことはprojectの不存在や非利用の証明ではありません。取り込み結果から新規候補や照合保留を確認し、内容の説明・追加調査には`enrich`を使います。`sync-introduced`は未一致投稿から新規projectを作らず、Webの`紹介確認`で登録先を選ぶための要確認を残します。取得上限と照合の詳細は[発見と取り込み](../developer/specs/discovery-and-sync.md)を参照してください。
