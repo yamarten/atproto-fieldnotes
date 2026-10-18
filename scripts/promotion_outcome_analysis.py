@@ -24,7 +24,6 @@ SERVICE_CATEGORIES = {"project", "infra_tool"}
 TECHNICAL_CATEGORIES_EXCLUDED = {"reject", "name_only"}
 LEXICON_IGNORED_BLOCKERS = {
     "service_status is still unknown",
-    "fewer than 3 features",
 }
 
 
@@ -43,7 +42,7 @@ def _score_summary(values: list[int]) -> dict[str, int | float | None]:
 def _counterfactual_project(project: dict[str, Any]) -> dict[str, Any]:
     counterfactual = dict(project)
     counterfactual["introduced_url"] = ""
-    return counterfactual
+    return project_review.apply_promotion_state(counterfactual)
 
 
 def _service_route(project: dict[str, Any], *, include_personal_tools: bool) -> dict[str, Any]:

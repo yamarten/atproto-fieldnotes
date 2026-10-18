@@ -128,12 +128,8 @@ def evaluate_promotion(project: dict[str, Any]) -> list[str]:
         blockers.append("summary missing")
     if not str(project.get("tagline") or "").strip():
         blockers.append("tagline missing")
-    if len(project.get("features", [])) < 3:
-        blockers.append("fewer than 3 features")
     if not str(project.get("category") or "").strip():
         blockers.append("category missing")
-    if not project.get("llm_source"):
-        blockers.append("LLM review missing")
     return blockers
 
 
@@ -371,7 +367,7 @@ def compute_review_signals(
         )
 
     if service_status in {"live", "beta", "invite_only"} and shaped.get("status") == "draft":
-        missing_editorial = sorted(blockers & {"summary missing", "tagline missing", "category missing", "LLM review missing"})
+        missing_editorial = sorted(blockers & {"summary missing", "tagline missing", "category missing"})
         if missing_editorial:
             signals.append(
                 {
@@ -915,7 +911,7 @@ def promotion_queue_score_breakdown(
         components["atproto_usage"] = 60 if usage_role == "main_data" else -120 if usage_role in atproto_usage.LIMITED_ROLES else 0
     blockers = set(str(item) for item in project.get("promotion_blockers", []))
     components["promotion_blockers"] = -len(
-        blockers & {"summary missing", "tagline missing", "fewer than 3 features", "LLM review missing"}
+        blockers & {"summary missing", "tagline missing"}
     )
     latest_activity = project_latest_activity_at(project)
     activity_days = activity_age_days(latest_activity, current_time)
@@ -1055,7 +1051,7 @@ def _showcase_signals_from_shaped(
                         "service_status_evidence": sorted(service_status_evidence),
                         "validation_reasons": validation_reasons,
                         "website_url": str(shaped.get("website_url") or ""),
-                        "blockers": sorted(blockers & {"summary missing", "tagline missing", "fewer than 3 features", "LLM review missing"}),
+                        "blockers": sorted(blockers & {"summary missing", "tagline missing"}),
                     },
                 }
             )

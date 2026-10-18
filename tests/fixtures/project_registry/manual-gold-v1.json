@@ -370,8 +370,8 @@
         "signal_kinds": ["service_candidate_needs_validation"],
         "top_priority": 4,
         "score_breakdown": {
-          "total": 134,
-          "components": {"service_evidence": 100, "service_status": 30, "service_confidence": 4, "review_readiness": 4, "promotion_blockers": -4}
+          "total": 136,
+          "components": {"service_evidence": 100, "service_status": 30, "service_confidence": 4, "review_readiness": 4, "promotion_blockers": -2}
         }
       },
       "evidence_summary": [
@@ -408,8 +408,8 @@
         "signal_kinds": ["service_candidate_needs_validation"],
         "top_priority": 4,
         "score_breakdown": {
-          "total": 138,
-          "components": {"service_evidence": 100, "service_status": 30, "service_confidence": 8, "review_readiness": 4, "promotion_blockers": -4}
+          "total": 140,
+          "components": {"service_evidence": 100, "service_status": 30, "service_confidence": 8, "review_readiness": 4, "promotion_blockers": -2}
         }
       },
       "evidence_summary": [
@@ -445,8 +445,8 @@
         "signal_kinds": ["service_candidate_needs_validation"],
         "top_priority": 4,
         "score_breakdown": {
-          "total": 142,
-          "components": {"service_evidence": 100, "service_status": 30, "service_confidence": 12, "review_readiness": 4, "promotion_blockers": -4}
+          "total": 144,
+          "components": {"service_evidence": 100, "service_status": 30, "service_confidence": 12, "review_readiness": 4, "promotion_blockers": -2}
         }
       },
       "evidence_summary": [
@@ -480,8 +480,8 @@
         "signal_kinds": ["service_surface_confirmed"],
         "top_priority": 7,
         "score_breakdown": {
-          "total": 238,
-          "components": {"service_evidence": 200, "service_status": 30, "service_confidence": 8, "review_readiness": 4, "promotion_blockers": -4}
+          "total": 240,
+          "components": {"service_evidence": 200, "service_status": 30, "service_confidence": 8, "review_readiness": 4, "promotion_blockers": -2}
         }
       },
       "evidence_summary": [
@@ -514,8 +514,8 @@
         "signal_kinds": ["service_candidate_needs_validation"],
         "top_priority": 4,
         "score_breakdown": {
-          "total": 134,
-          "components": {"service_evidence": 100, "service_status": 30, "service_confidence": 4, "review_readiness": 4, "promotion_blockers": -4}
+          "total": 136,
+          "components": {"service_evidence": 100, "service_status": 30, "service_confidence": 4, "review_readiness": 4, "promotion_blockers": -2}
         }
       },
       "evidence_summary": [
@@ -548,8 +548,8 @@
         "signal_kinds": ["service_surface_confirmed"],
         "top_priority": 7,
         "score_breakdown": {
-          "total": 238,
-          "components": {"service_evidence": 200, "service_status": 30, "service_confidence": 8, "review_readiness": 4, "promotion_blockers": -4}
+          "total": 240,
+          "components": {"service_evidence": 200, "service_status": 30, "service_confidence": 8, "review_readiness": 4, "promotion_blockers": -2}
         }
       },
       "evidence_summary": [
