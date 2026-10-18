@@ -44,8 +44,8 @@ SCHEDULE_PRESETS: dict[str, dict[str, Any]] = {
         "default_schedule": {"enabled": False, "week_of_month": 0, "weekday": 2, "time": "03:00", "timezone": "Asia/Tokyo"},
     },
     "enrich_all_states": {
-        "label": "All-state maintenance",
-        "description": "Run enrich --all across every tracking state, then apply stalled review updates.",
+        "label": "Extended tracking maintenance",
+        "description": "Investigate active, stable, stalled and out-of-scope projects, then apply stalled review updates. Ignore and archived projects require explicit manual investigation.",
         "default_schedule": {"enabled": False, "week_of_month": 1, "weekday": 6, "time": "04:00", "timezone": "Asia/Tokyo"},
     },
 
@@ -73,13 +73,16 @@ def preset_steps(preset_id: str) -> list[dict[str, Any]]:
         return [_step("enrich", "enrich --all", {"all_projects": True})]
     if preset_id == "enrich_all_states":
         return [
-            _step("enrich", "enrich --all --all-tracking-states", {"all_projects": True, "all_tracking_states": True}),
+            _step("enrich", "enrich --all --include-stable --include-stalled --include-out-of-scope", {
+                "all_projects": True,
+                "tracking_states": ["active", "stable", "stalled", "out_of_scope"],
+            }),
             _step("review", "review stalled --execute", {
                 "kind": "stalled",
                 "inactivity_days": 45,
                 "max_enrich_age_days": 30,
-                "note": "auto-updated by scheduled all-state maintenance",
-            }, requires=("enrich --all --all-tracking-states",)),
+                "note": "auto-updated by scheduled extended tracking maintenance",
+            }, requires=("enrich --all --include-stable --include-stalled --include-out-of-scope",)),
         ]
     if preset_id == "sync_introduced":
         return [_step("sync", "sync introduced", {
@@ -122,6 +125,13 @@ def preset_steps(preset_id: str) -> list[dict[str, Any]]:
             _step("enrich", "enrich --all --new-only", {"all_projects": True, "new_only": True}),
         ]
     raise ValueError(f"unknown schedule preset: {preset_id}")
+
+
+def _has_legacy_all_state_enrich(steps: Iterable[dict[str, Any]]) -> bool:
+    return any(
+        step.get("operation") == "enrich" and step.get("parameters", {}).get("all_tracking_states")
+        for step in steps
+    )
 
 
 def _parse_schedule_time(value: str) -> tuple[int, int]:
@@ -475,6 +485,10 @@ class JobManager:
             except ValueError:
                 schedule = _normalize_schedule(defaults, defaults=defaults)
             normalized[preset_id] = {**existing, **schedule, "preset_id": preset_id}
+            if preset_id == "enrich_all_states" and _has_legacy_all_state_enrich(existing.get("pending_steps") or []):
+                # Old checkpoints restore the old selection options as well.
+                # Keep those files for explicit manual use; reselect scheduled work.
+                normalized[preset_id]["pending_steps"] = preset_steps(preset_id)
         queue = payload.get("queue") if isinstance(payload.get("queue"), list) else []
         normalized_queue: list[dict[str, Any]] = []
         for item in queue:
@@ -484,6 +498,14 @@ class JobManager:
             if preset_id not in SCHEDULE_PRESETS:
                 continue
             entry = dict(item)
+            if preset_id == "enrich_all_states" and _has_legacy_all_state_enrich(
+                [*(entry.get("remaining_steps") or []), *(entry.get("retry_steps") or [])]
+            ):
+                entry.update({
+                    "remaining_steps": preset_steps(preset_id),
+                    "retry_steps": [],
+                    "completed_steps": [],
+                })
             if str(entry.get("current_job_id") or ""):
                 schedule = normalized.setdefault(preset_id, {"preset_id": preset_id})
                 schedule.update({

@@ -10,9 +10,10 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import ProjectRecordTestCase, SCRIPTS, TempRegistryDbTestCase, registry
-from project_registry_core import source_sync, worker
+from project_registry_core import project_record, source_sync, worker
+from project_registry_core.application import enrichment
 from project_registry_core.jobs import CancellationToken, OperationRequest
-from project_registry_web.jobs import JobConflictError, JobManager, JobRecord, _schedule_due
+from project_registry_web.jobs import JobConflictError, JobManager, JobRecord, _schedule_due, preset_steps
 
 
 FAKE_WORKER = r'''
@@ -353,11 +354,26 @@ class ProjectRegistryJobTest(_ProjectRegistryJobFixtures, TempRegistryDbTestCase
         self.assertEqual(schedule["last_status"], "completed")
         self.assertNotIn("source_observations", state)
 
-    def test_all_state_maintenance_runs_enrich_then_stalled_review(self) -> None:
+    def test_extended_maintenance_excludes_finished_tracking_then_runs_review(self) -> None:
         queued = self.manager.run_scheduled_preset("enrich_all_states")
         enrich_job = self.wait_for(queued["queue"][0]["current_job_id"], {"completed"})
         self.assertEqual(enrich_job["operation"], "enrich")
-        self.assertTrue(enrich_job["request"]["parameters"]["all_tracking_states"])
+        parameters = enrich_job["request"]["parameters"]
+        conn = registry.open_db()
+        try:
+            for index, tracking_state in enumerate(sorted(project_record.TRACKING_STATES)):
+                project = self.make_project(f"proj:{index:012d}", "nsid", f"app.example.state{index}")
+                project["tracking_state"] = tracking_state
+                project_record.save_project(conn, project)
+            conn.commit()
+            selected = enrichment._select_projects(conn, enrichment.EnrichmentOptions.from_request(
+                OperationRequest.create("enrich", parameters=parameters),
+            ))
+            self.assertEqual({project["tracking_state"] for project in selected}, {"active", "stable", "stalled", "out_of_scope"})
+            manual = enrichment._select_projects(conn, enrichment.EnrichmentOptions(all_projects=True, all_tracking_states=True))
+            self.assertEqual({project["tracking_state"] for project in manual}, project_record.TRACKING_STATES)
+        finally:
+            conn.close()
 
         state = self.manager.run_scheduler_once()
         review_job = self.wait_for(state["queue"][0]["current_job_id"], {"completed"})
@@ -370,6 +386,40 @@ class ProjectRegistryJobTest(_ProjectRegistryJobFixtures, TempRegistryDbTestCase
         self.assertEqual(state["queue"], [])
         schedule = next(item for item in state["items"] if item["preset_id"] == "enrich_all_states")
         self.assertEqual(schedule["last_status"], "completed")
+
+    def test_legacy_monthly_work_reselects_without_restoring_all_state_checkpoint(self) -> None:
+        legacy_steps = [
+            {"operation": "enrich", "label": "enrich --all --all-tracking-states", "parameters": {
+                "all_projects": True, "all_tracking_states": True,
+                "resume_run": "legacy-run", "checkpoint_path": "legacy.json",
+            }},
+            {"operation": "review", "label": "review stalled --execute", "parameters": {"kind": "stalled"},
+             "requires": ["enrich --all --all-tracking-states"]},
+        ]
+        for location in ("pending", "remaining", "retry"):
+            with self.subTest(location=location):
+                state = {"schedules": {"enrich_all_states": {
+                    "enabled": True, "time": "05:30", "week_of_month": 2,
+                    "pending_steps": legacy_steps if location == "pending" else [],
+                }}, "queue": []}
+                if location != "pending":
+                    state["queue"].append({
+                        "preset_id": "enrich_all_states", "current_job_id": "old-worker",
+                        "remaining_steps": legacy_steps if location == "remaining" else legacy_steps[1:],
+                        "retry_steps": legacy_steps[:1] if location == "retry" else [],
+                    })
+                self.manager._schedule_path.write_text(json.dumps(state))
+                loaded = self.manager._load_schedule_state()
+                schedule = loaded["schedules"]["enrich_all_states"]
+                self.assertTrue(schedule["enabled"])
+                self.assertEqual(schedule["time"], "05:30")
+                self.assertEqual(schedule["week_of_month"], 2)
+                steps = schedule["pending_steps"] if location == "pending" else loaded["queue"][0]["remaining_steps"]
+                self.assertEqual(steps, preset_steps("enrich_all_states"))
+                self.assertNotIn("resume_run", steps[0]["parameters"])
+                if location != "pending":
+                    self.assertEqual(loaded["queue"][0]["retry_steps"], [])
+                    self.assertEqual(loaded["queue"][0]["current_job_id"], "")
 
     def test_conflicted_enrich_holds_dependent_review_and_resumes_after_restart(self) -> None:
         queued = self.manager.run_scheduled_preset("enrich_all_states")
