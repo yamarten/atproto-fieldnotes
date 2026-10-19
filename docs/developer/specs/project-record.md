@@ -14,6 +14,8 @@ registry DBは、紹介・検索・要レビュー項目の確認に使う現在
 
 `profile_json.app`には表示・exportへ再利用する確定情報を保持し、未確定fieldは空にします。[App record export](app-record-export.md)が変換条件を定めます。
 
+旧情報充足判定の`status / promotion_ready / promotion_blockers / promoted_now / last_promoted_at / promotion_events`は現在状態の読み出しで無視し、通常保存時に除きます。DBの一括書換えは不要です。稼働状態の`service_status`や観測内の`status`は別の値です。過去の調査snapshotは変更せず、既存の`watch_reason`も人の記述と旧自動記述を区別できないため保持します。説明の空欄から`watch_reason`を自動作成しません。
+
 ## Schema Version
 
 schema versionはDBの保存構造と実装の互換性を確認するための番号です。現行のregistry schemaはversion 5です。通常openは対応versionと必要なtable/triggerを検査し、不一致や欠落があれば拒否します。補修・暗黙移行は行いません。

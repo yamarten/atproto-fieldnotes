@@ -127,7 +127,6 @@ def _summary(project: dict[str, Any]) -> dict[str, Any]:
         "introduced_url": str(project.get("introduced_url") or ""),
         "tagline": str(project.get("tagline") or ""),
         "summary": str(project.get("summary") or ""),
-        "status": str(project.get("status") or ""),
         "category": str(project.get("category") or ""),
         "atproto_contribution_level": str(project.get("atproto_contribution_level") or "unknown"),
         "technical_interest_level": str(project.get("technical_interest_level") or "unknown"),
@@ -673,11 +672,13 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         current = publication_registry.schemas(conn, now=project_record.iso_now(),
                     schema_ids={item["schema_id"] for item in project["publication_schemas"]})
         project["publication_schemas"] = [{**item, **current.get(item["schema_id"], {})} for item in project["publication_schemas"]]
-    prepared = project_review.apply_promotion_state(project)
+    prepared = project
     promotion_signals = project_review.compute_showcase_signals(prepared, include_ineligible=True)
     promotion_policy = project_review.promotion_policy_projection(prepared, promotion_signals)
     profile = project_record.project_record_payload(prepared)
     state = _json(str(row["state_json"]), {})
+    for field in project_record.RETIRED_PROMOTION_FIELDS:
+        state.get("ops", {}).pop(field, None)
     raw_project = {
         "project_key": resolved,
         "name": str(row["name"]),
@@ -710,8 +711,7 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "technical_interest_score": int(prepared.get("technical_interest_score") or 0),
         "technical_interest_reasons": list(prepared.get("technical_interest_reasons") or []),
         "technical_interest_summary": str(prepared.get("technical_interest_summary") or ""),
-        "promotion_ready": bool(prepared.get("promotion_ready")),
-        "promotion_blockers": list(prepared.get("promotion_blockers") or []),
+        "description_missing": project_review.missing_description_fields(prepared),
     }
     payload = {
         "revision": project_revision(conn, resolved),

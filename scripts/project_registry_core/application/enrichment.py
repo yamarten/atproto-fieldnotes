@@ -304,11 +304,7 @@ def _project_payload(project: dict[str, Any]) -> dict[str, Any]:
     return {
         "project_key": project["project_key"],
         "name": project.get("name", ""),
-        "status": project.get("status", ""),
         "tracking_state": project.get("tracking_state", "active"),
-        "promoted_now": project.get("promoted_now", False),
-        "promotion_ready": project.get("promotion_ready", False),
-        "promotion_blockers": project.get("promotion_blockers", []),
         "service_status": project.get("service_status", ""),
         "atproto_contribution_level": project.get("atproto_contribution_level", "unknown"),
         "atproto_contribution_score": int(project.get("atproto_contribution_score", 0) or 0),
@@ -318,7 +314,6 @@ def _project_payload(project: dict[str, Any]) -> dict[str, Any]:
         "website_url": project.get("website_url", ""),
         "introduced": bool(project.get("introduced_url")),
         "introduced_url": project.get("introduced_url", ""),
-        "last_promoted_at": project.get("last_promoted_at", ""),
         "last_run_errors": project.get("last_run_errors", []),
         "merge_recommendation": project.get("merge_recommendation", {}),
         "github_repo_urls": project_record.provider_repo_url_values(project, "github"),
@@ -434,7 +429,6 @@ def _run(
     prefetch.metrics["mode"] = "prefetch_one" if options.all_projects and options.prefetch else "sequential"
     completed_before = len({str(item) for item in checkpoint.get("completed_project_keys", []) if str(item)}) if checkpoint else 0
     run_started = dt.datetime.now(dt.timezone.utc)
-    promoted_now: list[dict[str, Any]] = []
     failed_projects: list[dict[str, str]] = []
     conflicted_projects: list[dict[str, str]] = []
     skipped_projects: list[dict[str, str]] = []
@@ -601,15 +595,6 @@ def _run(
             for checkpoint_project_key in checkpoint_source_keys:
                 _mark_completed(checkpoint, checkpoint_project_key)
             written_path = write_checkpoint(checkpoint, options.checkpoint_path)
-        if enriched.get("promoted_now"):
-            promoted_now.append({
-                "project_key": enriched["project_key"],
-                "name": enriched.get("name", ""),
-                "status": enriched.get("status", ""),
-                "service_status": enriched.get("service_status", ""),
-                "website_url": enriched.get("website_url", ""),
-                "last_promoted_at": enriched.get("last_promoted_at", ""),
-            })
         publish("item_completed", _project_payload(enriched))
         if cancellation.cancel_requested:
             break
@@ -658,8 +643,6 @@ def _run(
         "conflicted_projects": conflicted_projects,
         "conflicted_project_count": len(conflicted_projects),
         "skipped_projects": skipped_projects,
-        "promoted_now_count": len(promoted_now),
-        "promoted_now": promoted_now,
         "execution": prefetch.summary(),
     }
     if failed_projects:

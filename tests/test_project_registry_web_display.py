@@ -452,18 +452,20 @@ assert.match(oauth, /atproto repo:app.example.post\?action=delete/);
 state.screen = "review";
 state.reviewView = "promotion";
 state.promotionView = "inbox";
-const score = {total: 12, components: {service_evidence: 14, promotion_blockers: -2, recent_activity: 0}};
+const score = {total: 14, components: {service_evidence: 14, recent_activity: 0}};
 const candidate = {score_breakdown: score, service_evidence_group: "confirmed", priority_group: "normal",
   candidate_visibility: {group:"eligible"}, attention: {group:"unreviewed"},
   atproto_usage: {source:"none", role:"unknown", reason:"routine explanation"}};
 const compact = promotionCardDetails(candidate);
-assert.match(compact, /スコア 12/);
+assert.match(compact, /スコア 14/);
 assert.ok(!compact.includes("atproto利用 未評価"));
 assert.ok(!compact.includes(">未確認<"));
 assert.ok(!compact.includes("routine explanation"));
 assert.ok(!compact.includes("通常の優先度"));
 assert.ok(!compact.includes("紹介候補一覧の対象"));
-assert.match(renderPromotionScore(score), /紹介材料の不足<\/dt><dd>-2/);
+assert.ok(!renderPromotionScore(score).includes("紹介材料の不足"));
+assert.match(promotionCardDetails({...candidate, description_missing:["summary", "tagline"]}), /未記入: 説明・概要/);
+assert.equal(descriptionMissingText([]), "なし");
 assert.match(renderPromotionScore(score), /<dd>\+14/);
 assert.ok(!renderPromotionScore(score).includes("最近の活動"));
 const waiting = promotionCardDetails({...candidate, priority_group:"lowered", priority_reason:unsafe,

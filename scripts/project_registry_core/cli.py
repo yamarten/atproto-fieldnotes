@@ -143,7 +143,6 @@ def build_parser() -> argparse.ArgumentParser:
         "service_candidate_needs_confirmation",
         "candidate_repo_needs_confirmation",
         "llm_manual_review_recommended",
-        "service_now_usable_but_needs_editorial_review",
         "more_evidence_than_current_classification",
         "stale_metadata_with_recent_activity",
         "service_status_unverified_but_promising",

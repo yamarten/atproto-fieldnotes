@@ -18,7 +18,6 @@ from project_registry_core.registry import (
     verify_service_project,
 )
 from project_registry_core.project_review import (
-    apply_promotion_state,
     defer_promotion_on_project,
     latest_promotion_deferral_reason,
     project_repo_hint_urls,
@@ -78,7 +77,6 @@ def output_project_queue(
                             "project_key": current_item.get("project_key", ""),
                             "name": current_item.get("name", ""),
                             "tracking_state": current_item.get("tracking_state", ""),
-                            "status": current_item.get("status", ""),
                             "category": current_item.get("category", ""),
                             "service_status": current_item.get("service_status", ""),
                             "atproto_contribution_level": current_item.get("atproto_contribution_level", "unknown"),
@@ -118,7 +116,6 @@ def output_project_queue(
                     )
                     if signal_kinds & {
                         "llm_manual_review_recommended",
-                        "service_now_usable_but_needs_editorial_review",
                         "high_information_density",
                         "stale_metadata_with_recent_activity",
                         "service_status_unverified_but_promising",
@@ -316,7 +313,6 @@ def output_project_queue(
                     continue
                 if queue_name == "review" and answer == "E" and signal_kinds & {
                     "llm_manual_review_recommended",
-                    "service_now_usable_but_needs_editorial_review",
                     "high_information_density",
                     "stale_metadata_with_recent_activity",
                     "service_status_unverified_but_promising",
@@ -423,7 +419,6 @@ def output_project_queue(
                                 )
                             project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
                             project["merge_recommendation"] = compute_merge_recommendation(project)
-                            project = apply_promotion_state(project)
                             save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
                             conn.commit()
                             print(
@@ -459,7 +454,6 @@ def output_project_queue(
                             project = finalize_project_shape(project)
                             project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
                             project["merge_recommendation"] = compute_merge_recommendation(project)
-                            project = apply_promotion_state(project)
                             save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
                             conn.commit()
                             print(json.dumps({"rejected_service_candidate": service_candidates[0], "project_key": current_item.get("project_key", "")}, ensure_ascii=False))
@@ -485,7 +479,6 @@ def output_project_queue(
                                 )
                             project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
                             project["merge_recommendation"] = compute_merge_recommendation(project)
-                            project = apply_promotion_state(project)
                             save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
                             conn.commit()
                             print(
@@ -521,7 +514,6 @@ def output_project_queue(
                             project = finalize_project_shape(project)
                             project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
                             project["merge_recommendation"] = compute_merge_recommendation(project)
-                            project = apply_promotion_state(project)
                             save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
                             conn.commit()
                             print(json.dumps({"rejected_repo_candidate": repo_candidates[0], "project_key": current_item.get("project_key", "")}, ensure_ascii=False))

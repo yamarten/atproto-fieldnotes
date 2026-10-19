@@ -55,7 +55,7 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 def _print_project(project: dict[str, object]) -> None:
     print(f"[{project['project_key']}] {project.get('name') or '(unnamed)'}")
-    print(f"  status={project.get('status')} tracking_state={project.get('tracking_state') or 'active'} category={project.get('category') or '-'} app_category={project.get('app_category') or '-'} promotion_ready={project.get('promotion_ready')}")
+    print(f"  tracking_state={project.get('tracking_state') or 'active'} category={project.get('category') or '-'} app_category={project.get('app_category') or '-'}")
     print(f"  tracking_note={project.get('tracking_note') or '-'}")
     print(f"  input_nsids={', '.join(project.get('input_nsids', [])) or '-'}")
     print(f"  resolved_nsids={', '.join(project.get('resolved_nsids', [])) or '-'}")
@@ -65,14 +65,12 @@ def _print_project(project: dict[str, object]) -> None:
     print(f"  service_status={project.get('service_status') or '-'}")
     print(f"  atproto_contribution={project.get('atproto_contribution_level') or 'unknown'} score={int(project.get('atproto_contribution_score', 0) or 0)}")
     print(f"  introduced={bool(project.get('introduced_url'))} introduced_url={project.get('introduced_url') or '-'}")
-    print(f"  last_promoted_at={project.get('last_promoted_at') or '-'} promotion_events={len(project.get('promotion_events', []))}")
     print(f"  github={', '.join(project_record.provider_repo_url_values(project, 'github')) or '-'}")
     print(f"  source_code={', '.join(project.get('project_repository_urls', [])) or '-'}")
     print(f"  candidate_source_code={', '.join(project.get('candidate_project_repository_urls', [])) or '-'}")
     print(f"  features={'; '.join(project.get('features', [])) or '-'}")
     print(f"  tagline={project.get('tagline') or '-'} provisional={project.get('tagline_is_provisional', False)}")
     print(f"  summary={project.get('summary') or '-'}")
-    print(f"  blockers={'; '.join(project.get('promotion_blockers', [])) or '-'}")
     print(f"  last_run_errors={'; '.join(project.get('last_run_errors', [])) or '-'}")
     if project.get("blocked_identifiers"):
         blocked = [f"{item.get('type')}:{item.get('value')}" for item in project.get("blocked_identifiers", []) if item.get("type") and item.get("value")]

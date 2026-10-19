@@ -126,7 +126,7 @@ bin/_project-registry-python benchmark scripts/benchmark_enrich_overlap.py \
   --output .tmp/enrich-overlap/comparison.json
 ```
 
-通常のapplication・pipeline・保存・checkpointを使い、応答を返すcollectorとLLM backendだけを固定します。6件×4条件×各方式3回を別processで測り、逐次と先行の実行順を交互にします。再利用なし、実際のtriage再利用hit、取得がLLMより遅い場合、待ち時間ゼロを分け、同じproject・候補・input/output・bundle・評価・観測のhashと固定応答の呼出し数を比較します。意味の比較から除くのはrun ID・elapsed計測とそのJSONサイズ・runtime保存用情報・promotionのclock値です。一般の内容差や候補順は除きません。
+通常のapplication・pipeline・保存・checkpointを使い、応答を返すcollectorとLLM backendだけを固定します。6件×4条件×各方式3回を別processで測り、逐次と先行の実行順を交互にします。再利用なし、実際のtriage再利用hit、取得がLLMより遅い場合、待ち時間ゼロを分け、同じproject・候補・input/output・bundle・評価・観測のhashと固定応答の呼出し数を比較します。意味の比較から除くのはrun ID・elapsed計測とそのJSONサイズ・runtime保存用情報です。一般の内容差や候補順は除きません。
 
 時間は設定した模擬待機を含むbatch実経過、メモリは各processのピークRSSです。ウォームアップを含むRSSと実LLM processのメモリを混同しません。HTTP実request数や実ネットワークのrate limitを測る実験ではなく、実週次の短縮率をこの値から断定しません。故障・取消し・alias/merge・別接続更新・CLI/worker経路は`test_enrich_prefetch.py`で確認します。実環境を比較する場合は対象・request数・時間を限定し、競合中のjobやモデル比較がないことを別途確認します。
 

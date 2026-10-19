@@ -311,7 +311,7 @@ class ProjectRegistryOperatorCorrectionFixtureTest(unittest.TestCase):
                 service_url = project.pop("service_url")
                 project["website_url"] = service_url
                 project["service_urls"] = [service_url]
-                shaped = project_review.apply_promotion_state(project_record.ensure_project_shape(project))
+                shaped = project_record.ensure_project_shape(project)
                 signals = project_review.compute_showcase_signals(shaped)
                 policy = project_review.promotion_policy_projection(shaped, signals)
                 self.assertEqual(policy["priority_group"], "normal")

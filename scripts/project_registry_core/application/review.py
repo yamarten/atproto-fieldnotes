@@ -393,7 +393,6 @@ def review_queue_suggested_commands(project: dict[str, Any], signals: list[dict[
     signal_kinds = {str(item.get("kind") or "") for item in signals}
     if signal_kinds & {
         "llm_manual_review_recommended",
-        "service_now_usable_but_needs_editorial_review",
         "high_information_density",
         "stale_metadata_with_recent_activity",
         "service_status_unverified_but_promising",
@@ -455,7 +454,7 @@ def _showcase_queue_from_shaped(
     """Use normalized inputs from the record loader or the public dict builder."""
     queue: list[dict[str, Any]] = []
     for project in projects:
-        shaped = project_review.apply_promotion_state(dict(project))
+        shaped = dict(project)
         signals = project_review._showcase_signals_from_shaped(shaped, include_personal_tools=include_personal_tools, include_ineligible=True)
         if kinds is not None:
             signals = [item for item in signals if str(item.get("kind") or "") in kinds]
@@ -488,7 +487,6 @@ def _showcase_queue_from_shaped(
                 "project_key": shaped["project_key"],
                 "name": shaped.get("name", ""),
                 "tracking_state": shaped.get("tracking_state", "active"),
-                "status": shaped.get("status", "draft"),
                 "category": shaped.get("category", ""),
                 "service_status": shaped.get("service_status", "unknown"),
                 "atproto_contribution_level": shaped.get("atproto_contribution_level", "unknown"),
@@ -508,6 +506,7 @@ def _showcase_queue_from_shaped(
                 "repo_urls": project_review.project_repo_hint_urls(shaped)[:3],
                 "tagline": shaped.get("tagline", ""),
                 "summary": shaped.get("summary", ""),
+                "description_missing": project_review.missing_description_fields(shaped),
                 "top_priority": top_priority,
                 "sort_score": sort_score,
                 **policy,
@@ -633,8 +632,7 @@ def build_review_queue_item(
 def _review_queue_entry(
     shaped: dict[str, Any], *, kinds: set[str] | None, conn: sqlite3.Connection,
 ) -> dict[str, Any] | None:
-    shaped = project_review.apply_promotion_state(shaped)
-    signals = project_review.compute_review_signals(shaped, assume_shaped=True, apply_promotion=False)
+    signals = project_review.compute_review_signals(shaped, assume_shaped=True)
     if kinds is not None:
         signals = [item for item in signals if str(item.get("kind") or "") in kinds]
     if not signals:
@@ -645,7 +643,6 @@ def _review_queue_entry(
         "project_key": shaped["project_key"],
         "name": shaped.get("name", ""),
         "tracking_state": shaped.get("tracking_state", "active"),
-        "status": shaped.get("status", "draft"),
         "service_status": shaped.get("service_status", "unknown"),
         "atproto_contribution_level": shaped.get("atproto_contribution_level", "unknown"),
         "atproto_contribution_score": int(shaped.get("atproto_contribution_score", 0) or 0),

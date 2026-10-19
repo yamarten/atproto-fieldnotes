@@ -45,7 +45,7 @@ serviceの稼働状態とNSID ownershipを確認するレビュー表示も、�
 5. GitHub repo / GitHub search / Bluesky search の structured evidence を収集
 6. evidence を project へ統合し、rule-based evaluation / finalize を実行
 7. local LLM による summary / category / status 補完
-8. 再度finalizeし、重複候補・マージ推奨・情報充足の判定（[昇格ゲート](project-evaluation.md#昇格ゲート)）を更新
+8. 再度finalizeし、重複候補・マージ推奨を更新
 
 ### 一括調査の先行取得
 

@@ -22,9 +22,6 @@ DEFAULT_DB_PATH = ROOT / "data" / "survey.db"
 SERVICE_STATUSES = {"live", "beta", "invite_only", "unverified"}
 SERVICE_CATEGORIES = {"project", "infra_tool"}
 TECHNICAL_CATEGORIES_EXCLUDED = {"reject", "name_only"}
-LEXICON_IGNORED_BLOCKERS = {
-    "service_status is still unknown",
-}
 
 
 def _counts(values: Iterable[str]) -> dict[str, int]:
@@ -42,7 +39,7 @@ def _score_summary(values: list[int]) -> dict[str, int | float | None]:
 def _counterfactual_project(project: dict[str, Any]) -> dict[str, Any]:
     counterfactual = dict(project)
     counterfactual["introduced_url"] = ""
-    return project_review.apply_promotion_state(counterfactual)
+    return project_record.ensure_project_shape(counterfactual)
 
 
 def _service_route(project: dict[str, Any], *, include_personal_tools: bool) -> dict[str, Any]:
@@ -91,11 +88,6 @@ def _lexicon_route(project: dict[str, Any]) -> dict[str, Any]:
         )
         if not has_reference:
             blockers.append("lexicon_reference_missing")
-        promotion_blockers = {
-            str(item) for item in project.get("promotion_blockers", [])
-        } - LEXICON_IGNORED_BLOCKERS
-        if promotion_blockers:
-            blockers.append("lexicon_promotion_blocked")
     return {
         "applicable": applicable,
         "blockers": blockers,
@@ -262,7 +254,7 @@ def analyze_projects(
                     "summary": str(project.get("summary") or ""),
                     "notes": str(project.get("notes") or ""),
                     "classification_reason": str(project.get("classification_reason") or ""),
-                    "promotion_blockers": [str(item) for item in project.get("promotion_blockers", [])],
+                    "description_missing": project_review.missing_description_fields(project),
                     "atproto_contribution_level": str(project.get("atproto_contribution_level") or ""),
                     "atproto_contribution_score": int(project.get("atproto_contribution_score", 0) or 0),
                     "technical_interest_level": str(project.get("technical_interest_level") or "none"),

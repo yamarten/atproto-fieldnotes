@@ -1878,6 +1878,8 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         project = project_record.fetch_project(conn, "proj:111111111111")
         assert project is not None
         project["category"] = "project"
+        project["summary"] = ""
+        project["tagline"] = ""
         project["website_url"] = "https://app.example.com"
         project["service_status_confidence"] = "medium"
         project["service_status_evidence"] = ["http_200", "login_surface_detected"]
@@ -1894,6 +1896,14 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         self.assertEqual(item["service_evidence_group"], "confirmed")
         self.assertEqual(item["priority_group"], "normal")
         self.assertEqual(item["sort_score"], item["score_breakdown"]["total"])
+
+        self.assertEqual(item["description_missing"], ["summary", "tagline"])
+        self.assertNotIn("status", item)
+        self.assertNotIn("promotion_blockers", item["score_breakdown"]["components"])
+        status, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(status, 200)
+        self.assertEqual(detail["evaluation"]["description_missing"], ["summary", "tagline"])
+        self.assertNotIn("promotion_ready", detail["evaluation"])
 
     def test_promotion_queue_api_defaults_include_stable_but_not_stalled(self) -> None:
         with contextlib.closing(registry.open_db()) as conn:

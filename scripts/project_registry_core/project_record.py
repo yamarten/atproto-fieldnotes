@@ -115,7 +115,6 @@ PROJECT_CATEGORY_VALUES = frozenset({
 
 OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
     "ops": (
-        "status",
         "category",
         "app_category",
         "project_state",
@@ -126,9 +125,6 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "manual_review_kind",
         "manual_review_priority",
         "manual_review_reason",
-        "promotion_ready",
-        "promotion_blockers",
-        "last_promoted_at",
         "last_llm_review_at",
         "duplicate_candidates",
         "merge_recommendation",
@@ -138,7 +134,6 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "promotion_deferrals",
         "promotion_attention",
         "collection_observations",
-        "promotion_events",
         "last_run_errors",
         "service_status_confidence",
         "service_status_evidence",
@@ -677,7 +672,6 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
     return {
         "project_key": project_key,
         runtime_view.RUNTIME_PROJECT_REVISION: 0,
-        "status": "draft",
         "category": "",
         "app_category": "",
         "name": "",
@@ -759,10 +753,6 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "editorial": {},
         "llm_output": {},
         "last_llm_review_at": "",
-        "promotion_ready": False,
-        "promotion_blockers": [],
-        "last_promoted_at": "",
-        "promotion_events": [],
         "duplicate_candidates": [],
         "merge_recommendation": {},
         "separate_project_keys": [],
@@ -969,13 +959,19 @@ def normalize_promotion_priority_adjustments(entries: list[Any]) -> list[dict[st
     return output
 
 
+RETIRED_PROMOTION_FIELDS = frozenset({
+    "status", "promotion_ready", "promotion_blockers",
+    "promoted_now", "last_promoted_at", "promotion_events",
+})
+
+
 def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults = default_project_record(
         str(project.get("project_key") or "unknown"),
         str(project.get("seed_type") or "unknown"),
         str(project.get("seed_value") or ""),
     )
-    defaults.update(project)
+    defaults.update({key: value for key, value in project.items() if key not in RETIRED_PROMOTION_FIELDS})
     defaults["input_nsids"] = unique_list([identifier_core.normalize_nsid(str(item)) for item in defaults.get("input_nsids", []) if item])
     defaults["resolved_nsids"] = unique_list([identifier_core.normalize_nsid(str(item)) for item in defaults.get("resolved_nsids", []) if item])
     defaults["service_status"] = normalize_service_status(defaults.get("service_status"))
@@ -983,7 +979,6 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["service_status_evidence"] = unique_list([str(item).strip() for item in defaults.get("service_status_evidence", []) if str(item).strip()])
     defaults["atproto_auth_only"] = bool(defaults.get("atproto_auth_only"))
     defaults["atproto_usage_decisions"] = atproto_usage.normalize_decisions(defaults.get("atproto_usage_decisions"))
-    defaults["status"] = str(defaults.get("status") or "draft")
     defaults["dismissed_review_kinds"] = unique_list([str(item).strip() for item in defaults.get("dismissed_review_kinds", []) if str(item).strip()])
     defaults["name_candidates"] = [dict(item) for item in defaults.get("name_candidates", []) if isinstance(item, dict)]
     defaults["tagline_is_provisional"] = bool(defaults.get("tagline_is_provisional"))
@@ -1013,10 +1008,6 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     if defaults["manual_review_priority"] not in {"none", "low", "medium", "high"}:
         defaults["manual_review_priority"] = "none"
     defaults["manual_review_reason"] = normalize_ja_en_mixed_spacing(str(defaults.get("manual_review_reason") or "").strip())
-    defaults["promotion_ready"] = bool(defaults.get("promotion_ready"))
-    defaults["promotion_blockers"] = unique_list([str(item) for item in defaults.get("promotion_blockers", []) if item])
-    defaults["last_promoted_at"] = str(defaults.get("last_promoted_at") or "")
-    defaults["promotion_events"] = [dict(item) for item in defaults.get("promotion_events", []) if isinstance(item, dict)]
     defaults["llm_source"] = dict(defaults.get("llm_source") or {})
     if isinstance(defaults["llm_source"].get("evidence"), dict):
         evidence = dict(defaults["llm_source"]["evidence"])
@@ -1074,8 +1065,6 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     set_service_url_candidate_values(defaults, service_url_candidate_values(defaults))
     defaults["developer_accounts"] = normalize_developer_accounts(list(defaults.get("developer_accounts") or []))
     defaults["candidate_developer_accounts"] = normalize_developer_accounts(list(defaults.get("candidate_developer_accounts") or []))
-    if defaults["status"] == "candidate":
-        defaults["status"] = "draft"
     defaults["lexicon_namespaces"] = unique_list([identifier_core.normalize_nsid(str(item)) for item in defaults.get("lexicon_namespaces", []) if str(item).strip()])
     if runtime_view.is_complete(defaults):
         defaults["recorded_lexicon_namespaces"] = unique_list(
@@ -1235,6 +1224,8 @@ def project_from_row_payload(row: sqlite3.Row) -> dict[str, Any]:
     state_payload = flatten_grouped_payload(load_json(str(row["state_json"] or "")) or {})
     payload.update(profile_payload)
     payload.update(state_payload)
+    for field in RETIRED_PROMOTION_FIELDS:
+        payload.pop(field, None)
     for field in PROJECT_STORAGE_SCALAR_FIELDS:
         if field in row.keys():
             payload[field] = row[field]
@@ -1478,7 +1469,6 @@ def _list_merge_comparison_projects(
     projects = []
     rows = conn.execute(f"""
         SELECT project_key, name, website_url,
-               json_extract(state_json, '$.ops.status') AS status,
                json_extract(state_json, '$.evidence.record_creators') AS record_creators,
                json_extract(state_json, '$.evidence.trust_graph.evaluations') AS trust_evaluations,
                json_extract(state_json, '$.evidence.publication_schemas') AS publication_schemas
@@ -1799,8 +1789,6 @@ def _save_project(
     project["tags"] = unique_list(project.get("tags", []))
     project["platforms"] = unique_list(project.get("platforms", []))
     project["introduced_url"] = identifier_core.normalize_url(str(project.get("introduced_url") or "")) if project.get("introduced_url") else ""
-    project["last_promoted_at"] = str(project.get("last_promoted_at") or "")
-    project["promotion_events"] = [dict(item) for item in project.get("promotion_events", []) if isinstance(item, dict)]
     project["evidence_urls"] = unique_list(project.get("evidence_urls", []))
     project["discovery_sources"] = unique_list(project.get("discovery_sources", []))
     project["features"] = unique_list(project.get("features", []))
@@ -2937,7 +2925,6 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         "first_seen_at": str(project.get("first_seen_at") or ""),
         "last_seen_at": str(project.get("last_seen_at") or ""),
         "last_enriched_at": str(project.get("last_enriched_at") or ""),
-        "status": str(project.get("status") or "draft"),
         "category": str(project.get("category") or ""),
         "app_category": str(project.get("app_category") or ""),
         "summary": str(project.get("summary") or ""),
@@ -2963,7 +2950,6 @@ def lightweight_review_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         "blocked_identifiers",
         "deferred_identifiers",
         "confirmed_identifiers",
-        "promotion_blockers",
         "manual_seeds",
         "features",
         "input_nsids",

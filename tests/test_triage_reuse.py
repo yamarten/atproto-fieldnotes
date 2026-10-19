@@ -215,8 +215,10 @@ class TriageReuseTest(TempRegistryDbTestCase):
             conn.close()
         for field in ("llm_output", "category", "summary", "tagline", "features", "editorial",
                       "technical_interest_level", "technical_interest_score", "service_status",
-                      "project_repository_urls", "promotion_ready", "promotion_blockers"):
+                      "project_repository_urls"):
             self.assertEqual(cached[field], fresh[field], field)
+        for result in (cached, fresh):
+            self.assertTrue(project_record.RETIRED_PROMOTION_FIELDS.isdisjoint(result))
 
     def test_reobserved_description_hits_and_new_content_misses_in_pipeline(self):
         project = self.make_reusable()

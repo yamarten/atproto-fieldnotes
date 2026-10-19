@@ -133,7 +133,6 @@ def merge_projects(
                 "source_project_key": str(next_source.get("project_key") or ""),
                 "target_project_key": str(next_target.get("project_key") or ""),
             }
-    merged = project_review.apply_promotion_state(merged)
     summary = {
         "mode": "execute" if execute else "dry_run",
         "source_project_key": source["project_key"],
@@ -218,7 +217,6 @@ def split_identifier(
     if identifier_type == "nsid":
         target["resolved_nsids"] = []
     target["tracking_state"] = source.get("tracking_state", "active")
-    target["status"] = source.get("status", "draft")
     target["discovery_sources"] = project_record.unique_list(list(source.get("discovery_sources", [])) + ["split_from_project"])
     target["tracking_note"] = f"split from {source['project_key']}"
     if identifier_type == "nsid":
@@ -592,7 +590,6 @@ def split_project_identifier_group(
     if first_type == "nsid":
         target["resolved_nsids"] = []
     target["tracking_state"] = source.get("tracking_state", "active")
-    target["status"] = source.get("status", "draft")
     target["discovery_sources"] = project_record.unique_list(list(source.get("discovery_sources", [])) + [discovery_source])
     target["tracking_note"] = f"split {split_label} from {source['project_key']}"
 

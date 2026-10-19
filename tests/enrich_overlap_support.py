@@ -131,10 +131,10 @@ class Responses:
 
 
 def semantic(value):
-    """Remove only run IDs, elapsed measurements and generated promotion clock values."""
+    """Remove only run IDs and elapsed measurements."""
     ignored = {"run_id", "investigation_run_id", "_runtime_pending_investigation_run", "_runtime_investigation_run_id",
                "_runtime_project_revision", "_runtime_persistence_baseline", "_run_metrics", "metrics",
-               "duration_ms", "initial_collection_ms", "total_ms", "last_promoted_at", "promoted_at"}
+               "duration_ms", "initial_collection_ms", "total_ms"}
     if isinstance(value, dict):
         return {key: semantic(item) for key, item in value.items() if key not in ignored and not key.startswith("_runtime_")}
     if isinstance(value, list):

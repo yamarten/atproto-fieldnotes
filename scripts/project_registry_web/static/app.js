@@ -256,7 +256,6 @@ const displayLabels = {
   "llm_manual_review_recommended": "LLMが手動レビューを推奨",
   "service_candidate_needs_confirmation": "サービス候補の確認が必要",
   "candidate_repo_needs_confirmation": "リポジトリ候補の確認が必要",
-  "service_now_usable_but_needs_editorial_review": "サービス利用可能・紹介情報の確認が必要",
   "more_evidence_than_current_classification": "現在の分類を見直す材料あり",
   "stale_metadata_with_recent_activity": "最近の活動あり・登録情報が古い",
   "service_status_unverified_but_promising": "有望だがサービス状態は未確認",
@@ -832,7 +831,7 @@ function setScreen(screen, {updateUrl = true, preserveSelection = false} = {}) {
   if (updateUrl) syncUrl();
 }
 
-const reviewSignalKinds = ["missing_project_identity", "editorial_refresh", "service_observation_changed", "lexicon_publication_changed", "llm_manual_review_recommended", "service_candidate_needs_confirmation", "candidate_repo_needs_confirmation", "service_now_usable_but_needs_editorial_review", "more_evidence_than_current_classification", "stale_metadata_with_recent_activity", "service_status_unverified_but_promising", "category_recheck_needed", "external_lexicon_dependency_needs_review", "high_information_density", "many_identity_candidates"];
+const reviewSignalKinds = ["missing_project_identity", "editorial_refresh", "service_observation_changed", "lexicon_publication_changed", "llm_manual_review_recommended", "service_candidate_needs_confirmation", "candidate_repo_needs_confirmation", "more_evidence_than_current_classification", "stale_metadata_with_recent_activity", "service_status_unverified_but_promising", "category_recheck_needed", "external_lexicon_dependency_needs_review", "high_information_density", "many_identity_candidates"];
 
 function listControls() {
   if (state.screen === "browser") return `<div class="controls"><h2>${popupEmbedded ? "登録状況" : "サイトから記録"}</h2>
@@ -1160,12 +1159,11 @@ const promotionScoreLabels = {
   technical_interest: "技術的な学び",
   service_status: "サービス状態",
   service_confidence: "サービス状態の確信度",
-  profile_completeness: "紹介情報の充足度",
+  profile_completeness: "説明の記載",
   repository_evidence: "リポジトリを発見",
   lexicon_evidence: "Lexiconを発見",
   review_readiness: "要レビュー項目なし",
   atproto_usage: "主機能でのatproto利用",
-  promotion_blockers: "紹介材料の不足",
   recent_activity: "最近の活動",
   recent_collection_activity: "最近のレコード活動",
   recent_repository_activity: "最近のリポジトリ活動",
@@ -1187,6 +1185,11 @@ const atprotoUsageLabels = {
   main_data: "主機能のデータ・基盤", supporting: "補助的な利用",
   bluesky_client: "Bluesky専用操作", auth_only: "認証のみ", unknown: "利用範囲は不明",
 };
+
+function descriptionMissingText(fields) {
+  const labels = {summary: "説明", tagline: "概要"};
+  return list(fields).map((field) => esc(labels[field] || field)).join("・") || "なし";
+}
 
 function renderAtprotoUsage(usage = {}) {
   return `<p>${usage.source === "operator" ? `${pill(promotionLabel(atprotoUsageLabels, usage.role || "unknown"))} · 手動判断` : "未評価"}</p>
@@ -1225,6 +1228,7 @@ function promotionCardDetails(item) {
     ${item.active_deferral ? `<span class="muted">保留: ${esc(item.active_deferral.reason || "理由なし")} · ${esc(formatTimestamp(item.active_deferral.expires_at))}まで</span>` : ""}
     ${!item.active_deferral && item.last_promotion_deferral_reason ? `<span class="muted">前回の保留理由: ${esc(item.last_promotion_deferral_reason)}</span>` : ""}
     ${item.priority_reason ? `<span class="muted">優先度のメモ: ${esc(item.priority_reason)}</span>` : ""}
+    ${list(item.description_missing).length ? `<span class="muted">未記入: ${descriptionMissingText(item.description_missing)}</span>` : ""}
     ${validationReasons.length ? `<span class="muted">追加確認: ${esc(validationReasons.join("、"))}</span>` : ""}`;
 }
 
@@ -1723,7 +1727,7 @@ function renderDetail(data) {
     ${section("確認時点", renderServiceObservations(project.service_observations))}
     ${section("主機能でのatproto利用", renderAtprotoUsage(promotionPolicy.atproto_usage))}
     ${section("リンク・資料", renderProjectLinks(overview))}
-    ${section("評価", `<dl class="kv"><dt>atproto寄与度</dt><dd>${pill(evaluation.atproto_contribution_level)} 点数 ${esc(evaluation.atproto_contribution_score)}</dd><dt>技術的な学び</dt><dd>${pill(evaluation.technical_interest_level)} 点数 ${esc(evaluation.technical_interest_score)}</dd><dt>サービス状態の確信度</dt><dd>${esc(displayLabel(evaluation.service_status_confidence))}</dd><dt>紹介情報の充足</dt><dd>${evaluation.promotion_ready ? pill("ready", "confirmed") : list(evaluation.promotion_blockers).map((item) => pill(item, "candidate")).join(" ") || "紹介材料が未充足"}</dd><dt>紹介候補一覧での扱い</dt><dd>${pill(promotionLabel(promotionVisibilityLabels, promotionPolicy.candidate_visibility?.group || "excluded"))}</dd><dt>サービスの利用画面</dt><dd>${pill(promotionLabel(promotionServiceLabels, promotionPolicy.service_evidence_group || "not_applicable"))}</dd><dt>紹介候補の優先度</dt><dd>${pill(promotionLabel(promotionPriorityLabels, priorityGroup))} ${esc(promotionPolicy.priority_reason || "")}</dd><dt>紹介スコア</dt><dd>${esc(promotionPolicy.score_breakdown?.total ?? 0)}</dd><dt>技術評価の説明</dt><dd>${esc(evaluation.technical_interest_summary || "なし")}</dd></dl>${renderPromotionScore(promotionPolicy.score_breakdown)}`, "<p>紹介情報の充足は説明などの不足、紹介候補一覧での扱いは候補として探せる状態を示します。未充足でも技術やサービスの手掛かりがあれば候補になります。</p><p>atproto寄与度は確認できた利用の強さ、技術的な学びは独自性や学習価値、紹介スコアは一覧の並び順です。紹介可否の最終判断は利用者が行います。</p>")}
+    ${section("評価", `<dl class="kv"><dt>atproto寄与度</dt><dd>${pill(evaluation.atproto_contribution_level)} 点数 ${esc(evaluation.atproto_contribution_score)}</dd><dt>技術的な学び</dt><dd>${pill(evaluation.technical_interest_level)} 点数 ${esc(evaluation.technical_interest_score)}</dd><dt>サービス状態の確信度</dt><dd>${esc(displayLabel(evaluation.service_status_confidence))}</dd><dt>説明の未記入項目</dt><dd>${descriptionMissingText(evaluation.description_missing)}</dd><dt>紹介候補一覧での扱い</dt><dd>${pill(promotionLabel(promotionVisibilityLabels, promotionPolicy.candidate_visibility?.group || "excluded"))}</dd><dt>サービスの利用画面</dt><dd>${pill(promotionLabel(promotionServiceLabels, promotionPolicy.service_evidence_group || "not_applicable"))}</dd><dt>紹介候補の優先度</dt><dd>${pill(promotionLabel(promotionPriorityLabels, priorityGroup))} ${esc(promotionPolicy.priority_reason || "")}</dd><dt>紹介スコア</dt><dd>${esc(promotionPolicy.score_breakdown?.total ?? 0)}</dd><dt>技術評価の説明</dt><dd>${esc(evaluation.technical_interest_summary || "なし")}</dd></dl>${renderPromotionScore(promotionPolicy.score_breakdown)}`, "<p>説明に未記入の項目があっても、技術やサービスの手掛かりがあれば候補になります。</p><p>atproto寄与度は確認できた利用の強さ、技術的な学びは独自性や学習価値、紹介スコアは一覧の並び順です。紹介可否の最終判断は利用者が行います。</p>")}
     ${section("有効な手動判断", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">有効な手動判断はありません。</p>`)}
     ${section("サービス・帰属", renderServiceOwnership(serviceOwnership, browserServiceUrls))}
     ${section("マージ候補", `${renderExplicitMergePairForm({source: project.project_key, sourceFixed: true})}<div id="merge-analysis-content"><p class="muted">マージ候補を計算中…</p></div>`)}

@@ -2668,7 +2668,6 @@ def project_search_candidates(
                     "seed_type": str(project.get("seed_type") or ""),
                     "seed_value": seed_value,
                     "tracking_state": str(project.get("tracking_state") or "active"),
-                    "status": str(project.get("status") or ""),
                     "website_url": str(project.get("website_url") or ""),
                     "reasons": project_record.unique_list(reasons),
                     "score": score,

@@ -76,7 +76,7 @@ class ProjectRegistryIdentifierHelperTest(unittest.TestCase):
 
         self.assertEqual(project_record.ownership_anchor_service_hosts(project), set())
 
-    def test_promotion_does_not_require_legacy_seed_role(self) -> None:
+    def test_showcase_does_not_require_legacy_seed_role(self) -> None:
         project = project_record.default_project_record("proj:promotionseedless", "service_url", "https://example.com")
         project.update({
             "website_url": "https://example.com",
@@ -90,7 +90,7 @@ class ProjectRegistryIdentifierHelperTest(unittest.TestCase):
             "manual_seeds": [],
         })
 
-        self.assertEqual(project_review.evaluate_promotion(project), [])
+        self.assertEqual(project_review.compute_showcase_signals(project)[0]["kind"], "service_candidate_needs_validation")
 
     def test_normalize_url_preserves_resource_path_query_and_fragment(self) -> None:
         self.assertEqual(
@@ -3463,11 +3463,11 @@ class ProjectRegistryManualReviewSignalTest(unittest.TestCase):
 
         self.assertIsNone(self.llm_signal(project))
 
-    def test_draft_unknown_service_can_change_promotion_status(self) -> None:
+    def test_unknown_service_can_resolve_service_status(self) -> None:
         signal = self.llm_signal(self.project())
 
         self.assertIsNotNone(signal)
-        self.assertIn("promotion_status_resolution", signal["details"]["action_basis"])
+        self.assertIn("service_status_resolution", signal["details"]["action_basis"])
 
     def test_draft_unverified_service_without_conflict_is_not_actionable(self) -> None:
         project = self.project()

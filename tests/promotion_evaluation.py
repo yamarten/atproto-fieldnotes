@@ -32,7 +32,7 @@ def _fixture_project(case: dict[str, Any]) -> dict[str, Any]:
     service_url = str(subject.pop("service_url", "") or "")
     subject["website_url"] = service_url
     subject["service_urls"] = [service_url] if service_url else []
-    project = project_review.apply_promotion_state(project_record.ensure_project_shape(subject))
+    project = project_record.ensure_project_shape(subject)
     expected_promotion = dict(case.get("expected_promotion") or {})
     if expected_promotion.get("disposition") == "deprioritize":
         project_review.set_promotion_priority_on_project(

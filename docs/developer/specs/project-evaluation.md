@@ -6,10 +6,10 @@
 | --- | --- | --- |
 | 説明・分類 | 何をするprojectか | 名前、紹介文、category |
 | 稼働・寄与度 | 利用できる状態か、atprotoに何を提供するか | service status、atproto寄与度 |
-| 紹介候補 | 紹介の前提が揃っているか、どれを先に確認するか | 情報充足の判定、紹介候補一覧、順位・保留 |
+| 紹介候補 | 紹介の前提が揃っているか、どれを先に確認するか | 紹介候補一覧、順位・保留 |
 | 追跡 | 今後も調査を続けるか、どの頻度で扱うか | tracking state、再調査対象 |
 
-紹介情報の充足と紹介候補への掲載は別の判定です。説明等に不足があってもservice・Lexicon公開・技術面のsignalから候補に載せ、次に確認する対象として提示します。serviceがliveであることや情報が揃っていることだけで、紹介可否を確定しません。LLMは説明・分類の補助に使い、観測に基づく稼働判定とoperatorの判断を優先します。resourceをそのprojectに属するものとして採用する判断は、これらの評価と別の[帰属・採用規則](project-boundaries.md)です。
+説明等に不足があってもservice・Lexicon公開・技術面のsignalから候補に載せ、次に確認する対象として提示します。serviceがliveであることや情報が揃っていることだけで、紹介可否を確定しません。LLMは説明・分類の補助に使い、観測に基づく稼働判定とoperatorの判断を優先します。resourceをそのprojectに属するものとして採用する判断は、これらの評価と別の[帰属・採用規則](project-boundaries.md)です。
 
 以下では説明の更新、稼働・寄与度、紹介候補、追跡の順に、各判断の細則を示します。
 
@@ -212,8 +212,8 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 
 `llm_manual_review_recommended` signal を残すのは、手動確認の結果で次のいずれかが変わる時です。
 
-- `promotion_status_resolution`
-  - `draft` で、service status の解決が昇格判断に影響する
+- `service_status_resolution`
+  - `service_status=unknown`で、利用できる状態かを解決する
 - `introduction_validation`
   - 未紹介の `project` / `personal_tool` で、usable service の confidence が `none` / `low`
 - `conflicting_service_status_evidence`
@@ -263,21 +263,11 @@ OAuth宣言と関連記述は判断材料です。NSID、DNS確認、login画面
 
 利用者の「紹介予定」は、自動推薦と独立した理由付きの取り置きです。`plan_introduction`の保存・解除は紹介score、候補の表示可否、手動優先度、保留、紹介URLを変えず、専用一覧で有効な取り置きを回収できます。紹介済みや推薦対象外になっても自動解除しません。保存・merge・履歴は[サイト閲覧後の手動判断](project-record.md#サイト閲覧後の手動判断)を参照してください。
 
-### 昇格ゲート
+### 説明の未記入項目
 
-`evaluate_promotion()`は次の条件の不足を判定し、`apply_promotion_state()`がその結果を反映します。すべて揃うと`promotion_ready=true`となり、`status=draft`から稼働状態に応じたstatusへ移ります。この情報充足の判定を昇格ゲートと呼びます。紹介候補一覧への表示・順位は次節の規則で評価します。
+説明（`summary`）と概要（`tagline`）の空欄は、詳細・紹介候補一覧に`description_missing`として表示します。表示時の項目確認に留め、情報充足の総合判定・派生status・昇格履歴は保持しません。空欄だけを理由とする高優先度の編集レビュー要求や追加減点も行いません。説明がある場合の既存加点は維持します。
 
-- 確認済み識別子が1件以上ある
-  - `service_urls`
-  - confirmed repository URL
-  - resolved lexicon
-- `service_status != unknown`
-- `summary` と `tagline` がある
-- `category` がある
-
-情報の作成方法や特徴の件数は充足条件にしません。人が説明を整えた対象も同じ条件で評価し、LLM調査記録の有無や特徴の件数を理由に減点・編集レビュー要求を出しません。特徴を一定数へ増やすことやLLMを実行すること自体を、説明の充足や品質の保証にしないためです。
-
-Website単独やseedの有無はこのゲートの条件にしません。満たさなければ `draft` のまま残し、`promotion_blockers` に理由を残します。概要・短い説明の不足はそれぞれ紹介scoreを1点下げます。詳細・紹介候補一覧と紹介実績分析は現行条件で再評価し、保存済みの古い不足理由をそのまま現行判定には使いません。過去の調査snapshotは当時の結果として保持します。
+候補の表示可否はservice・Lexicon公開・技術面のsignalと、追跡状態・紹介済み・保留等から判定します。説明が未記入でも候補になれます。識別子の帰属確認、稼働状態の判定、operatorの保留判断はそれぞれの規則を使います。app record出力の適格性は別の[export検査](app-record-export.md)です。
 
 選定の目的は、現在の内容の価値と、速報性・今後の発展への期待を含む「今紹介する価値」を拾うことです。以下は現行の選出・配点であり、この目的への適合を確認済みとはしません。新規登録順を人が見て補う負担の軽減、実際の登場時期とDB登録時期の区別は[選定の残件](../todo.md#atproto寄与度と紹介候補の順位)です。
 

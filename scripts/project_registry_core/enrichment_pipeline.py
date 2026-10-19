@@ -68,7 +68,6 @@ from project_registry_core.registry import (
 )
 from project_registry_core.transport.atproto import REQUEST_TIMEOUT_LEXICON_DNS, REQUEST_TIMEOUT_LEXICON_HTTP, fetch_lexicon_record
 from project_registry_core.integration import add_investigation_log, note_failure, reset_investigation_state
-from project_registry_core.project_review import apply_promotion_state, record_promotion_transition
 from project_registry_core.project_merge import compute_duplicate_candidates, compute_merge_recommendation
 from project_registry_core.project_record import (
     add_unique,
@@ -399,7 +398,6 @@ def enrich_project(
     run_input_project = initial.input_project
     run_evidence = initial.evidence
     start_inventory = enrich_observations.candidate_inventory(run_input_project)
-    previous_status = str(run_input_project.get("status") or "draft")
     initial_repo_urls = initial.initial_repo_urls
     collected_repo_evidence = initial.collected_repo_evidence
     trust_inspected_repo_urls = initial.trust_inspected_repo_urls
@@ -689,8 +687,6 @@ def enrich_project(
     project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
     project["merge_recommendation"] = compute_merge_recommendation(project)
     project["last_run_errors"] = unique_list(project.pop("_run_errors", []))
-    project = apply_promotion_state(project)
-    project = record_promotion_transition(project, previous_status)
     phase_timings["evaluation_ms"] = max(0, round((time.perf_counter() - phase_started) * 1000))
     observations["operations"] = operation_timer.rows
     observations["search_outcomes"] = enrich_observations.search_outcomes(

@@ -96,74 +96,9 @@ def set_promotion_priority_on_project(
     return entry
 
 
-def determine_promoted_status(project: dict[str, Any]) -> str:
-    category = str(project.get("category") or "")
-    if category == "reject":
-        return "rejected"
-    service_status = str(project.get("service_status") or "unknown")
-    return {
-        "live": "published",
-        "invite_only": "invite_only",
-        "beta": "beta",
-        "unreleased": "tracked",
-        "dead": "inactive",
-        "private": "tracked",
-        "none": "tracked",
-        "unknown": "tracked",
-    }.get(service_status, "tracked")
-
-
-def evaluate_promotion(project: dict[str, Any]) -> list[str]:
-    blockers: list[str] = []
-    has_confirmed_identifier = bool(
-        project.get("service_urls")
-        or project_record.project_repository_url_values(project)
-        or project.get("resolved_nsids")
-    )
-    if not has_confirmed_identifier:
-        blockers.append("no confirmed service/repository/lexicon")
-    if str(project.get("service_status") or "unknown") in {"", "unknown"}:
-        blockers.append("service_status is still unknown")
-    if not str(project.get("summary") or "").strip():
-        blockers.append("summary missing")
-    if not str(project.get("tagline") or "").strip():
-        blockers.append("tagline missing")
-    if not str(project.get("category") or "").strip():
-        blockers.append("category missing")
-    return blockers
-
-
-def apply_promotion_state(project: dict[str, Any]) -> dict[str, Any]:
-    blockers = evaluate_promotion(project)
-    project["promotion_blockers"] = blockers
-    project["promotion_ready"] = not blockers
-    if blockers:
-        project["status"] = "draft"
-        if not project.get("watch_reason"):
-            project["watch_reason"] = "; ".join(blockers)
-    else:
-        project["status"] = determine_promoted_status(project)
-    return project
-
-
-def record_promotion_transition(project: dict[str, Any], previous_status: str) -> dict[str, Any]:
-    current_status = str(project.get("status") or "draft")
-    project["promoted_now"] = previous_status == "draft" and current_status != "draft"
-    if project["promoted_now"]:
-        event = {
-            "at": project_record.iso_now(),
-            "from_status": previous_status,
-            "to_status": current_status,
-            "service_status": str(project.get("service_status") or ""),
-            "website_url": str(project.get("website_url") or ""),
-            "name": str(project.get("name") or ""),
-        }
-        project["promotion_events"] = [event] + [dict(item) for item in project.get("promotion_events", []) if isinstance(item, dict)]
-        project["last_promoted_at"] = event["at"]
-    else:
-        project.setdefault("promotion_events", [])
-        project.setdefault("last_promoted_at", str(project.get("last_promoted_at") or ""))
-    return project
+def missing_description_fields(project: dict[str, Any]) -> list[str]:
+    """Describe empty fields for display; this is not a readiness gate."""
+    return [field for field in ("summary", "tagline") if not str(project.get(field) or "").strip()]
 
 
 def project_confirmed_identifier_count(project: dict[str, Any]) -> int:
@@ -245,14 +180,10 @@ def service_status_manual_review_action_basis(project: dict[str, Any]) -> list[s
     service_status = project_record.normalize_service_status(str(project.get("service_status") or "unknown"))
     service_confidence = project_record.normalize_service_status_confidence(str(project.get("service_status_confidence") or "none"))
     service_evidence = {str(item) for item in project.get("service_status_evidence", []) if str(item).strip()}
-    blockers = set(str(item) for item in project.get("promotion_blockers", []))
     basis: list[str] = []
 
-    if str(project.get("status") or "draft") == "draft" and (
-        service_status == "unknown"
-        or "service_status is still unknown" in blockers
-    ):
-        basis.append("promotion_status_resolution")
+    if service_status == "unknown":
+        basis.append("service_status_resolution")
 
     if (
         not str(project.get("introduced_url") or "").strip()
@@ -272,11 +203,8 @@ def compute_review_signals(
     project: dict[str, Any],
     *,
     assume_shaped: bool = False,
-    apply_promotion: bool = True,
 ) -> list[dict[str, Any]]:
     shaped = dict(project) if assume_shaped else project_record.ensure_project_shape(dict(project))
-    if apply_promotion:
-        shaped = apply_promotion_state(shaped)
     signals: list[dict[str, Any]] = []
     if shaped.get("tracking_state") in {"active", "stable", "stalled"} and not registration.confirmed_components(shaped):
         signals.append({"kind": "missing_project_identity", "priority": 9,
@@ -301,7 +229,6 @@ def compute_review_signals(
                         "details": {"reasons": list(shaped["publication_review"]), "action_basis": ["review_lexicon_publication"]}})
     if shaped.get("tracking_state") == "out_of_scope":
         return [signal for signal in signals if signal["kind"] not in dismissed_kinds]
-    blockers = set(str(item) for item in shaped.get("promotion_blockers", []))
     service_status = str(shaped.get("service_status") or "unknown")
     service_confidence = str(shaped.get("service_status_confidence") or "none")
     service_evidence = {str(item) for item in shaped.get("service_status_evidence", []) if str(item).strip()}
@@ -365,21 +292,6 @@ def compute_review_signals(
                 },
             }
         )
-
-    if service_status in {"live", "beta", "invite_only"} and shaped.get("status") == "draft":
-        missing_editorial = sorted(blockers & {"summary missing", "tagline missing", "category missing"})
-        if missing_editorial:
-            signals.append(
-                {
-                    "kind": "service_now_usable_but_needs_editorial_review",
-                    "priority": 9 if service_status == "live" else 8,
-                    "details": {
-                        "service_status": service_status,
-                        "blockers": missing_editorial,
-                        "website_url": str(shaped.get("website_url") or ""),
-                    },
-                }
-            )
 
     if confirmed_identifier_count <= 1 and service_status == "unknown" and (
         len(service_candidates) >= 2 or len(repo_candidates) >= 2 or nsid_count >= 2
@@ -856,7 +768,6 @@ def promotion_queue_score_breakdown(
         "lexicon_evidence": 0,
         "review_readiness": 0,
         "atproto_usage": 0,
-        "promotion_blockers": 0,
         "recent_activity": 0,
         "recent_collection_activity": 0,
         "recent_repository_activity": 0,
@@ -909,10 +820,6 @@ def promotion_queue_score_breakdown(
     usage_role = atproto_usage.projection(project)["role"]
     if signal_kinds & {"service_surface_confirmed", "service_candidate_needs_validation", "lexicon_publisher_confirmed"}:
         components["atproto_usage"] = 60 if usage_role == "main_data" else -120 if usage_role in atproto_usage.LIMITED_ROLES else 0
-    blockers = set(str(item) for item in project.get("promotion_blockers", []))
-    components["promotion_blockers"] = -len(
-        blockers & {"summary missing", "tagline missing"}
-    )
     latest_activity = project_latest_activity_at(project)
     activity_days = activity_age_days(latest_activity, current_time)
     if activity_days is not None:
@@ -971,7 +878,7 @@ def compute_showcase_signals(
     include_personal_tools: bool = False,
     include_ineligible: bool = False,
 ) -> list[dict[str, Any]]:
-    shaped = apply_promotion_state(project_record.ensure_project_shape(dict(project)))
+    shaped = project_record.ensure_project_shape(dict(project))
     return _showcase_signals_from_shaped(
         shaped, include_personal_tools=include_personal_tools, include_ineligible=include_ineligible,
     )
@@ -980,12 +887,11 @@ def compute_showcase_signals(
 def _showcase_signals_from_shaped(
     shaped: dict[str, Any], *, include_personal_tools: bool, include_ineligible: bool,
 ) -> list[dict[str, Any]]:
-    """Read a normalized project with promotion state already applied."""
+    """Read a normalized project."""
     if not include_ineligible and promotion_candidate_visibility(shaped)["group"] != "eligible":
         return []
 
     signals: list[dict[str, Any]] = []
-    blockers = set(str(item) for item in shaped.get("promotion_blockers", []))
     service_status = str(shaped.get("service_status") or "unknown")
     service_status_confidence = project_record.normalize_service_status_confidence(
         shaped.get("service_status_confidence")
@@ -1051,7 +957,6 @@ def _showcase_signals_from_shaped(
                         "service_status_evidence": sorted(service_status_evidence),
                         "validation_reasons": validation_reasons,
                         "website_url": str(shaped.get("website_url") or ""),
-                        "blockers": sorted(blockers & {"summary missing", "tagline missing"}),
                     },
                 }
             )
@@ -1070,7 +975,6 @@ def _showcase_signals_from_shaped(
                     "publications": dns_publications[:5],
                     "website_url": str(shaped.get("website_url") or ""),
                     "repo_url": project_repo_hint_urls(shaped)[:1],
-                    "blockers": sorted(blockers),
                 },
             }
         )

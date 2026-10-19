@@ -267,7 +267,6 @@ def duplicate_candidate_for_pair(
     return {
         "project_key": other["project_key"],
         "name": other.get("name") or "",
-        "status": other.get("status") or "",
         "reasons": reasons,
         "score": score,
         "merge_confidence": confidence,

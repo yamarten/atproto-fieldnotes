@@ -2511,10 +2511,10 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
             row = conn.execute("SELECT * FROM projects WHERE project_key = ?", ("proj:abababababab",)).fetchone()
             payload = project_record.project_from_row_payload(row)
-            full = project_review.apply_promotion_state(project_record.ensure_project_shape(dict(payload)))
-            light = project_review.apply_promotion_state(project_record.lightweight_review_project_shape(dict(payload)))
-            full_signals = project_review.compute_review_signals(full, assume_shaped=True, apply_promotion=False)
-            light_signals = project_review.compute_review_signals(light, assume_shaped=True, apply_promotion=False)
+            full = project_record.ensure_project_shape(dict(payload))
+            light = project_record.lightweight_review_project_shape(dict(payload))
+            full_signals = project_review.compute_review_signals(full, assume_shaped=True)
+            light_signals = project_review.compute_review_signals(light, assume_shaped=True)
 
             self.assertEqual(
                 [item["kind"] for item in light_signals],

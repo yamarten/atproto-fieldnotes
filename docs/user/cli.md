@@ -124,7 +124,6 @@ project-registry enrich --all --resume-run weekly-20260714
 | `service_candidate_needs_confirmation` | サービス候補はあるが、confirmed serviceとして未採用。Websiteの有無とは独立。 |
 | `candidate_repo_needs_confirmation` | リポジトリ候補はあるが、ソースコードを保持するリポジトリとして未採用。 |
 | `llm_manual_review_recommended` | LLM評価が、利用者による確認が必要な具体的な種類と理由を返した。 |
-| `service_now_usable_but_needs_editorial_review` | サービスは利用可能だが、summary/tagline/category等が不足。 |
 | `more_evidence_than_current_classification` | 識別子候補やNSIDが増え、現在の分類より根拠が多い。 |
 | `stale_metadata_with_recent_activity` | 最近活動がある一方、説明またはサービス状態が古い・未確定。 |
 | `service_status_unverified_but_promising` | login/app/beta等の兆候があるが状態は未確認。 |
