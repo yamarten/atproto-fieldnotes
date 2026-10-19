@@ -2,6 +2,14 @@
 
 調査pipeline、外部情報源（source）からの取得・観測、判断材料となる根拠（evidence）、部分失敗とreplayの契約を定めます。登録済みprojectを起点に、外部情報を観測として集め、採用できる根拠を現在状態へ反映します。sourceごとの失敗を分けて記録し、一部を取得できなくても得られた根拠を保持します。保存した調査実行記録（investigation run）は、外部へ再接続せずに現行規則で再評価（replay）できます。以下のrunは、特に指定がなければproject一件に対する調査実行記録を指します。
 
+## 取得・LLM利用の目的
+
+情報源の取得は、未知対象の発見、帰属・信用判断、説明に使う材料を得るために行います。URLを保持すること、その本文を取得すること、結果へ利用することは別です。出力用に保持した規約等のリンクへ、調査上の用途を後付けしません。[識別子の役割](project-boundaries.md#識別子を発見調査出力に使う目的)と[人力にも使える調べ方](../../user/research-methods.md)を参照してください。
+
+LLMは、複数資料の内容や文脈を読み、名前・説明、利用範囲・技術的な価値、関係候補・要確認事項へまとめるために使います。repository解析は実装の材料をproject全体の説明へ接続し、triageは既存の理解と新しい資料から説明・判断案を作ります。これらは現行の役割であり、生成したことだけで正しさや紹介文への利用可能性を保証しません。LLM検索計画にも資料に合わせて検索語を選ぶ役割はありますが、固定生成に加えて採用した理由と効果は未確認です。[存続判断](../todo.md#既存処理の存続判断)で扱います。
+
+調査や追加取得の必要性を人に判断させることは完成形ではありません。自動で判断・取得・更新できることを目指し、現行の手動deep調査やレビューは能力・資源の不足を補います。匿名browserではJavaScript描画後のログイン入口から、利用可能性・atprotoアカウント利用・要求権限などを日常的に調べたい意図があります。現行の取得範囲と負荷は[Static・Deep・Browserの調査範囲](#staticdeepbrowserの調査範囲)と[残件](../todo.md#説明更新の品質とservice監視)で区別します。
+
 ## Pipeline
 
 調査は `collector -> evidence -> integration -> evaluation -> save` の順で扱います。
@@ -261,6 +269,8 @@ metadata URLごとの最新観測をcurrent stateに保持します。scopeが�
 仕様根拠: [OAuth](https://atproto.com/specs/oauth)、[Permissions](https://atproto.com/specs/permission)、[段階的なscope要求](https://atproto.com/guides/oauth-patterns#progressive-scope-requests)。主機能との対応や寄与度の再設計は、公式の保存先説明・schema・record等を合わせて評価する別段階です。
 
 ### Static・Deep・Browserの調査範囲
+
+`resource_url_records`には調査資料とapp lexicon向け補助リンクが共存します。現行deep調査は保存済みresource URLを先に並べ、service由来の固定path等を加えた先頭最大6件を取得します。roleごとの調査価値を選別する方式ではなく、規約・status・Web Manifest等も枠を使い得ます。専用のmanifest解析やstatus page監視を提供するという意味ではありません。補助リンクの保持・exportと取得優先度は別の判断です。
 
 - 通常 enrich は service top page と same-site follow-up を軽量 probe します
 - `--deep-investigation` は `resource_url_records` と service surface から優先ページ候補を作り、最大 6 page を追加 probe します

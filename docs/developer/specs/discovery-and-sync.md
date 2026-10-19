@@ -2,6 +2,10 @@
 
 外部情報源（source）から候補を発見し、既存projectへの照合または新規登録へ進める契約です。source設定、取得範囲、取り込み済みの境界を示すwatermark、未一致・曖昧な一致の扱いを定めます。処理は「設定されたsourceを取得する → identifierなどで既存projectへ照合する → 更新または新規登録する」です。未知候補を新規登録するsyncと、既存projectの紹介済み状態だけを更新するsyncを分けます。未一致・曖昧な一致は、sourceごとの進行位置とともに保留情報へ残します。取り込みの後に内容を詳しく調べる処理がenrichです。
 
+発見入口は相互に補完します。collection活動はサービス名を知らないデータ利用、公開Lexiconはrecordがまだない仕様や非recordのAPI、repo検索はライブラリ・ツール・基盤、人のリンク集は他経路で弱いサービスURLやcollectionを作らないインフラを拾います。Sembleはこの補完を目的に使い、収集元自体を紹介の出力にはしません。[情報源の選び方](../../user/research-methods.md#探したいものに応じて入口を選ぶ)に調査へのつなぎ方をまとめています。
+
+Bluesky公式Lexiconの取り込みは、atpdashboardがBlueskyを除外する範囲を補います。他のrepo検索等でも拾うbsky Lexiconに正規の所属先が必要なため、Bluesky自体を登録プロジェクトとして扱います。人力調査からの移行に用いた`import-seed-list`は、継続利用する`add-seed`とは用途が異なり、[廃止候補](../todo.md#既存処理の存続判断)です。現在のcommandは残っています。
+
 ## 新規登録と既存projectへの追加
 
 新規projectの登録は調査対象の採用を伴います。`confirmed`と採用理由を同時に保存し、発見した情報源と採用理由を区別します。

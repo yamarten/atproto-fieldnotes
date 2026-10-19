@@ -56,6 +56,8 @@ developerとの関係が事実でも構成要素とは限らず、同じreposito
 
 graph nodeにはconfirmed/candidate identifier、developer DID、authority domain、protocol解決の中継点等が混在します。nodeであるだけではproject構成要素や信頼判定の起点になりません。接続マトリクスと静的policy表では、同じrelationでも候補生成と信頼評価への利用可否を分けます。
 
+相手側でも対応する主張を確認することは、一方的な騙りや役割の取り違えを減らす方法です。ただし現行graphの往復経路が、常に独立した二つの発信を意味するわけではありません。同じ構造・転送観測から両方向のedgeを作る経路もあるため、何を確かめたかはpredicate・method・出典と適用規則から読みます。双方向の線だけで信用の強さを説明しません。
+
 #### Relationとedgeの関係
 
 page↔repositoryでは、relationを観測・方向付き判断の正本とし、graphで必要なものをedgeとして導出します。直接事実の確定と、相互経路によるidentifier採用は別の判断です。homepageが確定していても、それだけでproject帰属を支持する逆向きedgeにはしません。直接参照、解釈の根拠、判断時刻はrelation側へ保持します。将来relationに表現できない関係が必要になった場合はその観測契約を設計します。現時点でaccount/NSIDの保存方式までこの導出方式へ統一するものではありません。
@@ -97,6 +99,27 @@ GitHub repository metadataのhomepageは、repository管理者がそのURLをWeb
 - 信頼判定結果（Trust verdict）: 信頼グラフによる帰属主張単位の評価結果。identifierを変更する処理そのものではない
 - 導出識別子（derived identifier）: 別の観測から機械的に導出された識別子。導出されたことだけでは信頼判定の起点にならない
 
+### 識別子を発見・調査・出力に使う目的
+
+集める情報は主に発見、帰属・信用判断、説明のために使います。同じ対象が情報源と出力を兼ねるため、node kindや保存先だけから重要度を決めません。人への出力は、名前・短い説明・URLによる紹介を作るための材料です。公式サイトと公式repositoryを第一級の出力とし、他の識別子はその発見・調査・説明を支える役割と補助出力の役割を分けます。
+
+| 対象 | 発見・調査で使う目的 | 人への出力としての役割 |
+| --- | --- | --- |
+| 公式サイト | 本文から用途を説明し、利用先・実装・アカウントの案内をたどる | 紹介対象を代表する入口。機能を利用するservice URLと同じ場合もある |
+| service URL | 利用画面・APIから提供機能とatprotoとの関わりを調べる。未知対象の発見契機にもなる | 利用先。代表サイトと別なら、説明を読む入口と使う入口を分けて渡す |
+| 公式repository URL | コード検索から発見し、README・定義・実装から内容と公開先を調べる | 紹介先、実装・仕様を読む入口。source code専用ではない |
+| 完全NSID | collection活動や公開定義から発見し、schema・record・発行元・実装を調べる | 補助出力。所有する定義と利用・参照する定義は区別する |
+| handle・DID | アカウント、Lexicon発行者、record発行者を特定し、資料や公開物へ進む。帰属・同一性を照合する | アカウント参照や発行者比較の補助。公式account・developer・publisher等の立場は識別値だけでは決まらない |
+| domain・直属namespace | domainはサイト・handle・authority間の中継、namespaceはNSID群の照合に使う | 通常は調査を支える情報。domainを紹介対象と同一視せず、namespaceで完全NSIDを置き換えない |
+| docs・個別file・投稿・record URI | 特定の説明、実装、告知、実データを取得・照合する | 必要に応じて読む資料。紹介済み投稿URLは別途、紹介実績を表す |
+| store・配布先・規約等のresource URL | 内容を取得する場合は説明材料になるが、保持だけで調査利用済みとはしない | 利用・インストール先、またはapp lexiconに沿う補助出力。独立nodeでなくても出力の価値はある |
+| OAuth metadata URL・PDS endpoint | 要求権限の宣言を読む、schemaやrecordの取得先へ到達する | 主に調査補助。PDS自体を調査対象とする場合はserviceの役割も持つ |
+| Semble等の収集元・検索結果の参照 | 未知対象の発見、再取得、追加調査の起点 | 最終的な紹介の出力には含めない |
+
+URLは具体的な到達先、完全NSIDは個々の定義、DIDはaccountの安定した識別、handleは現在名を指します。repository本体とその中のfile等、domainとその上のサービスを分けることで、必要な調査先を保ちながら紹介対象をまとめます。内部の`project_key`はその編集・追跡単位を指し、表示名は外部resourceの同一性を決めるkeyではありません。
+
+補助URL・account・features・評価の各表示は、2026-10時点の通常利用ではほとんど直接読まれていません。accountは調査、評価は候補選出・順位などを通じて間接的に働きます。featuresは次回LLM入力・検索・保留の変化検出にも使いますが、保持による説明品質の上積みは未評価です。出力欄の充実自体を目標にせず、[目的](../../brief.md)への寄与で必要性を判断します。
+
 ### 外部対象・グラフ上の点・登録プロジェクトでのroleを分ける
 
 接続マトリクスでは、外部世界にある対象、その対象を指すgraph node、登録プロジェクトとの関係を表すroleを別の層として扱います。同じ対象でもprojectとの関係は複数あり得て、node kindだけからroleは決まりません。
@@ -108,7 +131,7 @@ GitHub repository metadataのhomepageは、repository管理者がそのURLをWeb
 | repository | source code、schema、文書、issue、release、build定義などを版管理する外部resource | `repo_url`。値はrepositoryを参照するURL | projectが公式に利用する場合は`project_repository`。dependency、fork、mirror、単なる参照は別relation |
 | ATProto account | DIDを安定した識別子、handleを変更可能な現在名として持つ論理的なaccount | account全体のnodeは置かず、`did`と`handle`を別nodeとして保持する | project account、developer、organization、publisher、service operatorなど。roleはidentity解決だけから決めない |
 | domain | DNS名。service host、handle、NSID authority、`did:web` identityなど複数の文脈に現れる | `domain` | 文脈に応じてservice host、handle、authority、中継点などになる。domainというkindだけではproject roleは決まらない |
-| NSID / Lexicon | AT Protocolのnamespaced identifier。登録対象はrecord collectionだけでなく、space・非recordの公開Lexiconも含む。型ごとの観測範囲は[Lexicon公開情報](lexicon-publication-catalog.md)を参照 | `collection`。値はcaseを保持したfull NSIDで、schema型は別の観測として保持 | projectが所有する場合は`owned_nsid`。利用、schema参照、permission要求、record作成はownershipと別relation |
+| NSID / Lexicon | AT Protocolのnamespaced identifier。登録対象はrecord collectionだけでなく、space・非recordの公開Lexiconも含む。型ごとの観測範囲は[Lexicon公開情報](lexicon-publication-catalog.md)を参照 | record型は`collection`、非record型は`nsid`。値はcaseを保持したfull NSIDで、schema型は観測として保持 | projectが所有する場合は`owned_nsid`。利用、schema参照、permission要求、record作成はownershipと別relation |
 | native app | bundle/packageとして配布・実行されるapp。backend serviceやdistribution pageとは別resource | 現行kindには専用nodeがない | projectの構成要素になり得るが、bundle/package identifier、store URL、backendとの関係は保留 |
 
 #### 資源同一性の補足
@@ -188,6 +211,8 @@ confirmed `owned_nsid`はprojectの構成要素であり、信頼判定の経路
 current ownershipでは、同じfull NSIDは最大一つのprojectにだけ帰属するものとして扱います。他projectによる利用、互換実装、参照はownershipではなくrelationです。二つのprojectが同じconfirmed `owned_nsid`を持つ場合、直ちにmergeせず、重複record、誤帰属、分割ミス、ownership移転のreview対象にします。
 
 repository内にLexicon JSONが存在することだけでは、そのprojectによるNSID ownershipを意味しません。
+
+collectionが一つ増えるたびに人が確認する負担と、サブドメイン等で分かれた別サービスをまとめる危険のバランスから、同じ直属namespaceを既定の照合単位にしています。これは経験的な運用判断であり、名前空間の構造が同一projectを保証するという意味ではありません。
 
 同じ直属namespace、すなわちLexicon解決単位に属するfull NSIDは、既定では同じprojectへ帰属させます。たとえば`dev.idiolect.recommendation`と`dev.idiolect.adapter`は同じ単位です。一方、`network.comind.memory`と`network.comind.void.memory`のような親子namespace、同じroot domain、似た名前だけではまとめません。明示的な手動判断（operator decision）または別governanceの確認は既定規則より優先します。
 
@@ -483,7 +508,7 @@ Lexicon schema recordの公開は`did_publishes_schema`として分けます。m
 - `relation_corroboration`も通常のtrust評価・guard・採用decision記録を通します。
 - 旧page↔repo保存edgeは現在の判定には使いません。通常saveは未解決edgeを一括削除しません。移行照合ではREADME出典の`owner/repo`形式と完全URL形式を同一視します。完全一致する出典を優先し、別repositoryや別methodをまとめません。現在のrelationのclassificationを維持します。`migrate-repository-trust`のdry-runはcurrent relation、復元可能なLLM判断、要reviewに分類します。`--execute-plan <plan.json> --archive <archive.json>`でDBを再照合し、旧page↔repo edge全体を原文のままarchiveへ保存・fsync・再読込確認した後、保存graphから除去します。relationの復元は行わず、現在のrelationと対象外edgeを維持するため判定用graphは変わりません。新規archiveを必須とし、上書きを拒否します。project key、旧観測の全field・重複、分類付きplan、過去判断の理由・入力pair、plan digest、archive digestを保存します。`reconstructable_judgment`は過去判断の記録が復元可能という分類で、現役relationへ戻す指示ではありません。archiveを通常判定へ読み込む経路はありません。書込み失敗はDB変更前に停止し、DB側のrollback時には退避fileが残る場合があります。fileの存在だけで適用済みと判断せず、実行結果と再dry-runで確認します。
 
-- node kind は `service_url` / `repo_url` / `handle` / `did` / `domain` / `collection`
+- node kind は `service_url` / `repo_url` / `handle` / `did` / `domain` / `collection` / `nsid`
 - 既存の `account` identifier はUI/storage上のroleであり、trust graph nodeにはしません
 - edge は `subject` / `predicate` / `object` / `source` / `locator` / `method` / `classification` / `eligible_for_auto_confirm` / `observed_at` / `context` を持ちます
 - relationの`confirmed`はpredicateの直接事実が確定したことを表し、endpoint identifierのconfirmedやtrust edgeへの採用を意味しません。信頼経路ではpredicate、方向、roleを静的policyへ照合し、適格なedgeだけを使います
@@ -749,7 +774,7 @@ DBから比較集合を読む単発計算では、名前・Website・status、re
   - 発行元の一致比較には`collection_trust.verified_publications`を満たす観測、または期限内で帰属競合のないcatalogの検証済みpublisherを使います。catalogがpending・invalid・deleted・期限切れを示す場合は古い発行元で補完せず、診断詳細に保存情報を残します
   - 「recordの発行者を照会（外部通信）」を押した時だけ`listReposByCollection`の先頭DIDを取得します。保存済みのcase-preservingなNSIDを使い、型が判明した非recordを照会対象から除外します。型不明の既存NSIDは従来どおり照会し、取得できない場合と失敗は`not_found` / `error`として表示します
   - マージ元を行、マージ先を列とする2×2マトリクスで、行・列の見出しを「Lexicon」「record」とし、それぞれの発行者DIDの一致数を直接表示します。同じDIDが複数NSIDに現れても1件です。record未照会は「—」で0件と区別します。数字を押すと一致したDIDと双方の対応NSIDをpopoverに表示し、キーボード操作とEscape・閉じるボタンに対応します。双方のDID map・発行元の出典・照会診断・非record除外一覧は「参照したDIDと診断」の一つの折り畳みにまとめます
-  - record側は観測順の先頭に返るrecord発行者がLexicon開発者であることを期待し、同一projectの手掛かりとして使います。[観測順と適用限界](#record側の観測順と適用限界)を踏まえ、説明アイコンには意図と対象公開実装へのcommit固定リンクを示します。表下には説明文を常設しません
+  - record側は観測順の先頭に返るrecord発行者がLexicon開発者であることを期待し、同一projectの手掛かりとして使います。利用者の経験と既存の実装調査から、人の比較補助としては十分に有用と判断しています。自動採用・自動マージの根拠へ広げる判断とは別です。[観測順と適用限界](#record側の観測順と適用限界)を踏まえ、説明アイコンには意図と対象公開実装へのcommit固定リンクを示します。表下には説明文を常設しません
   - APIの`did_comparison`は上記4方向の一致DID配列を返し、未照会の方向は`null`です。双方のNSID→DID map・出典詳細・非record除外一覧も返します。既存の`first_creator_*` fieldはrecord側の先頭DIDの照会結果を保持します。field名から最初のrecord作成者や最初に観測されたrecordの発行者を保証しません
   - この補助情報は通常の候補スコア、`source_pair_candidate` / `target_pair_candidate`、自動マージ条件へ追加しません。CLIからheuristicを判定へ含める導線もありません
 

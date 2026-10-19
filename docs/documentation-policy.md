@@ -11,6 +11,7 @@
 | [brief](brief.md) | 目的、対象・非目標、方向性、優先順位、成功の判断 |
 | [TODO](developer/todo.md) | 未完了作業、確認待ち、条件付き候補、着手条件 |
 | [利用ガイド](user/guide.md) | 初回準備から登録・調査・判断まで、基本用語 |
+| [調査の手引き](user/research-methods.md) | 人力・別ツールにも使える情報源の選び方、帰属・利用範囲・変化の調べ方 |
 | [接続設定](user/configuration.md) | LLM・認証・収集対象・設定ファイル |
 | [Python環境](user/python-environment.md) | 処理系の準備・検証・切替・復旧・削除 |
 | [CLI](user/cli.md) / [Web UI](user/web-ui.md) | 入出力・副作用・操作・起動方法 |
