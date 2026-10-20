@@ -1072,6 +1072,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         )
     else:
         defaults["recorded_lexicon_namespaces"] = compute_recorded_lexicon_namespaces(defaults)
+    defaults["lexicons"] = list(defaults["resolved_nsids"])
     defaults["lexicon_count"] = len(defaults.get("lexicons", []))
     defaults["external_lexicons"] = unique_list(
         [identifier_core.normalize_nsid(str(item)) for item in defaults.get("external_lexicons", []) if item]

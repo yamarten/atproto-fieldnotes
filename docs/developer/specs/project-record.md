@@ -202,7 +202,9 @@ NSID は storage / UI / external lookup で観測されたcaseを保持します
 - `confirmed_nsids`
   - 内部で扱う高信頼 NSID
 - `lexicons`
-  - `resolved_nsids`から導出するcompatibility view
+  - `resolved_nsids`から導出するcompatibility view。読込み・正規化で順序とcaseを保って再構成し、独立した採用情報として扱わない
+- `lexicon_count`
+  - 重複を除いたconfirmed `owned_nsid`の件数。candidateや観測しただけのschemaは含めない。保存済み件数や`lexicons`が古くても、現在の`resolved_nsids`から計算する
 - `lexicon_namespaces`
   - project 粒度で記録する namespace
 

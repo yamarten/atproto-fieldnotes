@@ -639,6 +639,8 @@ def hydrate(
         if str(item) and str(item) not in confirmed_project_site_urls
     ])
     project["resolved_nsids"] = _unique([str(item) for item in project["resolved_nsids"] if str(item)])
+    project["lexicons"] = list(project["resolved_nsids"])
+    project["lexicon_count"] = len(project["lexicons"])
     project["authority_domains"] = _unique([
         authority
         for nsid in project["resolved_nsids"]

@@ -15,7 +15,6 @@
 
 | 残件 | 次の確認・判断と境界 |
 | --- | --- |
-| 通常保存の`lexicon_count`投影 | `resolved_nsids`に値があっても`lexicons`が空のままfetch→saveすると、`state_json.evidence.lexicon_count`が`len(lexicons)`へ再投影され0になる観測がある。NSID行の消失とは別。candidate／confirmed NSIDを持つ一時DBで無変更roundtripと変更後saveを再現し、hydrate/saveの責務を確認する |
 | 同じ発行元のLexicon信頼補強 | 一時DBと小規模sampleの確認までで、全体の誤採用率と省力効果は未評価。[適用条件](specs/project-boundaries.md#承認済みlexiconと同じ発行元による信頼の補強)を踏まえ、一括適用の妥当性を判断する |
 | マージ済みprojectの一括調査 | 一括enrich中にmerge済みの旧project keyで失敗した観測がある。対象確定後のmergeと再開時のalias解決を一時DBで再現し、現在の実装で同じ失敗が起きるか確認する |
 
