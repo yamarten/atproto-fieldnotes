@@ -141,6 +141,10 @@ def build_parser() -> argparse.ArgumentParser:
     review_queue_parser = subparsers.add_parser("review-queue", help="List projects that likely deserve human review next.")
     review_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(project_record.TRACKING_STATES), help="Restrict review queue to these tracking states. Default: active stable stalled.")
     review_queue_parser.add_argument("--kinds", nargs="+", choices=[
+        "missing_project_identity",
+        "editorial_refresh",
+        "service_observation_changed",
+        "lexicon_publication_changed",
         "service_candidate_needs_confirmation",
         "candidate_repo_needs_confirmation",
         "llm_manual_review_recommended",

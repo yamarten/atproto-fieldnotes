@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 from unittest import mock
-from helpers import TempRegistryDbTestCase, registry
-from project_registry_core import dev_database, project_record, project_review
+from helpers import TempRegistryDbTestCase, captured_stdout, registry
+from project_registry_core import cli, dev_database, editorial, project_record, project_review
 from project_registry_core.persistence import runtime_view
 from project_registry_core.application import presentation, review
 
@@ -12,6 +13,41 @@ class ReviewRuntimeTest(TempRegistryDbTestCase):
         super().setUp()
         self.conn = registry.open_db()
         self.addCleanup(self.conn.close)
+
+    def test_cli_filters_identity_editorial_service_and_publication_signals(self):
+        kinds = ("missing_project_identity", "editorial_refresh",
+                 "service_observation_changed", "lexicon_publication_changed")
+        expected = {}
+        for index, kind in enumerate(kinds):
+            key = f"proj:{index + 1:012x}"
+            url = f"https://review{index}.example"
+            project = self.make_project(key, "service_url", url)
+            project.update(name=kind, summary="Stored description", tracking_state="active")
+            if kind != "missing_project_identity":
+                registry.confirm_service_seed(project, url, source="fixture")
+            if kind == "editorial_refresh":
+                material = editorial.source("service_page", url, "New feature", "2026-10-01T00:00:00+00:00")
+                editorial.apply_proposal(project, {"summary": "Updated description"}, {
+                    "kind": "changed_facts", "reason": "New feature", "sources": [material["id"]],
+                }, [material], generated_at="2026-10-01T00:00:00+00:00")
+            elif kind == "service_observation_changed":
+                project["service_verification_results"] = [{
+                    "requested_url": url, "lane": "browser", "surface_change": "surface_not_confirmed",
+                    "observed_at": "2026-10-01T00:00:00+00:00",
+                }]
+            elif kind == "lexicon_publication_changed":
+                project["publication_review"] = ["publisher_changed"]
+            project_record.save_project(self.conn, project)
+            expected[kind] = key
+        self.conn.commit()
+
+        for kind, key in expected.items():
+            with self.subTest(kind=kind), captured_stdout() as output:
+                self.assertEqual(cli.main(["--db-path", str(self.db_path), "review-queue", "--kinds", kind]), 0)
+                result = json.loads(output.getvalue())
+                self.assertEqual(result["review_count"], 1)
+                self.assertEqual([item["project_key"] for item in result["items"]], [key])
+                self.assertEqual([signal["kind"] for signal in result["items"][0]["signals"]], [kind])
 
     def test_demo_queue_batch_and_detail_keep_full_contribution_and_signals(self):
         dev_database.seed_database(self.conn)

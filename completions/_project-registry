@@ -79,6 +79,9 @@ llm_api_styles=(auto chat responses completions)
 llm_reasoning_efforts=(none minimal low medium high)
 review_kinds=(
   missing_project_identity
+  editorial_refresh
+  service_observation_changed
+  lexicon_publication_changed
   service_candidate_needs_confirmation
   candidate_repo_needs_confirmation
   llm_manual_review_recommended
