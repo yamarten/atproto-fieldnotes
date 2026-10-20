@@ -26,6 +26,15 @@ def _string_set(value: Any) -> set[str] | None:
 
 
 def _run_sync(conn: Any, request: OperationRequest, *, progress: Any = None, cancel_requested: Any = None) -> dict[str, Any]:
+    try:
+        return _dispatch_sync(conn, request, progress=progress, cancel_requested=cancel_requested)
+    except sync.SourceDisabledError as exc:
+        if not request.parameters.get("_scheduled_preset_id"):
+            raise
+        return {"skipped": True, "reason": "source_disabled", "source": exc.source}
+
+
+def _dispatch_sync(conn: Any, request: OperationRequest, *, progress: Any = None, cancel_requested: Any = None) -> dict[str, Any]:
     parameters = request.parameters
     source = str(parameters.get("source") or "").strip()
     common = {

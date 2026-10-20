@@ -11,6 +11,20 @@ from helpers import ROOT
 
 @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web display checks")
 class WebDisplayTest(unittest.TestCase):
+    def test_disabled_source_skips_are_visible_in_job_and_persisted_schedule(self):
+        self.run_javascript(r'''
+const job = {job_id:"job:skip", operation:"sync", status:"completed",
+  request:{parameters:{source:"lexicons"}}, result:{data:{summary:{skipped:true,reason:"source_disabled"}}}};
+assert.match(renderJobs([job]), /情報源が無効のためスキップしました/);
+assert.ok(!renderJobs([{...job,result:{}}]).includes("スキップしました"));
+const html = renderSchedules({items:[{preset_id:"sync_sources_then_enrich",last_steps:[
+  {label:"sync lexicons",status:"skipped",reason:"source_disabled"},
+  {label:"<unsafe>",status:"skipped",reason:"source_disabled"}]}]});
+assert.match(html, /情報源が無効のためスキップ:/);
+assert.match(html, /&lt;unsafe&gt;/);
+assert.ok(!html.includes("<unsafe>"));
+''')
+
     def test_browser_entry_and_introduction_plan_views_restore_and_escape(self):
         self.run_javascript(r'''
 restoreStateFromUrl(new URLSearchParams({screen:"browser",url:"https://example.com/<tag>",browser_q:"service"}));

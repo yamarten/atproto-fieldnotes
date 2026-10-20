@@ -653,10 +653,14 @@ class JobManager:
                 return
             completed = list(current.get("completed_steps") or [])
             current_step = current.get("current_step") if isinstance(current.get("current_step"), dict) else {}
+            summary = (job.result or {}).get("data", {}).get("summary", {})
+            skipped = (job.status == "completed" and isinstance(summary, dict)
+                       and summary.get("skipped") is True and summary.get("reason") == "source_disabled")
             completed.append({
                 "label": str(current_step.get("label") or ""),
                 "job_id": current_job_id,
-                "status": job.status,
+                "status": "skipped" if skipped else job.status,
+                **({"reason": "source_disabled"} if skipped else {}),
                 "completed_at": job.completed_at,
             })
             current["completed_steps"] = completed

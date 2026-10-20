@@ -6,6 +6,12 @@ from typing import Any, Callable, Sequence
 from .. import source_sync as core
 
 
+class SourceDisabledError(ValueError):
+    def __init__(self, source: str):
+        self.source = source
+        super().__init__(f"source is disabled in config/sources.json: {source}")
+
+
 def _source_config(name: str) -> dict[str, Any]:
     config = core.load_config()
     value = config.get(name, {}) if isinstance(config, dict) else {}
@@ -14,7 +20,7 @@ def _source_config(name: str) -> dict[str, Any]:
 
 def _require_enabled(name: str, config: dict[str, Any]) -> None:
     if config.get("enabled") is False:
-        raise ValueError(f"source is disabled in config/sources.json: {name}")
+        raise SourceDisabledError(name)
 
 
 def _positive_int(value: int | None, config: dict[str, Any], key: str, default: int) -> int:

@@ -84,6 +84,8 @@ chmod 600 .envrc
 
 候補収集に使う外部情報源の有効・無効、URL、検索条件、対象範囲、リクエスト上限は[config/sources.json](../../config/sources.json)で管理します。同梱設定は、このプロジェクトの公開紹介アカウントを検索し、公開Semble collectionを収集する設定です。別の紹介活動に使う場合は`introduced_search.query`を変更し、Sembleの対象は`semble_collections.tracked_collections`で選びます。収集しない情報源は`enabled: false`にします。認証値はsource設定へ書かず、上記の環境変数へ設定します。
 
+定期実行のpresetでは、各取り込みの開始時に`enabled: false`の情報源を理由付きでスキップし、後続の取り込み・調査へ進みます。「今すぐ実行」、保留中の処理の再開、server再起動後の実行待ちも同じ扱いです。CLIや画面から情報源を個別指定した取り込みは、無効ならエラーを返します。設定不足や通信障害など、無効化以外の失敗をスキップにはしません。
+
 Semble取り込みは、人が集めた公開リンク集を継続して確認し、他の発見経路では拾いにくいサービスURLや、collectionを作らないPDS実装などのインフラの発見を補うために使います。同梱の3 collectionは、この補完に役立つ初期対象として選んだものです。今後も拾いたい候補に合わせて収集先を選びます。リンク集への掲載は所有関係や紹介適性の保証ではなく、登録後の調査と判断が必要です。
 
 ドメインの区切りを判断するPublic Suffix List（PSL）にないホスティングサービスの接尾辞を追加する場合だけ、任意の`config/domain-overrides.json`を用意します。未作成なら同梱PSLと既定の規則を使います。[設定例](../../config/domain-overrides.example.json)と接尾辞変更の影響確認に使う`audit-source-config`を参照してください。

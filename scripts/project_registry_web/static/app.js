@@ -2689,6 +2689,7 @@ function renderJobs(items) {
     return `<article class="job-card ${esc(job.status)}"><div class="card-title"><strong>${esc(displayLabel(job.operation))} · ${esc(displayLabel(target))}</strong>${pill(job.status, job.status)}</div>
       <div class="meta-row"><span>${esc(job.job_id)}</span><span>${esc(count)}</span><span>${job.elapsed_seconds === null || job.elapsed_seconds === undefined ? "" : `経過 ${esc(formatDuration(job.elapsed_seconds))}`}</span><span>${job.eta_seconds === null || job.eta_seconds === undefined ? "" : `残り時間（推定） ${esc(formatDuration(job.eta_seconds))}`}</span></div>
       ${job.last_item ? `<p class="muted">直近: ${esc(job.last_item.project_key)} ${esc(job.last_item.name || "")}</p>` : ""}
+      ${job.result?.data?.summary?.reason === "source_disabled" ? `<p class="muted">情報源が無効のためスキップしました。</p>` : ""}
       ${job.error ? `<p class="job-error">${esc(apiErrorMessage(job.error))}</p>` : ""}
       <div class="actions">
         ${job.can_cancel ? `<button class="danger small" data-job-cancel="${esc(job.job_id)}">停止を要求</button>` : ""}
@@ -2746,6 +2747,7 @@ function renderSchedules(data) {
       </div>
       <p class="muted">次回: ${esc(formatTimestamp(item.next_due_at))}</p>
       ${statusLine ? `<p class="muted">${esc(statusLine)}</p>` : ""}
+      ${list(item.last_steps).some(step => step.reason === "source_disabled") ? `<p class="muted">情報源が無効のためスキップ: ${list(item.last_steps).filter(step => step.reason === "source_disabled").map(step => esc(displayLabel(step.label))).join("、")}</p>` : ""}
       ${list(item.pending_steps).length ? `<p>保留: ${list(item.pending_steps).map(step => esc(displayLabel(step.label))).join(" → ")}</p>` : ""}
       <div class="actions"><button class="small primary" data-schedule-run="${esc(item.preset_id)}">${list(item.pending_steps).length ? "保留中の処理を再開" : "今すぐ実行"}</button></div>
     </article>`;

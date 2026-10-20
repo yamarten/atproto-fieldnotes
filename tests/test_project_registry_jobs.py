@@ -82,6 +82,43 @@ class _ProjectRegistryJobFixtures:
 
 
 class ProjectRegistryJobUnitTest(_ProjectRegistryJobFixtures, ProjectRecordTestCase):
+    def test_disabled_sources_skip_only_in_scheduled_worker(self) -> None:
+        sources = {
+            "introduced": "introduced_search", "github": "github_repo_search",
+            "collections": "collection_inventory", "lexicons": "lexicon_publications",
+            "semble": "semble_collections", "tangled": "tangled_repo_discovery",
+        }
+        for source, config_name in sources.items():
+            for scheduled in (False, True):
+                with self.subTest(source=source, scheduled=scheduled):
+                    parameters = {"source": source}
+                    if scheduled:
+                        parameters["_scheduled_preset_id"] = "sync_sources_then_enrich"
+                    request = OperationRequest.create("sync", parameters=parameters, execute=True)
+                    with mock.patch.object(source_sync, "load_config", return_value={config_name: {"enabled": False}}):
+                        # No usable DB: disabled sources must stop before collection or persistence.
+                        result = worker._run_simple(object(), request, CancellationToken(), lambda event: None)
+                    self.assertEqual(result.status, "completed" if scheduled else "failed")
+                    if scheduled:
+                        self.assertEqual(result.data["summary"], {
+                            "skipped": True, "reason": "source_disabled", "source": config_name,
+                        })
+                    else:
+                        self.assertEqual(result.error["type"], "SourceDisabledError")
+
+    def test_scheduled_sync_does_not_skip_other_configuration_or_collection_errors(self) -> None:
+        request = OperationRequest.create("sync", parameters={
+            "source": "github", "_scheduled_preset_id": "sync_sources_then_enrich",
+        }, execute=True)
+        for config in ({}, {"enabled": True, "queries": ["atproto"]}):
+            with self.subTest(config=config):
+                with mock.patch.object(source_sync, "load_config", return_value={"github_repo_search": config}), \
+                     mock.patch.object(source_sync, "sync_github_search", side_effect=OSError("collection failure")):
+                    result = worker._run_simple(object(), request, CancellationToken(), lambda event: None)
+                self.assertEqual(result.status, "failed")
+                self.assertNotIn("summary", result.data)
+                self.assertEqual(result.error["type"], "OSError" if config else "ValueError")
+
     def test_running_job_estimates_eta_from_latest_progress(self) -> None:
         now = dt.datetime(2026, 10, 1, tzinfo=dt.timezone.utc)
         started = (now - dt.timedelta(seconds=100)).isoformat()
@@ -255,6 +292,65 @@ class ProjectRegistryJobUnitTest(_ProjectRegistryJobFixtures, ProjectRecordTestC
 
 
 class ProjectRegistryJobTest(_ProjectRegistryJobFixtures, TempRegistryDbTestCase):
+    def test_disabled_source_skips_survive_pending_and_queue_restart(self) -> None:
+        preset_id = "sync_sources_then_enrich"
+        configs = {name: {"enabled": False} for name in (
+            "github_repo_search", "collection_inventory", "lexicon_publications",
+            "semble_collections", "tangled_repo_discovery",
+        )}
+        for entry in ("run_now", "due", "pending", "interrupted_queue"):
+            with self.subTest(entry=entry):
+                self.manager.close()
+                self.manager._schedule_path.unlink(missing_ok=True)
+                self.manager = JobManager(self.db_path, enable_scheduler=False)
+                if entry == "pending":
+                    self.manager._schedule_state["schedules"][preset_id]["pending_steps"] = preset_steps(preset_id)[2:]
+                elif entry == "interrupted_queue":
+                    self.manager._enqueue_schedule_locked(preset_id, period="test", reason="schedule")
+                    self.manager._schedule_state["queue"][0]["current_job_id"] = "job:lost"
+                self.manager._save_schedule_state_locked()
+                self.manager.close()
+                self.manager = JobManager(self.db_path, enable_scheduler=False)
+                seen = []
+
+                def run_worker(job):
+                    seen.append(job.request.parameters.get("source") or job.request.operation)
+                    if job.request.operation == "sync":
+                        result = worker._run_simple(object(), job.request, CancellationToken(), lambda event: None)
+                        job.result = result.to_dict()
+                        job.status = result.status
+                    else:
+                        self.assertTrue(job.request.parameters["new_only"])
+                        job.status = "completed"
+
+                with mock.patch.object(source_sync, "load_config", return_value=configs), \
+                     mock.patch.object(self.manager, "_spawn_locked", side_effect=run_worker):
+                    now = dt.datetime(2026, 10, 19, 4, tzinfo=dt.timezone.utc)
+                    if entry == "due":
+                        self.manager._schedule_state["schedules"][preset_id].update({
+                            "enabled": True, "weekday": 0,
+                            "time": "03:00", "timezone": "UTC",
+                        })
+                    elif entry != "interrupted_queue":
+                        self.manager.run_scheduled_preset(preset_id)
+                    for _ in range(8):
+                        state = self.manager.run_scheduler_once(now)
+                        if not state["queue"]:
+                            break
+                expected = ["lexicons", "semble", "tangled", "enrich"] if entry == "pending" else [
+                    "github", "collections", "lexicons", "semble", "tangled", "enrich",
+                ]
+                self.assertEqual(seen, expected)
+                schedule = next(item for item in state["items"] if item["preset_id"] == preset_id)
+                self.assertEqual(state["queue"], [])
+                self.assertEqual(schedule["last_status"], "completed")
+                self.assertEqual(schedule["pending_steps"], [])
+                self.assertEqual([step["status"] for step in schedule["last_steps"]], ["skipped"] * (len(expected) - 1) + ["completed"])
+                for step in schedule["last_steps"][:-1]:
+                    self.assertEqual(step["reason"], "source_disabled")
+                reloaded = self.manager._load_schedule_state()
+                self.assertEqual(reloaded["schedules"][preset_id]["last_steps"], schedule["last_steps"])
+
     def test_schedule_batch_validation_and_persistence_failure_leave_no_partial_change(self):
         self.manager._save_schedule_state_locked()
         before = copy.deepcopy(self.manager._schedule_state)

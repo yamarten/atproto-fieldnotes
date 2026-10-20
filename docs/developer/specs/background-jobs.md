@@ -110,6 +110,8 @@ cancel・fail-fast・snapshot変更・対象外化等で使えなかった先行
 
 想定内の競合では、独立した後続stepを続行します。`sync_sources_then_enrich`の各sourceは独立し、最後の`new_only` enrichは保存済みの未調査projectを処理します。`enrich_all_states`の`review-stalled`は先行enrichの完了を必須とし、未完了なら`deferred`として保存します。一般障害（`failed`）、明示中断（`cancelled`）、worker起動失敗では、そのpresetの後続stepを停止します。workerの異常終了もjobが`failed`になれば同じ扱いです。
 
+定期presetのsyncはworkerの実行時にsource設定を読み、明示的な`enabled: false`だけをスキップします。jobは`completed`、結果のsummaryは`skipped: true`・`reason: source_disabled`・source設定名を返し、presetの`last_steps`は`status: skipped`と理由を保存します。取り込み処理や外部通信を行わず、保留・再試行には追加せず後続へ進みます。「今すぐ実行」、保存済みpendingの再開、server再起動後のqueueにも同じ判定を適用します。一度スキップしたstepはその回の再開では繰り返さず、次回presetで設定を再確認します。無効化以外の設定・通信・保存の失敗は従来の失敗処理へ渡します。
+
 未完了stepと依存待ちstepは`job-schedules.json`の`pending_steps`へ保持し、preset全体を`retry_wait`にして他presetを妨げません。停止時は失敗・中断・起動失敗した現在stepを先頭に、先に競合・依存待ちで保留したstep、残りの未実行stepの順で保存します。job自体の`failed` / `cancelled`は変更せず、presetの`last_steps`にも結果を残し、`last_message`へ停止理由を保存します。定期実行は次の週・月も含め未解決の同presetを自動再試行せず、利用者が`Resume pending steps`で再開します。手動実行は保留があればそのstepだけ、なければ`Run now`としてpreset全体を開始します。
 
 enrichは結果または元requestで特定できる実在するcheckpointのpathとrun IDを保持して再開します。checkpoint作成前に失敗した初回stepは、同じ選択条件で新規実行します。起動失敗時はstepに既にある再開指定を保持します。sync/reviewとcheckpointを持たない観測stepは、そのstepを最新状態から再実行します。成功済みstepは繰り返しません。ただしsync再試行が新しいprojectを作り得るため、その後は`new_only` enrichを行います。元checkpointの再開もある場合は、その対象を処理した後に未調査projectを新たに選択します。再開後に再び停止した場合も、その時点の未完了stepだけへ保留を更新します。保留step・結果・停止理由はserver再起動後も維持します。
