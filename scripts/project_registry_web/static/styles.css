@@ -82,7 +82,6 @@ body.popup-embedded .detail-header > .actions > :not(#add-project-seed),
 body.popup-embedded .detail-header > .promotion-actions,
 body.popup-embedded .operator-feedback .tab-feedback { display: none; }
 body.popup-embedded .operator-feedback { margin: 8px 0; padding: 10px; }
-body.popup-embedded dialog { max-height: calc(100dvh - 24px); overflow: auto; }
 body.popup-embedded .status { line-height: 1.4; }
 .seed-form { display: grid; gap: 12px; }
 .seed-form label { display: grid; gap: 5px; min-width: 0; }
@@ -221,9 +220,9 @@ body.popup-embedded .seed-form .kv { grid-template-columns: 80px minmax(0, 1fr);
 .suffix-suggestion { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px; padding: 9px; border-left: 3px solid var(--warning); border-radius: 7px; background: var(--panel-soft); }
 .suffix-suggestion-main { min-width: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
 .notice { padding: 10px; border-left: 3px solid var(--warning); background: var(--warning-soft); border-radius: 7px; }
-dialog { width: min(520px, calc(100% - 24px)); border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); box-shadow: 0 16px 60px rgb(0 0 0 / 30%); }
+dialog { width: min(520px, calc(100% - 24px)); max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); overflow: auto; overflow-wrap: anywhere; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); box-shadow: 0 16px 60px rgb(0 0 0 / 30%); }
 dialog::backdrop { background: rgb(0 0 0 / 45%); }
-dialog form { display: grid; gap: 12px; }
+dialog form { display: grid; gap: 12px; min-width: 0; }
 dialog label { display: grid; gap: 5px; min-width: 0; }
 dialog input, dialog textarea { min-width: 0; max-width: 100%; }
 .dialog-actions { justify-content: flex-end; }
