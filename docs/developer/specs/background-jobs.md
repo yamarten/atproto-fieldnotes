@@ -71,13 +71,13 @@ anonymous browser verificationはproject境界で停止します。syncは進行
 
 CLIの最初のCtrl+Cはこの停止要求へ変換します。checkpointを保存した後、終了コード`130`で終了します。
 
-bulk enrichは1 projectの例外時にその接続の未commit変更をrollbackし、checkpointの`failed_projects`へproject key、例外種別/message、時刻を保存して後続projectを既定で続行します。後続が完了しても一括実行全体は`failed`で、CLIは終了コード`1`、Web jobもfailedとして表示します。結果には失敗一覧とresume commandを含めます。resumeは`completed_project_keys`だけを除外するため、失敗projectと未処理projectを再試行します。障害診断で最初の失敗位置を保ちたい場合はCLIの`--fail-fast`を使います。
+bulk enrichは1 projectの例外時にその接続の未commit変更をrollbackし、checkpointの`failed_projects`へproject key、例外種別/message、時刻を保存して後続projectを既定で続行します。後続が完了しても一括実行全体は`failed`で、CLIは終了コード`1`、Web jobもfailedとして表示します。結果には失敗一覧とresume commandを含めます。resumeは成功・対象外として処理済みのkeyを除外し、失敗projectと未処理projectを再試行します。障害診断で最初の失敗位置を保ちたい場合はCLIの`--fail-fast`を使います。
 
 project処理中に対象keyがmergeされてaliasになった場合や更新番号が変わった場合は、古いsnapshotの保存を拒否します。現在状態と反映済み履歴のtransactionをrollbackした後、調査成果を`unapplied`として別transactionへ保存します。保存契約・保持期間は[project record](project-record.md#investigation-history)を参照してください。
 
 ## Enrich Checkpoint
 
-`enrich --all`は既定で`data/enrich-runs/<run_id>.json`を使います。開始時の`selected_project_keys`は対象の順序を固定しますが、処理snapshotは固定しません。各件開始時に最新のcanonical projectを読み直し、tracking state、`new_only`、`retry_failures`の条件を再確認します。条件から外れた対象や削除された対象は理由付きの`skipped_projects`へ記録し、調査成功件数には含めません。同じcanonical projectの処理済み対象を重複実行しません。
+`enrich --all`は既定で`data/enrich-runs/<run_id>.json`を使います。開始時の`selected_project_keys`は対象の順序を固定しますが、処理snapshotは固定しません。各件開始時に最新のcanonical projectを読み直し、tracking state、`new_only`、`retry_failures`の条件を再確認します。条件から外れた対象や削除された対象は理由付きの`skipped_projects`へ記録し、調査成功件数には含めません。同じprocess内では、処理済みのcanonical projectを重複実行しません。
 
 - project保存後に`completed_project_keys`を更新する
 - 想定内の競合を`conflicted_projects`へ記録し、完了扱いにしない。過去の未解決attemptのrun IDも保持する
@@ -85,6 +85,8 @@ project処理中に対象keyがmergeされてaliasになった場合や更新番
 - 再開時は保存済みoptionを使い、成功・対象外として処理済みのkeyを除外する
 - 再開は最新状態から外部取得・LLMを再実行する。保存済みの古い成果の差分再適用はしない
 - LLM API keyの値は保存せず、再開processから受け取る
+
+対象確定後にmergeされた旧keyは、各件開始時とcheckpoint再開時にaliasから現在のcanonical projectへ解決します。再開時に複数の未完了keyが同じcanonical projectを指す場合は一件にまとめ、成功時には対応する元のkeyをすべて完了にします。マージ先のkeyが既に完了していても、旧key側の競合が未完了なら、再開時にマージ後の最新状態を調査します。再調査成功時には該当する未反映履歴を解消し、checkpointの競合記録を取り除きます。
 
 競合だけが残った一括実行は`retry_wait`で終了します。CLIは終了コード`2`とresume commandを返し、Webは再試行待ちとResumeを表示します。単体enrich・`--no-checkpoint`は競合一覧と未反映履歴を残しますがcheckpointによる再開はなく、同じ対象を明示的に再実行します。自動再試行や再試行時刻の予約はしません。
 

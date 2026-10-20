@@ -145,6 +145,48 @@ class EnrichPrefetchTest(TempRegistryDbTestCase):
         self.assertEqual(result.data["completed_project_count"], 2)
         self.assertTrue(project_record.fetch_project(self.conn, KEYS[2])["last_enriched_at"])
 
+    def test_resume_actual_merge_conflict_resolves_old_key_and_unapplied_history(self):
+        merged = False
+
+        def merge_current(purpose):
+            nonlocal merged
+            if merged or purpose != "triage" or self.responses.calls["triage"] != 2:
+                return
+            merged = True
+            other = registry.open_db()
+            try:
+                merge.merge_projects(other, project_key=KEYS[1], target_project_key=KEYS[0],
+                                     execute=True, force=True)
+            finally:
+                other.close()
+
+        self.responses.on_llm = merge_current
+        result = self.run_batch()
+        self.assertEqual(result.status, "retry_wait")
+        checkpoint = json.loads(self.path.read_text())
+        self.assertEqual(checkpoint["failed_projects"], [])
+        self.assertEqual(checkpoint["completed_project_keys"], [KEYS[0], KEYS[2]])
+        self.assertEqual([item["project_key"] for item in checkpoint["conflicted_projects"]], [KEYS[1]])
+        conflict_run_id = checkpoint["conflicted_projects"][0]["run_id"]
+        conflict = storage.load_investigation_run(self.conn, conflict_run_id)
+        self.assertEqual(conflict["application_status"], "unapplied")
+        self.assertFalse(conflict["resolved_at"])
+        self.assertIsNone(project_record.fetch_project(self.conn, KEYS[1]))
+
+        self.responses.on_llm = None
+        searched = []
+        self.responses.on_search = lambda project: searched.append(project["project_key"])
+        resumed = self.run_batch(resume_run="overlap-test")
+        self.assertEqual(resumed.status, "completed")
+        self.assertEqual(searched, [KEYS[0]])
+        checkpoint = json.loads(self.path.read_text())
+        self.assertEqual(set(checkpoint["completed_project_keys"]), set(KEYS[:3]))
+        self.assertEqual(checkpoint["conflicted_projects"], [])
+        self.assertEqual(checkpoint["failed_projects"], [])
+        self.assertEqual(checkpoint["missing_project_keys"], [])
+        self.assertTrue(storage.load_investigation_run(self.conn, conflict_run_id)["resolved_at"])
+        self.assertIsNone(project_record.fetch_project(self.conn, KEYS[1]))
+
     def test_merge_prefetched_into_later_target_runs_canonical_only_once(self):
         merged = False
         def merge_next(purpose):
