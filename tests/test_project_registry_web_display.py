@@ -70,6 +70,92 @@ assert.equal(nodes["popup-login"].hidden,false);
 assert.equal(nodes.workspace.hidden,true);
 ''', search="?screen=browser&embed=popup&popup_parent=moz-extension%3A%2F%2Ftest&url=https%3A%2F%2Fexample.org%2F")
 
+    def test_seed_form_preview_edit_duplicate_save_failure_and_conflict(self):
+        self.run_javascript(r'''
+const nodes = new Map();
+document.getElementById = id => {
+  if (!nodes.has(id)) nodes.set(id, {innerHTML:"", value:"", textContent:"", hidden:true,
+    isConnected:true, disabled:false, listeners:{}, style:{},
+    addEventListener(event, fn) { this.listeners[event] = fn; }, querySelectorAll() { return []; }});
+  return nodes.get(id);
+};
+const node = id => document.getElementById(id);
+let calls=[], loaded=[], statuses=[], closed=0;
+loadDetail = async (...args) => { loaded.push(args); };
+loadList = async () => {};
+status = (...args) => { statuses.push(args); };
+const dialog = {close() { closed++; }};
+const submit = () => node("seed-form").onsubmit({preventDefault(){}});
+const preview = {seed_type:"repo_url", seed_value:"https://forge.example/a/b", candidates:[], exact_project_key:""};
+(async () => {
+  api = async (path, options) => { calls.push([path,options]); return options ? {project_key:"proj:target"} : preview; };
+  state.detailRevision = "later-revision";
+  bindSeedForm({projectKey:"proj:target", revision:"opened-revision", dialog});
+  node("save-seed").onclick();
+  assert.equal(calls.length,0); // no save without a preview
+  node("seed-value").value = "repo_url: https://forge.example/a/b";
+  await submit();
+  assert.match(calls[0][0], /type=repo_url/);
+  assert.equal(node("save-seed").hidden,false);
+  node("seed-value").value = "https://different.example";
+  node("seed-value").oninput();
+  node("save-seed").onclick();
+  assert.equal(calls.length,1); // editing revokes the previous preview
+  assert.equal(node("save-seed").hidden,true);
+  node("seed-value").value = "repo_url: https://forge.example/a/b";
+  await submit();
+  node("save-seed").onclick();
+  node("save-seed").onclick();
+  await mutationQueue;
+  const writes = calls.filter(([, options]) => options);
+  assert.equal(writes.length,1);
+  assert.deepEqual(JSON.parse(writes[0][1].body), {seed:"https://forge.example/a/b", type:"repo_url", project_key:"proj:target", expected_revision:"opened-revision"});
+  assert.equal(closed,1);
+  assert.equal(loaded[0][0],"proj:target");
+  assert.match(statuses.at(-1)[0], /シードを保存/);
+
+  bindSeedForm({projectKey:"proj:target", revision:"revision", dialog});
+  api = async () => ({...preview, exact_project_key:"proj:other", exact:{name:"<Other>"}});
+  await submit();
+  assert.equal(node("save-seed").hidden,true);
+  assert.match(node("seed-preview").innerHTML, /&lt;Other&gt;/);
+  node("open-seed-project").onclick();
+  assert.equal(loaded.at(-1)[0],"proj:other");
+
+  // A failed request retains the input and allows a deliberate retry.
+  api = async (path, options) => { if (options) throw new Error("保存失敗"); return preview; };
+  bindSeedForm({projectKey:"proj:target", revision:"revision", dialog});
+  await submit(); node("save-seed").onclick(); await mutationQueue;
+  assert.equal(node("seed-message").textContent,"保存失敗");
+  assert.equal(node("seed-value").value,"repo_url: https://forge.example/a/b");
+  assert.equal(node("save-seed").disabled,false);
+
+  api = async (path, options) => { if (options) throw Object.assign(new Error("古い更新"), {code:"stale_project"}); return preview; };
+  node("save-seed").onclick(); await mutationQueue;
+  assert.deepEqual(loaded.at(-1),["proj:target",{updateUrl:false}]);
+  assert.match(statuses.at(-1)[0], /再操作/);
+
+  // A late response may not restore a save action for an edited value.
+  let finish;
+  api = () => new Promise(resolve => { finish=resolve; });
+  bindSeedForm();
+  const pending = submit();
+  node("seed-value").value = "https://new.example";
+  node("seed-value").oninput();
+  finish(preview); await pending;
+  assert.equal(node("save-seed").hidden,true);
+
+  // New registration is independent of introduction planning.
+  calls=[];
+  api = async (path, options) => { calls.push([path,options]); return options ? {project_key:"proj:new"} : {...preview,seed_type:"service_url",seed_value:"https://new.example"}; };
+  await submit(); node("save-seed").onclick(); await mutationQueue;
+  assert.deepEqual(JSON.parse(calls.at(-1)[1].body),{seed:"https://new.example",type:""});
+  assert.equal(loaded.at(-1)[0],"proj:new");
+  assert.match(statuses.at(-1)[0], /紹介予定に入れる/);
+  assert.ok(calls.every(([path]) => !path.includes("introduction-plan")));
+})().catch(error => { console.error(error); process.exitCode=1; });
+''')
+
     def test_browser_matches_show_nsid_reason_and_escape_values(self):
         self.run_javascript(r'''
 const container = {innerHTML: "", insertAdjacentHTML: (_, html) => {container.innerHTML = html + container.innerHTML;}};

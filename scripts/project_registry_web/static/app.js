@@ -1743,11 +1743,11 @@ function renderDetail(data) {
       <div class="actions"><select id="tracking-state" aria-label="追跡状態">${(state.server?.tracking_states || []).map((value) => `<option value="${esc(value)}" ${value === project.tracking_state ? "selected" : ""}>${esc(displayLabel(value))}</option>`).join("")}</select><button id="save-tracking">追跡状態を変更</button><button id="add-project-seed">シードを追加</button><button id="enrich-project" class="primary">調査</button><span id="merge-analysis-action"></span></div>
       ${promotionActions}
       <div class="operator-feedback">
-        <div class="actions"><button id="plan-introduction" class="primary">${plan ? "紹介予定の理由を編集" : "紹介予定に入れる"}</button>${plan ? `<button id="clear-introduction-plan">紹介予定から外す</button>` : ""}<button id="feedback-ownership">帰属を確認</button><button id="record-service-usage" ${!browserServiceUrls.length ? "disabled" : ""}>Lexicon利用を記録</button></div>
+        <div class="actions"><button id="plan-introduction" class="primary">${plan ? "紹介予定の理由を編集" : "紹介予定に入れる"}</button>${plan ? `<button id="clear-introduction-plan">紹介予定から外す</button>` : ""}<button id="feedback-ownership" class="tab-feedback">帰属を確認</button><button id="record-service-usage" class="tab-feedback" ${!browserServiceUrls.length ? "disabled" : ""}>Lexicon利用を記録</button></div>
         ${plan ? `<p>紹介予定: ${esc(plan.reason || "理由なし")} · ${esc(formatTimestamp(plan.added_at))}</p>` : ""}
         ${state.screen === "browser" && state.pageUrl ? `<p class="muted">見ていたページ: ${link(state.pageUrl)}</p>` : ""}
-        ${!browserServiceUrls.length ? `<p class="muted">Lexicon利用の記録には、先にサービスURLをシードとして追加してください。</p>` : ""}
-        ${list(feedback.service_usage).length ? `<details><summary>記録したLexicon利用 (${feedback.service_usage.length})</summary>${feedback.service_usage.map((item, index) => `<div class="relation"><strong>${esc(item.nsid)}</strong><p>${esc(item.service_url)}</p><p>${esc(item.reason)}</p><p>${item.source_url ? link(item.source_url) : ""} · ${esc(formatTimestamp(item.added_at))}</p><button class="small" data-clear-usage="${index}">この判断を解除</button></div>`).join("")}</details>` : ""}
+        ${!browserServiceUrls.length ? `<p class="muted tab-feedback">Lexicon利用の記録には、先にサービスURLをシードとして追加してください。</p>` : ""}
+        ${list(feedback.service_usage).length ? `<details class="tab-feedback"><summary>記録したLexicon利用 (${feedback.service_usage.length})</summary>${feedback.service_usage.map((item, index) => `<div class="relation"><strong>${esc(item.nsid)}</strong><p>${esc(item.service_url)}</p><p>${esc(item.reason)}</p><p>${item.source_url ? link(item.source_url) : ""} · ${esc(formatTimestamp(item.added_at))}</p><button class="small" data-clear-usage="${index}">この判断を解除</button></div>`).join("")}</details>` : ""}
       </div>
     </div>
     <nav class="detail-tabs" aria-label="プロジェクト詳細">
@@ -1768,7 +1768,7 @@ function renderDetail(data) {
     project.project_key,
     $("browser-service-url")?.value || "",
   ));
-  $("add-project-seed")?.addEventListener("click", () => addProjectSeed(project.project_key));
+  $("add-project-seed")?.addEventListener("click", () => addProjectSeed(project.project_key, project.name || project.project_key));
   $("edit-profile")?.addEventListener("click", () => editProfile(project, profile));
   $("skip-review-item")?.addEventListener("click", () => skipReviewItem(project.project_key));
   $("load-investigation-history")?.addEventListener("click", () => loadInvestigationHistory(project.project_key));
@@ -2246,17 +2246,88 @@ function parseSeedInput(value) {
   return {seed: match[2].trim(), type: match[1].toLowerCase()};
 }
 
-async function addProjectSeed(projectKey) {
-  const input = prompt("NSID・リポジトリURL・サービスURLを入力してください。種類を指定するには repo_url: https://... のように入力します。");
-  const parsed = parseSeedInput(input);
-  if (!parsed.seed) return;
-  try {
-    const typeQuery = parsed.type ? `&type=${encodeURIComponent(parsed.type)}` : "";
-    const preview = await api(`/api/seeds/preview?seed=${encodeURIComponent(parsed.seed)}${typeQuery}`);
-    if (preview.exact_project_key && preview.exact_project_key !== projectKey) throw new Error(`このシードは${preview.exact_project_key}に登録済みです。`);
-    const action = preview.exact_project_key === projectKey ? "再適用" : "追加";
-    confirmMutation("識別子を追加", `${projectKey}へ${displayLabel(preview.seed_type)}「${preview.seed_value}」を${action}しますか？`, "/api/seeds", {seed:parsed.seed, type:parsed.type, project_key:projectKey, expected_revision:state.detailRevision}, false);
-  } catch (error) { status(error.message, true); }
+function seedForm() {
+  return `<form id="seed-form" class="seed-form">
+    <label>NSID・リポジトリURL・サービスURL<input id="seed-value" type="text" required autocomplete="off" placeholder="https://example.com"></label>
+    <p class="muted">種類を指定する場合は repo_url: https://... のように入力します。</p>
+    <div class="actions"><button id="preview-seed" type="submit" class="primary">プレビュー</button></div>
+    <div id="seed-preview"></div><p id="seed-message" class="notice" role="status" hidden></p>
+    <div class="actions"><button id="save-seed" type="button" class="primary" hidden>この内容で登録</button></div>
+  </form>`;
+}
+
+function bindSeedForm({projectKey = "", projectName = "", revision = "", initialSeed = "", dialog = null} = {}) {
+  const form = $("seed-form"), input = $("seed-value"), preview = $("seed-preview");
+  const save = $("save-seed"), message = $("seed-message"), previewButton = $("preview-seed");
+  let request = 0, payload = null, saving = false;
+  const showError = (error) => { message.textContent = error.message; message.hidden = false; };
+  const invalidate = () => { request++; payload = null; save.hidden = true; preview.innerHTML = ""; message.hidden = true; };
+  input.oninput = invalidate;
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    if (saving) return;
+    invalidate();
+    const current = request, parsed = parseSeedInput(input.value);
+    if (!parsed.seed) { showError(new Error("シードを入力してください。")); return; }
+    previewButton.disabled = true;
+    try {
+      const data = await api(`/api/seeds/preview?${new URLSearchParams({seed:parsed.seed, type:parsed.type})}`);
+      if (request !== current || !form.isConnected) return;
+      preview.innerHTML = `<dl class="kv"><dt>種類</dt><dd>${esc(displayLabel(data.seed_type))}</dd><dt>登録する値</dt><dd>${esc(data.seed_value)}</dd><dt>登録先</dt><dd>${esc(projectName || projectKey || "新しいプロジェクト")}</dd></dl>`;
+      if (data.exact_project_key && data.exact_project_key !== projectKey) {
+        preview.innerHTML += `<p class="notice">${esc(data.exact?.name || data.exact_project_key)}に登録済みです。</p><button id="open-seed-project" type="button">登録済みプロジェクトを開く</button>`;
+        $("open-seed-project").onclick = () => { dialog?.close(); loadDetail(data.exact_project_key); };
+        return;
+      }
+      const candidates = list(data.candidates).filter((item) => item.project_key !== projectKey);
+      if (candidates.length) preview.innerHTML += `<p class="muted">関連する既存プロジェクトも確認してください。</p><ul>${candidates.map((item) => `<li><button type="button" data-seed-project="${esc(item.project_key)}">${esc(item.name || item.project_key)}</button></li>`).join("")}</ul>`;
+      preview.innerHTML += `<p>${projectKey ? "この登録プロジェクトの識別子として採用します。" : "新しいプロジェクトを登録します。登録後に紹介予定へ追加できます。"}</p>`;
+      preview.querySelectorAll("[data-seed-project]").forEach((button) => button.onclick = () => { dialog?.close(); loadDetail(button.dataset.seedProject); });
+      payload = {seed:parsed.seed, type:parsed.type};
+      if (projectKey) Object.assign(payload, {project_key:projectKey, expected_revision:revision});
+      save.textContent = projectKey ? (data.exact_project_key === projectKey ? "この内容で再適用" : "この内容で追加") : "この内容で登録";
+      save.hidden = false;
+    } catch (error) { if (request === current && form.isConnected) showError(error); }
+    finally { if (request === current) previewButton.disabled = false; }
+  };
+  // Editing invalidates an in-flight preview as well as its save action.
+  input.addEventListener("input", () => { previewButton.disabled = false; });
+  save.onclick = () => {
+    if (!payload || saving) return;
+    const submitted = payload;
+    saving = true;
+    input.disabled = previewButton.disabled = save.disabled = true;
+    message.textContent = "保存中…"; message.hidden = false;
+    mutationQueue = mutationQueue.then(async () => {
+      try {
+        const response = await api("/api/seeds", {method:"POST", body:JSON.stringify(submitted)});
+        dialog?.close();
+        await loadDetail(response.project_key);
+        await loadList();
+        status(projectKey ? "シードを保存しました。" : "プロジェクトを登録しました。紹介予定に入れる場合は「紹介予定に入れる」を押してください。");
+      } catch (error) {
+        if (error.code === "stale_project" && projectKey) {
+          dialog?.close();
+          await loadDetail(projectKey, {updateUrl:false});
+          status("別の操作でプロジェクトが変更されました。詳細を再読込したので、変更を確認してから再操作してください。", true);
+        } else { showError(error); status(error.message, true); }
+      } finally {
+        saving = false;
+        input.disabled = previewButton.disabled = save.disabled = false;
+      }
+    }).catch((error) => status(error.message, true));
+  };
+  if (initialSeed) { input.value = initialSeed; form.requestSubmit(); }
+}
+
+function addProjectSeed(projectKey, projectName = projectKey) {
+  status("");
+  const dialog = $("seed-dialog");
+  $("seed-dialog-content").innerHTML = `<p>追加先: ${esc(projectName)}</p>${seedForm()}`;
+  bindSeedForm({projectKey, projectName, revision:state.detailRevision, dialog});
+  $("cancel-seed").onclick = () => dialog.close();
+  dialog.onclose = () => { if (!dialog.open) $("seed-dialog-content").replaceChildren(); };
+  showDialogWithoutInputFocus(dialog);
 }
 
 function bindDetailActions(projectKey) {
@@ -2429,22 +2500,12 @@ function confirmMerge(title, action, source, target) {
 }
 
 function renderNewSeed(initialSeed = "") {
+  status("");
   clearDetailSelection();
-  $("detail").innerHTML = `${backToListButton()}<p class="eyebrow">登録プロジェクト</p><h2>シードを登録</h2><div class="controls"><label>NSID・リポジトリURL・サービスURL<input id="seed-value" type="text"></label><div class="actions"><button id="preview-seed" class="primary">プレビュー</button></div></div><div id="seed-preview"></div><div class="detail-footer">${backToListButton()}</div>`;
+  $("detail").innerHTML = `${backToListButton()}<p class="eyebrow">登録プロジェクト</p><h2>シードを登録</h2>${seedForm()}<div class="detail-footer">${backToListButton()}</div>`;
   document.body.classList.add("detail-open");
   bindBackToListButtons();
-  $("preview-seed").onclick = async () => {
-    const value = $("seed-value").value.trim();
-    try {
-      const data = await api(`/api/seeds/preview?seed=${encodeURIComponent(value)}`);
-      $("seed-preview").innerHTML = section("プレビュー", json(data)) + (data.can_create ? `<button id="create-seed" class="primary">プロジェクトを登録</button>` : `<p class="notice">このシードは${esc(data.exact_project_key)}に登録済みです。</p>`);
-      $("create-seed")?.addEventListener("click", () => confirmMutation("プロジェクトを登録", `${value}をシードとしてプロジェクトを登録しますか？`, "/api/seeds", {seed:value}, false));
-    } catch (error) { status(error.message, true); }
-  };
-  if (initialSeed) {
-    $("seed-value").value = initialSeed;
-    $("preview-seed").click();
-  }
+  bindSeedForm({initialSeed});
 }
 
 function renderOperations() {

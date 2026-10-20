@@ -78,10 +78,19 @@ body.popup-embedded .status:empty { display: none; }
 body.popup-embedded .workspace { height: calc(100vh - 24px); min-height: 0; }
 body.popup-embedded .controls h2 { margin-bottom: 0; }
 body.popup-embedded .browser-help { display: none; }
-body.popup-embedded #browser-new-seed,
-body.popup-embedded .detail-header > .actions,
+body.popup-embedded .detail-header > .actions > :not(#add-project-seed),
 body.popup-embedded .detail-header > .promotion-actions,
-body.popup-embedded .detail-header > .operator-feedback { display: none; }
+body.popup-embedded .operator-feedback .tab-feedback { display: none; }
+body.popup-embedded .operator-feedback { margin: 8px 0; padding: 10px; }
+body.popup-embedded dialog { max-height: calc(100dvh - 24px); overflow: auto; }
+body.popup-embedded .status { line-height: 1.4; }
+.seed-form { display: grid; gap: 12px; }
+.seed-form label { display: grid; gap: 5px; min-width: 0; }
+.seed-form input { width: 100%; min-width: 0; }
+.seed-form .notice { margin: 0; }
+body.popup-embedded .seed-form { gap: 8px; }
+body.popup-embedded .seed-form p { margin-bottom: 0; }
+body.popup-embedded .seed-form .kv { grid-template-columns: 80px minmax(0, 1fr); margin: 0 0 8px; }
 .list-pane, .detail-pane, .single-pane { min-width: 0; min-height: 0; }
 .list-pane { display: grid; grid-template-rows: auto 1fr; gap: 10px; }
 .detail-pane, .single-pane { overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow); padding: 14px; }
