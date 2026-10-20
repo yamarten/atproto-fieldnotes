@@ -189,6 +189,8 @@ Lexicon利用の記録では、OAuthの要求権限の宣言と、利用者が�
 
 `識別子`に表示するDIDとhandleは、`https://pds.ls/at://...`形式のアカウント参照へリンクします。
 
+NSID自体をクリックすると、UFOsの対応するcollectionページを別タブで開き、誰がどんなrecordを発行しているかを調べられます。事前の取得は行わず、recordサンプルの有無やLexiconの種別にかかわらずリンクを表示します。record未発行や非recordのNSIDでは、リンク先にrecordがない場合があります。
+
 `リンク・資料`は、利用・インストール先、プロジェクト情報、補足情報、その他の順にまとめます。App Store、Google Play、F-Droid、配布ページは利用先として先に表示し、changelogやWeb Manifestは補足情報として分けます。未知のroleも削除せず`その他`に表示します。
 
 詳細画面から次を実行できます。

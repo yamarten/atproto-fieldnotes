@@ -1853,6 +1853,11 @@ function identifierValueLink(item) {
     const href = pdslsIdentityUrl(value);
     return href ? externalLink(href, value) : esc(value);
   }
+  if (value && kinds.includes("nsid")) {
+    const target = new URL("https://ufos.microcosm.blue/collection/");
+    target.searchParams.set("nsid", value);
+    return externalLink(target.href, value);
+  }
   return esc(value);
 }
 

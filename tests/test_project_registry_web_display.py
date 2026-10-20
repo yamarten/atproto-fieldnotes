@@ -378,6 +378,26 @@ for (const value of ['', 'not an identity', '<img src=x onerror=alert(1)>']) {
 }
 ''')
 
+    def test_nsid_links_keep_collection_query_and_escape_untrusted_values(self):
+        self.run_javascript(r'''
+for (const classification of ['confirmed', 'candidate', 'rejected']) {
+  const html = renderIdentifiers([{family:'schema', kinds:['nsid'], value:'app.beaconbits.beacon',
+    classification, providers:[], role_labels:['owned_nsid'], entries:[]}]);
+  assert.match(html, /href="https:\/\/ufos.microcosm.blue\/collection\/\?nsid=app.beaconbits.beacon" target="_blank" rel="noreferrer">app.beaconbits.beacon<\/a>/);
+}
+const value = 'org.example.<tag>"&nsid=other#fragment';
+const html = identifierValueLink({kinds:['nsid'], value});
+const target = new URL(html.match(/href="([^"]+)"/)[1]);
+assert.equal(target.origin, 'https://ufos.microcosm.blue');
+assert.deepEqual([...target.searchParams], [['nsid', value]]);
+assert.equal(target.hash, '');
+assert.ok(!html.includes('<tag>'));
+assert.match(html, /org.example.&lt;tag&gt;&quot;&amp;nsid=other#fragment<\/a>/);
+assert.equal(identifierValueLink({kinds:['nsid'], value:''}), '');
+assert.ok(!identifierValueLink({kinds:['service_url'], value:'javascript:alert(1)'}).includes('<a'));
+assert.match(identifierValueLink({kinds:['repo_url'], value:'https://example.com/repo'}), /href="https:\/\/example.com\/repo"/);
+''')
+
     def test_merge_continuation_skip_keeps_visible_count_and_opens_next(self):
         self.run_javascript(r'''
 let cards = [];
