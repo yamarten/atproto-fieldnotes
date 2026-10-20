@@ -80,12 +80,12 @@ class Responses:
 
     def llm(self, prompt, **kwargs):
         purpose = ("repository_analysis" if "Analyze a confirmed project repository" in prompt else
-                   "planning" if "planning a focused investigation" in prompt else "triage")
+                   "triage")
         with self.operation(purpose, prompt):
             if self.on_llm:
                 self.on_llm(purpose)
             time.sleep(self.llm_delay)
-            payload = {"repo_search_queries": ["Overlap"]} if purpose == "planning" else {
+            payload = {
                 "category": "name_only", "why_keep": "No implementation evidence yet."}
             if purpose == "repository_analysis":
                 payload = {"summary": "An AT Protocol demo.", "summary_evidence": ["E01"],
@@ -99,7 +99,7 @@ class Responses:
     def summary(self):
         intervals = list(self.timeline)
         probes = [row for row in intervals if row[0] == "probe"]
-        llms = [row for row in intervals if row[0] in {"planning", "triage", "repository_analysis"}]
+        llms = [row for row in intervals if row[0] in {"triage", "repository_analysis"}]
         def peak(rows):
             events = sorted([(row[2], 1) for row in rows] + [(row[3], -1) for row in rows])
             active = result = 0

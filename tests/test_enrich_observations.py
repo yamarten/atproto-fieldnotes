@@ -19,35 +19,38 @@ import enrich_observation_report as report
 
 
 class ObservationUnitTest(ProjectRecordTestCase):
-    def test_plan_keeps_actual_input_parsed_output_and_fallback(self):
+    def test_plan_records_selection_input_without_llm_material(self):
         project = self.make_project("proj:plan")
-        payload = {"repo_search_queries": ["  Example  ", "Example"],
-                   "actor_search_queries": ["someone"], "post_search_queries": [],
-                   "focus_terms": ["record"], "reason": "look for links"}
-        prompt, evidence = registry.build_investigation_prompt(project)
+        project.update(name="Example App", website_url="https://example.test/login")
+        project["summary"] = "not a search input"
+        before = copy.deepcopy(project)
         captured = {}
-        dependencies = investigation.PlanningDependencies(
-            build_prompt=lambda _: (prompt, evidence),
-            run_llm=lambda *_, **__: (payload, {"api_key": "do-not-copy", "endpoint": "private"}),
-            note_failure=lambda *_: None)
-        plan = investigation.plan_investigation_queries(project, dependencies, observation=captured)
-        self.assertEqual(captured["prompt"], prompt)
-        self.assertEqual(captured["evidence"], evidence)
-        self.assertEqual(captured["llm_output"], payload)
-        self.assertEqual(captured["plan"]["repo_search_queries"], ["Example"])
-        self.assertEqual(captured["plan"]["actor_search_queries"], ["someone"])
-        self.assertEqual(captured["plan"]["post_search_queries"], captured["seed_plan"]["post_search_queries"])
-        self.assertNotIn("do-not-copy", json.dumps(captured))
-        self.assertEqual(plan["llm_source"]["evidence"], evidence)
-        failing = investigation.PlanningDependencies(
-            build_prompt=lambda _: (prompt, evidence),
-            run_llm=mock.Mock(side_effect=TimeoutError()), note_failure=lambda *_: None)
-        captured = {}
-        fallback = investigation.plan_investigation_queries(project, failing, observation=captured)
-        self.assertEqual(captured["status"], "fallback")
-        self.assertEqual(captured["prompt"], prompt)
-        self.assertEqual(captured["plan"]["focus_terms"], fallback["focus_terms"])
+        with mock.patch.object(llm_transport, "run_local_llm") as llm:
+            plan = registry.plan_investigation_queries(project, observation=captured)
+        llm.assert_not_called()
+        self.assertEqual(project, before)
+        self.assertEqual(captured["mode"], "deterministic")
+        self.assertEqual(captured["input"]["service_hosts"], ["example.test"])
+        self.assertNotIn("not a search input", json.dumps(captured))
+        self.assertNotIn("prompt", captured)
         self.assertNotIn("llm_output", captured)
+        self.assertEqual(captured["plan"], plan)
+        self.assertEqual(captured["search_queries"]["github_search"], ["example.test", '\"Example App\"'])
+
+    def test_report_distinguishes_fixed_inputs_missing_inputs_and_legacy_planning(self):
+        def row(number, planning):
+            return {"run_id": f"inv:{number}", "project_key": "proj:fixed", "completed_at": str(number),
+                    "application_status": "applied", "bundle_json": "{}",
+                    "evaluation_json": json.dumps({obs.STORAGE_KEY: obs.pack({
+                        "planning": planning, "search_execution": {"github_request_budget": 6}})})}
+        first = {"mode": "deterministic", "status": "success", "input": {"name": "a"}, "plan": {}}
+        changed = {**first, "input": {"name": "b"}}
+        legacy = {"status": "success", "prompt": "b", "plan": {}}
+        missing = {"mode": "deterministic", "status": "success", "plan": {}}
+        result = report.summarize([row(1, first), row(2, first), row(3, changed), row(4, legacy), row(5, missing), row(6, missing)], details=True)
+        self.assertEqual(result["consecutive_pairs"]["comparable"], 2)
+        self.assertTrue(result["pairs"][0]["same_input"])
+        self.assertFalse(result["pairs"][1]["same_input"])
 
     def test_bounded_and_redacted_sections_are_never_complete(self):
         complete = obs.pack({"planning": {"prompt": "ordinary public evidence"}})

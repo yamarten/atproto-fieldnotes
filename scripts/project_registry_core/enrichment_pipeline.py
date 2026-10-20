@@ -551,25 +551,14 @@ def enrich_project(
 
     before_search_inventory = enrich_observations.candidate_inventory(project)
     observations["planning"] = {"policy": enrich_observations.planning_policy()}
-    investigation_plan = plan_investigation_queries(
-        project,
-        llm_endpoint=llm_endpoint,
-        llm_model=llm_model,
-        llm_api_key=llm_api_key,
-        llm_reasoning_effort=llm_reasoning_effort,
-        llm_api_style=llm_api_style,
-        llm_max_output_tokens=llm_max_output_tokens,
-        observation=observations["planning"],
-        llm_runner=lambda prompt, **kwargs: run_llm(
-            prompt, purpose="planning", requests=llm_requests, **kwargs
-        ),
-    )
+    investigation_plan = plan_investigation_queries(project, observation=observations["planning"])
     add_investigation_log(
         project,
         "investigation_plan",
-        reason=str(investigation_plan.get("reason") or ""),
-        repo_search_queries=clean_string_list(investigation_plan.get("repo_search_queries"), limit=6),
-        post_search_queries=clean_string_list(investigation_plan.get("post_search_queries"), limit=6),
+        mode="deterministic",
+        repo_search_queries=clean_string_list(investigation_plan.get("repo_search_queries"), limit=2),
+        actor_search_queries=clean_string_list(investigation_plan.get("actor_search_queries"), limit=1),
+        post_search_queries=clean_string_list(investigation_plan.get("post_search_queries"), limit=1),
         at=iso_now(),
     )
     phase_timings["planning_ms"] = max(0, round((time.perf_counter() - phase_started) * 1000))
@@ -691,7 +680,6 @@ def enrich_project(
     observations["operations"] = operation_timer.rows
     observations["search_outcomes"] = enrich_observations.search_outcomes(
         investigation_evidence, start_inventory, before_search_inventory, project)
-    observations["planning"]["request"] = next((dict(item) for item in llm_requests if item.get("purpose") == "planning"), {})
     run_id = investigation_storage.stage_investigation_run(
         project,
         project_key=str(project.get("project_key") or ""),

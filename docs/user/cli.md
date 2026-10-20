@@ -97,7 +97,7 @@ project-registry enrich --all --resume-run weekly-20260714
 
 既定対象外の追跡状態は`--include-*`、明示列挙は`--tracking-states`、全状態は`--all-tracking-states`で含めます。
 
-`--llm-max-output-tokens`は、調査計画の補助（planning）、採用済みリポジトリの解析、登録プロジェクトの説明・分類の補助（triage）の各LLMリクエストに同じ最大出力トークン数を指定します。省略時は接続先の設定を使います。モデル比較では、固定した評価用入力の集合（corpus）を使う評価と通常`enrich`で同じ値を明示してください。
+`--llm-max-output-tokens`は、採用済みリポジトリの解析、登録プロジェクトの説明・分類の補助（triage）の各LLMリクエストに同じ最大出力トークン数を指定します。省略時は接続先の設定を使います。モデル比較では、固定した評価用入力の集合（corpus）を使う評価と通常`enrich`で同じ値を明示してください。
 
 ## 要レビュー一覧と紹介候補一覧
 

@@ -63,7 +63,7 @@ class EnrichPrefetchTest(TempRegistryDbTestCase):
         self.assertEqual(result.status, "completed")
         execution = result.data["execution"]
         self.assertEqual((execution["started"], execution["consumed"], execution["discarded"]), (2, 2, 0))
-        self.assertEqual(self.responses.summary(), {"calls": {"probe": 3, "planning": 3, "search": 3, "triage": 3},
+        self.assertEqual(self.responses.summary(), {"calls": {"probe": 3, "search": 3, "triage": 3},
             "max_llm_active": 1, "max_probe_active": 1, "probe_llm_overlap": True})
         self.assertTrue(all(row["observations"]["planning"]["complete"] for row in self.run_rows()))
         self.assertTrue(all(row["observations"]["search_outcomes"]["data"] for row in self.run_rows()))
@@ -80,7 +80,7 @@ class EnrichPrefetchTest(TempRegistryDbTestCase):
         self.assertEqual(result.status, "cancelled")
         self.assertEqual(result.data["completed_project_count"], 1)
         self.assertEqual(self.responses.calls["probe"], 2)
-        self.assertEqual(self.responses.calls["planning"], 1)
+        self.assertEqual(self.responses.calls["triage"], 1)
         unapplied = next(row for row in self.run_rows() if row["application_status"] == "unapplied")
         self.assertEqual(unapplied["project_key"], KEYS[1])
         self.assertEqual(unapplied["evaluation"], {"incomplete": True})
@@ -114,7 +114,7 @@ class EnrichPrefetchTest(TempRegistryDbTestCase):
         self.assertIn("Operator edit", next(row for row in rows if row["project_key"] == KEYS[1] and row["application_status"] == "applied")["input_project"]["name"])
 
     def test_tracking_change_skips_prefetched_and_resolves_unused_history(self):
-        self.responses.on_llm = lambda purpose: self.edit(KEYS[1], tracking_state="ignore") if purpose == "planning" else None
+        self.responses.on_llm = lambda purpose: self.edit(KEYS[1], tracking_state="ignore") if purpose == "triage" else None
         result = self.run_batch()
         self.assertEqual(result.status, "completed")
         self.assertEqual(result.data["skipped_projects"], [{"project_key": KEYS[1], "reason": "tracking_state_changed"}])
@@ -160,7 +160,7 @@ class EnrichPrefetchTest(TempRegistryDbTestCase):
         self.responses.on_llm = merge_next
         result = self.run_batch()
         self.assertEqual(result.status, "completed")
-        self.assertEqual(self.responses.calls["planning"], 2)
+        self.assertEqual(self.responses.calls["triage"], 2)
         self.assertEqual(result.data["skipped_projects"], [{"project_key": KEYS[2], "reason": "canonical_project_already_processed"}])
         self.assertIsNone(project_record.fetch_project(self.conn, KEYS[1]))
         self.assertTrue(next(row for row in self.run_rows() if row["application_status"] == "unapplied")["resolved_at"])
@@ -247,7 +247,7 @@ class EnrichPrefetchTest(TempRegistryDbTestCase):
         self.assertEqual(result.data["completed_project_count"], 2)
         self.responses.reset()
         self.assertEqual(self.run_batch(resume_run="overlap-test").status, "completed")
-        self.assertEqual(self.responses.calls["planning"], 1)
+        self.assertEqual(self.responses.calls["triage"], 1)
 
     def test_foreground_fail_fast_keeps_unprocessed_prefetch(self):
         original = pipeline.enrich_project
@@ -257,7 +257,7 @@ class EnrichPrefetchTest(TempRegistryDbTestCase):
         with mock.patch.object(pipeline, "enrich_project", side_effect=fail_after_collection):
             result = self.run_batch(continue_on_error=False)
         self.assertEqual(result.status, "failed")
-        self.assertEqual(self.responses.calls["planning"], 1)
+        self.assertEqual(self.responses.calls["triage"], 1)
         self.assertEqual(result.data["execution"]["discarded"], 1)
         self.assertEqual(self.run_rows()[0]["conflict_reason"], "prefetch_incomplete:fail_fast")
         self.assertEqual(json.loads(self.path.read_text())["completed_project_keys"], [])
@@ -307,6 +307,7 @@ class EnrichPrefetchTest(TempRegistryDbTestCase):
                         self.responses.reset()
                         result = self.run_batch(prefetch=enabled)
                         self.assertEqual(result.status, "completed")
+                        self.assertEqual(result.data["execution"]["consumed"], 2 if enabled and not warmups else 0)
                         current = []
                         for key in KEYS[:3]:
                             row = storage.latest_investigation_run(self.conn, key)
@@ -343,15 +344,21 @@ class EnrichPrefetchTest(TempRegistryDbTestCase):
         return process, marker
 
     def test_cli_and_worker_execute_the_same_prefetch_application(self):
-        for mode in ("cli", "worker"):
-            with self.subTest(mode=mode):
-                process, _ = self.start_entry(mode)
-                stdout, stderr = process.communicate(timeout=15)
-                self.assertEqual(process.returncode, 0, stderr + stdout)
-                rows = [json.loads(line) for line in stdout.splitlines()]
-                data = rows[-1]["payload"]["data"] if mode == "worker" else rows[-1]
-                self.assertEqual(data["execution"]["consumed"], 2)
-                self.assertEqual(data["completed_project_count"], 3)
+        baseline = sqlite3.connect(":memory:")
+        self.conn.backup(baseline)
+        try:
+            for mode in ("cli", "worker"):
+                with self.subTest(mode=mode):
+                    baseline.backup(self.conn)
+                    process, _ = self.start_entry(mode)
+                    stdout, stderr = process.communicate(timeout=15)
+                    self.assertEqual(process.returncode, 0, stderr + stdout)
+                    rows = [json.loads(line) for line in stdout.splitlines()]
+                    data = rows[-1]["payload"]["data"] if mode == "worker" else rows[-1]
+                    self.assertEqual(data["execution"]["consumed"], 2)
+                    self.assertEqual(data["completed_project_count"], 3)
+        finally:
+            baseline.close()
 
     def test_real_worker_sigint_preserves_prefetch_and_checkpoint_then_resumes(self):
         process, marker = self.start_entry("worker", scenario="slow_second")

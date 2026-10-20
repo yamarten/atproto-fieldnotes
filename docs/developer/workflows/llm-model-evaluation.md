@@ -139,7 +139,7 @@ category、identifier集合、検査成否、tagline、summary、featuresの変�
 
 - project、source設定、prompt version、reasoning、最大出力token数を揃える
 - category、service status、technical interest、manual review、profile、identifier、promotion blockerを比較する
-- planning、repository analysis、triageのrequest数と時間を分け、collector時間とも分離する
+- repository analysis、triageのrequest数と時間を分け、固定検索計画の処理時間・collector時間とも分離する
 - repository analysisが走る場合は同じrevisionとmaterial hashを使い、保存された観測、capability、collectionと後段のtriageを比較する
 - 外部collectorの取得失敗や応答時間差をmodel差に数えない
 - 正本DBは更新しない

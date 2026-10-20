@@ -21,7 +21,7 @@ bin/_project-registry-python enrich-observation-report scripts/enrich_observatio
 `mode=ro`・`query_only`・単一read transactionで圧縮履歴を読みます。decode失敗は停止し、壊れたrowを黙って分母から除きません。`limit_reached=true`なら対象期間を分けるか上限を増やし、週次対象全体を読めたかを確認します。結果のrun ID一覧・順序hash・日時範囲と既存job記録を合わせて、評価対象を固定します。集計の対象はalias familyの統合前後を自動連結せず、保存されたproject keyごとです。
 
 1. `coverage`と`application_status`で新規観測の保存割合、欠落、秘匿除去、上限超過、未反映を確認する。完全sectionだけを比較に使う。旧履歴の欠落を0件・同一入力とみなさない。
-2. `consecutive_pairs`でprojectごとの期間内連続run数、比較可能数、記録された設定が同じ組、さらに実promptが同じ組を確認する。同じ条件・入力でも、plan全体の差と実行用検索語の差を分ける。reasonだけの違いを探索範囲の変化と数えない。source hashに無関係なcode変更が含まれることもあるため、差がある組の採否は元資料を確認する。
+2. `consecutive_pairs`でprojectごとの期間内連続run数、比較可能数、記録された設定が同じ組、さらに入力が同じ組を確認する。固定生成は`input`、旧LLM方式は`prompt`を照合し、異なる方式同士と入力の欠けた組は比較から除く。同じ条件・入力でも、plan全体の差と実行用検索語の差を分ける。reasonだけの違いを探索範囲の変化と数えない。source hashに無関係なcode変更が含まれることもあるため、差がある組の採否は元資料を確認する。
 3. `llm_endpoint_reported`でpurpose別の件数・時間・token合計とtoken報告件数／欠落件数を確認する。`llm_retained_requests_by_settings`でmodel・推論設定等を分ける。個別16行の上限で省略があれば設定別groupは全requestを代表しない。cached input/reasoningはinput/outputの内数となり得るため合算しない。duration÷tokenをprefill/decode時間やTTFTとしない。
 4. `operation_elapsed_including_wait_ms`で重い操作を探し、`collector_existing_counts`のstatus・cache・既存件数を併読する。操作時間は実測だが、collector request count全体は実測HTTP数ではない。検索のattempt・retry待機の詳細は個別runで確認する。
 5. `triage_reuse_reasons`と`triage_changed_fields`で再生成の頻出理由・変化fieldを確認する。旧entry・失敗後・説明できないfingerprint変化を、材料変化なしの無駄な再推論と断定しない。候補の本文差を確認する場合は保存された入力・出力の`llm_source.evidence`を使う。これは前回生成との比較で、単なる直前runとの差ではない。
@@ -39,7 +39,7 @@ bin/_project-registry-python enrich-observation-report scripts/enrich_observatio
 
 - **Triage再利用**: `metrics.triage_reuse`のhit/miss理由、実triage request数・時間、収集失敗と新しい候補の扱いを確認します。追加最適化は実際のmiss理由から判断します。
 - **先行取得**: 同程度の対象とtriage hit率を持つbatchの`execution.batch_elapsed_ms`、先行使用／未使用、join待ち、collector requestとrate limitを併読します。重なった処理時間を合算して短縮実績にしません。効果が小さい、無効化やquota消費が多い場合は`--no-prefetch`で比較します。実外部取得とLLMを重ねた時間・負荷、大きなprojectの追加メモリは未測定です。
-- **検索計画**: 入力・計画・実行語の変化と、既知候補の再発見／新出／最終採用を分けます。旧履歴には当時の完全planning入力がなく、triage材料の一致だけで検索固定の同等性を保証できません。新旧計画を同時期・同予算で実行しない限り、旧計画が拾えたはずの材料は断定しません。
+- **検索計画**: 現行の固定生成と旧LLM方式を区別して読む。旧planning requestの時間を現行のLLM負荷に混ぜない。入力・計画・実行語の変化と、既知候補の再発見／新出／最終採用を分けます。観測導入前の旧履歴には当時の完全planning入力がなく、triage材料の一致だけで検索固定の同等性を保証できません。新旧計画を同時期・同予算で実行しない限り、旧計画が拾えたはずの材料は断定しません。
 - **保存・計測負担**: 実際の圧縮増分、上限省略、write lock競合、長期容量を確認します。導入前の保存outputによるproxyは実planningやSQLite全体の増加量を測ったものではありません。HTTPごとの統一計測は未実装で、操作時間から必要なsourceを絞って再検討します。
 
 制御方式の固定応答比較は[変更の受入](change-acceptance.md#enrichの逐次先行取得比較)を参照します。

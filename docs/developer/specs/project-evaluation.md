@@ -95,9 +95,9 @@ triageへ現在の文面を`current_profile`、内容を持つ根拠を`descript
 
 LLM triageは収集済みの根拠を整理し、説明と分類候補を補います。
 
-planning/triageの入力上限と縮約規則は[LLM evidence budget](investigation.md#llm-evidence-budget)を正本とします。
+triageの入力上限と縮約規則は[LLM evidence budget](investigation.md#llm-evidence-budget)を正本とします。
 
-unconfirmedな`candidate_project_repository_urls`はtriage evidenceから除外します。候補URLを調査対象に含める必要があるinvestigation planningにだけURLを渡し、candidate repositoryのdescription、名前、lexicon hint等はconfirm前にはevidenceとして保存・適用しません。
+unconfirmedな`candidate_project_repository_urls`はtriage evidenceから除外します。検索語の固定生成にも候補URLを使いません。candidate repositoryのdescription、名前、lexicon hint等はconfirm前にはevidenceとして保存・適用しません。
 
 説明系fieldは日本語で生成し、`tagline`は助詞を含まない短い名詞句、最大30文字とします。
 

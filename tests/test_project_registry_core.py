@@ -2782,19 +2782,16 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
         evidence = registry.build_llm_evidence_bundle(project)
         repeated = registry.build_llm_evidence_bundle(project)
         triage_prompt, triage_evidence = registry.build_triage_prompt(project)
-        planning_prompt, planning_evidence = registry.build_investigation_prompt(project)
 
         self.assertEqual(evidence, repeated)
         self.assertEqual(triage_evidence, registry.build_triage_prompt(project)[1])
         self.assertEqual(triage_evidence["project_key"], evidence["project_key"])
         self.assertEqual(evidence["candidate_project_repository_urls"], [])
-        self.assertEqual(planning_evidence["candidate_project_repository_urls"], [])
         self.assertLessEqual(
             llm_evidence_core.evidence_bytes(evidence),
             llm_evidence_core.LLM_EVIDENCE_MAX_BYTES,
         )
         self.assertLessEqual(len(triage_prompt.encode("utf-8")), 32 * 1024)
-        self.assertLessEqual(len(planning_prompt.encode("utf-8")), 32 * 1024)
         self.assertEqual(evidence["project_key"], project["project_key"])
         self.assertEqual(evidence["input_nsids"], project["input_nsids"])
         budget = evidence["evidence_budget"]
@@ -2891,19 +2888,13 @@ class ProjectRegistryLexiconScopeTest(unittest.TestCase):
 
         self.assertIn(repository_url, project["candidate_project_repository_urls"])
 
-    def test_candidate_repo_is_available_to_investigation_planning_but_not_triage(self) -> None:
+    def test_candidate_repo_is_not_a_triage_or_search_identity(self) -> None:
         project = self.nsid_project()
         project["name"] = "Candidate"
         project["candidate_project_repository_urls"] = ["https://github.com/example/candidate"]
-
-        _triage_prompt, triage_evidence = registry.build_triage_prompt(project)
-        _planning_prompt, planning_evidence = registry.build_investigation_prompt(project)
-
-        self.assertEqual(triage_evidence["candidate_project_repository_urls"], [])
-        self.assertEqual(
-            planning_evidence["candidate_project_repository_urls"],
-            ["https://github.com/example/candidate"],
-        )
+        _prompt, evidence = registry.build_triage_prompt(project)
+        self.assertEqual(evidence["candidate_project_repository_urls"], [])
+        self.assertNotIn("example/candidate", str(registry.plan_investigation_queries(project)))
 
     def test_triage_prompt_defines_library_by_role(self) -> None:
         prompt, _evidence = registry.build_triage_prompt(self.nsid_project())

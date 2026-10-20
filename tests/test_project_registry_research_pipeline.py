@@ -888,25 +888,6 @@ class ProjectRegistryResearchPipelineTest(ProjectRecordTestCase):
                 value={"invalid": object()},  # type: ignore[dict-item]
             )
 
-    def test_seed_investigation_queries_preserve_order_and_limits(self) -> None:
-        project = self.make_project("proj:researchqueries")
-        project["name"] = "Example App"
-        project["input_nsids"] = ["app.example.post"]
-        project["authority_domains"] = ["example.com", "api.example.com"]
-        project["bluesky_handles"] = ["example.com"]
-
-        plan = investigation_core.seed_investigation_queries(project)
-
-        self.assertEqual(
-            plan,
-            {
-                "repo_search_queries": ["Example App", "app.example.post", "example.com", "api.example.com"],
-                "actor_search_queries": ["Example App", "app.example.post", "example.com", "api.example.com"],
-                "post_search_queries": ["Example App", "app.example.post", "example.com", "api.example.com"],
-                "focus_terms": ["Example App", "app.example.post", "example.com", "api.example.com"],
-            },
-        )
-
     def test_investigation_collectors_keep_threshold_limit_and_partial_failure(self) -> None:
         project = self.make_project("proj:researchcollect")
         project["name"] = "Example App"
@@ -1928,6 +1909,7 @@ class ProjectRegistryResearchStorageTest(TempRegistryDbTestCase):
         )
         triage_requests = [item for item in run["metrics"]["llm_requests"] if item["purpose"] == "triage"]
         self.assertEqual(len(triage_requests), 1)
+        self.assertFalse(any(item["purpose"] == "planning" for item in run["metrics"]["llm_requests"]))
         self.assertEqual(triage_requests[0]["status"], "failed")
         self.assertGreater(triage_requests[0]["prompt_bytes"], 0)
 

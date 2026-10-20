@@ -112,7 +112,7 @@ Firefox拡張のポップアップ試作は、`embed=popup`のWeb UIをiframeへ
 | Module | 担当 |
 | --- | --- |
 | `evidence.py` | `EvidenceBundle` v2、観測・relation・collector結果と失敗の型 |
-| `investigation.py` | query planningとcollector。project dictを変更せずevidence bundleを返す |
+| `investigation.py` | 検索語の固定生成とcollector。project dictを変更せずevidence bundleを返す |
 | `repositories/repository_sources.py` | provider別metadata・README・tree・file取得と短期cache |
 | `repositories/repository_material.py` | 取得済みfileからmanifest・configuration・Lexicon・source hintを抽出 |
 | `repositories/repository_analysis.py` | confirmed repoの解析素材縮約、revision・policy単位の再利用、成功結果と最新試行の管理 |

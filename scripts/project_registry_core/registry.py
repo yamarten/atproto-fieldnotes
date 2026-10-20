@@ -5016,16 +5016,8 @@ def service_probe_timeout_for_project(project: dict[str, Any], service_url: str)
 def build_llm_evidence_bundle(
     project: dict[str, Any],
     *,
-    include_candidate_repos: bool = False,
     max_bytes: int = llm_evidence_core.LLM_EVIDENCE_MAX_BYTES,
 ) -> dict[str, Any]:
-    candidate_repo_urls: list[str] = []
-    if include_candidate_repos and not project.get("project_repository_urls"):
-        candidate_repo_urls = [
-            url
-            for url in project.get("candidate_project_repository_urls", [])
-            if repo_candidate_allowed_for_project(project, str(url or ""))
-        ]
     relationship_candidates: list[dict[str, str]] = []
     relationship_indexes: set[tuple[str, str]] = set()
     relevant_repos = {
@@ -5098,7 +5090,7 @@ def build_llm_evidence_bundle(
         "service_status_evidence": project.get("service_status_evidence", []),
         "project_repository_urls": project.get("project_repository_urls", []),
         "repository_analysis_results": repository_analysis_core.select_for_triage(project),
-        "candidate_project_repository_urls": candidate_repo_urls[:2],
+        "candidate_project_repository_urls": [],
         "repository_link_candidates": relationship_candidates,
         "bluesky_handles": project.get("bluesky_handles", []),
         "tangled_handles": project.get("tangled_handles", []),
@@ -5152,28 +5144,6 @@ def build_triage_prompt_from_evidence(evidence: dict[str, Any]) -> str:
             f"{prompt}"
         )
     return prompt
-
-
-def build_investigation_prompt(project: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    evidence = build_llm_evidence_bundle(project, include_candidate_repos=True)
-    prompt = (
-        "You are planning a focused investigation for an AT Protocol project.\n"
-        "Return JSON only. Be conservative.\n"
-        "Use the evidence to suggest the next external searches to run.\n"
-        "Prefer search terms that help locate source code repositories, official accounts, and status signals.\n"
-        "Do not invent concrete URLs unless they already appear in evidence.\n"
-        "Search queries must be plain keywords. Do not use site:, advanced web operators, or full URLs as the main query.\n\n"
-        "Output schema:\n"
-        "{\n"
-        '  "repo_search_queries": ["string"],\n'
-        '  "actor_search_queries": ["string"],\n'
-        '  "post_search_queries": ["string"],\n'
-        '  "focus_terms": ["string"],\n'
-        '  "reason": "string"\n'
-        "}\n\n"
-        f"Evidence:\n{llm_evidence_core.evidence_json(evidence)}\n"
-    )
-    return prompt, evidence
 
 
 def clean_string_list(values: Any, *, limit: int | None = None) -> list[str]:
@@ -5252,32 +5222,9 @@ def apply_repository_link_assessments(
 
 
 def plan_investigation_queries(
-    project: dict[str, Any],
-    *,
-    observation: dict[str, Any] | None = None,
-    llm_endpoint: str | None = None,
-    llm_model: str | None = None,
-    llm_api_key: str | None = None,
-    llm_reasoning_effort: str | None = None,
-    llm_api_style: str | None = None,
-    llm_max_output_tokens: int | None = None,
-    llm_runner: Callable[..., tuple[dict[str, Any], dict[str, Any]]] | None = None,
-) -> dict[str, Any]:
-    return investigation_core.plan_investigation_queries(
-        project,
-        investigation_core.PlanningDependencies(
-            build_prompt=build_investigation_prompt,
-            run_llm=llm_runner or llm_transport.run_local_llm,
-            note_failure=integration_core.note_failure,
-        ),
-        observation=observation,
-        llm_endpoint=llm_endpoint,
-        llm_model=llm_model,
-        llm_api_key=llm_api_key,
-        llm_reasoning_effort=llm_reasoning_effort,
-        llm_api_style=llm_api_style,
-        llm_max_output_tokens=llm_max_output_tokens,
-    )
+    project: dict[str, Any], *, observation: dict[str, Any] | None = None,
+) -> dict[str, list[str]]:
+    return investigation_core.plan_investigation_queries(project, observation=observation)
 
 
 def collect_investigation_evidence(project: dict[str, Any], plan: dict[str, Any], *, observation: dict[str, Any] | None = None) -> EvidenceBundle:

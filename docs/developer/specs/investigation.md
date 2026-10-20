@@ -6,7 +6,7 @@
 
 情報源の取得は、未知対象の発見、帰属・信用判断、説明に使う材料を得るために行います。URLを保持すること、その本文を取得すること、結果へ利用することは別です。出力用に保持した規約等のリンクへ、調査上の用途を後付けしません。[識別子の役割](project-boundaries.md#識別子を発見調査出力に使う目的)と[人力にも使える調べ方](../../user/research-methods.md)を参照してください。
 
-LLMは、複数資料の内容や文脈を読み、名前・説明、利用範囲・技術的な価値、関係候補・要確認事項へまとめるために使います。repository解析は実装の材料をproject全体の説明へ接続し、triageは既存の理解と新しい資料から説明・判断案を作ります。これらは現行の役割であり、生成したことだけで正しさや紹介文への利用可能性を保証しません。LLM検索計画にも資料に合わせて検索語を選ぶ役割はありますが、固定生成に加えて採用した理由と効果は未確認です。[存続判断](../todo.md#既存処理の存続判断)で扱います。
+LLMは、複数資料の内容や文脈を読み、名前・説明、利用範囲・技術的な価値、関係候補・要確認事項へまとめるために使います。repository解析は実装の材料をproject全体の説明へ接続し、triageは既存の理解と新しい資料から説明・判断案を作ります。これらは現行の役割であり、生成したことだけで正しさや紹介文への利用可能性を保証しません。検索語は採用済みの識別子と名前から固定規則で生成します。
 
 調査や追加取得の必要性を人に判断させることは完成形ではありません。自動で判断・取得・更新できることを目指し、現行の手動deep調査やレビューは能力・資源の不足を補います。匿名browserではJavaScript描画後のログイン入口から、利用可能性・atprotoアカウント利用・要求権限などを日常的に調べたい意図があります。現行の取得範囲と負荷は[Static・Deep・Browserの調査範囲](#staticdeepbrowserの調査範囲)と[残件](../todo.md#説明更新の品質とservice監視)で区別します。
 
@@ -47,9 +47,19 @@ serviceの稼働状態とNSID ownershipを確認するレビュー表示も、�
 7. local LLM による summary / category / status 補完
 8. 再度finalizeし、重複候補・マージ推奨を更新
 
+### 検索語の選択と追加検索
+
+初期収集後のprojectから、検索先ごとに次の語を選びます。LLM呼出しはありません。
+
+- 共通の第一候補は、サービスhost（`website_url`、次に`service_urls`の順）、authority domain、名前、最初のNSIDの順です。値がある最初のものを使います。検索結果が空だった場合の切替順ではありません。hostのサブドメインは保持します。
+- GitHubは採用済みrepositoryの`owner/repo`があればそれを優先し、なければ共通の第一候補を使います。関連性と候補許可の条件を満たすrepoが得られなかった時だけ、補助語で一度追加検索します。補助語は名前を基本とし、名前がサービスhostと同じなら先頭のlabel、空またはドットを含む名前なら最初のNSIDを使います。NSIDもなければ元の名前を保ちます。第一候補と同じ語は追加しません。
+- Blueskyのactor検索とpost検索は、それぞれ共通の第一候補で一度だけ検索します。異なる語をORで束ねません。
+
+検索は一projectあたり最大4回（GitHub 2回、actor 1回、post 1回）です。材料がなければ該当検索は省略します。候補actorのauthor feed取得は別に最大2回で、失敗時のretryもこの4回には含めません。共有hostのパスから個別サービス名を推測する処理はありません。検索結果の帰属確認・採用規則は語の選択とは別に適用します。
+
 ### 一括調査の先行取得
 
-一括enrichは既定で、現在projectの最初のLLM呼出し中に、選択順で直後のproject一件の初期収集を進めます。初期収集はLexicon・record sample・既知repository・service・candidate repositoryの帰属確認を含み、repository analysisより前で止めます。通常の逐次経路も同じ`collect_initial`を使い、取得対象・検索予算・prompt・model・適用規則は変えません。triage再利用hitでも、repository analysisやplanningに実呼出しがあればその区間を利用します。
+一括enrichは既定で、現在projectの最初のLLM呼出し中に、選択順で直後のproject一件の初期収集を進めます。初期収集はLexicon・record sample・既知repository・service・candidate repositoryの帰属確認を含み、repository analysisより前で止めます。通常の逐次経路も同じ`collect_initial`を使い、取得対象・検索予算・prompt・model・適用規則は変えません。triage再利用hitでも、repository analysisに実呼出しがあればその区間を利用します。両方を再利用できた回にはLLM待ち時間を使う先行取得はありません。
 
 先行threadには所有するproject snapshotだけを渡し、DB接続・LLM・保存・checkpointは渡しません。LLM呼出しが先に終わった場合は先行収集の完了を待ってから現在projectの後続取得へ戻ります。このため、project内の既存取得並列数は維持し、project間でcollectorが同時実行されることはありません。process-local cacheへのproject間同時アクセスや同じURLへの競合fetchを増やさず、LLM同時実行も一件です。検索のrequest budgetとGitHub request metricsは従来どおりcollector単位です。
 
@@ -368,18 +378,17 @@ bundled Chromiumが`ERR_SOCKET_NOT_CONNECTED`を返した場合だけ、HTTP/2�
   - 最大 18 request
 - investigation collector:
   - GitHub repository search 最大 2 request
-  - Bluesky actor search 最大 2 request
-  - Bluesky post search 最大 2 request
+  - Bluesky actor search 最大 1 request
+  - Bluesky post search 最大 1 request
   - Bluesky author feed 最大 2 request
   - retry を含む budget は GitHub 6、Bluesky 12 request
 - LLM:
   - `ATPROTO_SURVEY_LLM_COMMAND` なら外部 request なし
     - command文字列は`subprocess`のshell modeで実行するため、project dataやWeb入力から組み立てず、operatorが設定したtrusted local commandだけを使います
-  - `ATPROTO_SURVEY_LLM_ENDPOINT` なら通常 1〜2 POSTに加えて、revision未解析のconfirmed repositoryごとに1 POST
-    - investigation plan
+  - `ATPROTO_SURVEY_LLM_ENDPOINT` ならtriageの0〜1 POSTに加えて、revision未解析のconfirmed repositoryごとに1 POST
     - repository analysis（revision一致の保存済み結果があれば省略）
     - triage（下記の再利用条件が揃えば省略）
-  - `enrich --llm-max-output-tokens`を指定した場合、planning、repository analysis、triageの全POSTへ同じ出力上限を渡す。省略時はendpoint既定値
+  - `enrich --llm-max-output-tokens`を指定した場合、repository analysis、triageの全POSTへ同じ出力上限を渡す。省略時はendpoint既定値
   - endpoint fallback が走ると chat/responses/completions を順に試すので、失敗時はこれより増えます
   - 実装済み: LLM endpoint は operator が明示設定する trusted endpoint として扱い、LAN / localhost 宛てでも POST を許可します
   - 実装済み: project data 由来の service / resource URL は同じ `request_bytes()` 系でも内部宛て block の対象です
@@ -399,15 +408,15 @@ bundled Chromiumが`ERR_SOCKET_NOT_CONNECTED`を返した場合だけ、HTTP/2�
 
 ## LLM の位置づけ
 
-- LLMは調査queryの計画、名前・説明文の編集補助、曖昧な分類候補に使う
+- LLMはrepositoryの読み解き、名前・説明文の編集補助、曖昧な分類候補に使う
 - identifier の新規提案は原則 candidate に留める
 - ownership、高い寄与度、service の到達確認を LLM 単独で確定しない
 - rule-based evaluation と manual guard を優先する
-- LLM failure 時も deterministic plan と他 collector を継続する
+- LLM failure 時も他 collector の取得・規則による評価を継続する
 
 ### LLM evidence budget
 
-planningとtriageへ渡す可変evidence JSONは、空白を付けないJSONのUTF-8で24 KiBを上限とします。fieldごとの代表件数上限を先に適用し、長いlistは先頭と末尾から均等に残します。それでも超える場合は低優先fieldから追加で縮約し、repository解析はclaimと根拠を一緒に扱います。`project_key`等のscalarはlist budgetで落としません。縮約した場合は`evidence_budget`へfield別の観測件数と採用件数を入れます。通常triageでは固定templateを含む32 KiBを守るため、template長に応じて可変部分の上限を24 KiBからさらに縮めます。縮約順序はplanningと共通で、triageへ渡したevidenceは`llm_source.evidence`にも保存します。
+triageへ渡す可変evidence JSONは、空白を付けないJSONのUTF-8で24 KiBを上限とします。fieldごとの代表件数上限を先に適用し、長いlistは先頭と末尾から均等に残します。それでも超える場合は低優先fieldから追加で縮約し、repository解析はclaimと根拠を一緒に扱います。`project_key`等のscalarはlist budgetで落としません。縮約した場合は`evidence_budget`へfield別の観測件数と採用件数を入れます。通常triageでは固定templateを含む32 KiBを守るため、template長に応じて可変部分の上限を24 KiBからさらに縮めます。triageへ渡したevidenceは`llm_source.evidence`にも保存します。
 
 24 KiBは可変evidence JSONの上限です。prompt templateの固定文を加えた最終promptのbyte数はrun metricsで別に観測します。service HTMLやEvidenceBundleの保存量には、それぞれの保存上限を適用します。
 
@@ -453,15 +462,15 @@ collectorのnetwork取得とevidence適用は現行pipelineで交互に行うた
 
 一括結果とcheckpointの`execution`には、方式、先行開始・使用・未使用・失敗件数、先行収集時間、join待ち時間、未反映run ID、application開始からの`batch_elapsed_ms`を記録します。batch経過時間はproject commitとcheckpoint更新を含み、worker起動・終了と最後の計測値の書込み自体は含みません。短縮率は同じ入力のbatch経過時間で比較し、重なりのあるper-project時間やoperation時間の合算を短縮実績としません。
 
-planning・repository analysis・triageの各LLM requestには、purpose、success/failure、error category、duration、UTF-8 prompt bytes、response JSON bytes、設定された1 attempt当たりtimeout、model/API style・出力上限・接続先hash等の非secret metadataを残します。endpointが返したinput/output/total token数と、存在すればcached input/reasoning token数を保存します。usageがなければ未記録とし、文字数から推定しません。解釈不能なmodel JSONでもendpoint JSONのusageが読めれば保持します。command方式や通信失敗等では未記録になります。成功時のHTTP試行数とpayload variantはtransportから保存しますが、最終失敗までの全HTTP試行の個別履歴は保存しません。request metricsにはprompt本文、endpoint、command、API keyを含めません。`timeout`は明示的なtimeout例外または既存clientが返すtimeout errorから分類し、transport failure、endpoint incompatible、rate limit、その他HTTP error、invalid responseと分けます。endpoint互換性エラー以外では同じpromptを自動再送しません。
+repository analysis・triageの各LLM requestには、purpose、success/failure、error category、duration、UTF-8 prompt bytes、response JSON bytes、設定された1 attempt当たりtimeout、model/API style・出力上限・接続先hash等の非secret metadataを残します。endpointが返したinput/output/total token数と、存在すればcached input/reasoning token数を保存します。usageがなければ未記録とし、文字数から推定しません。解釈不能なmodel JSONでもendpoint JSONのusageが読めれば保持します。command方式や通信失敗等では未記録になります。成功時のHTTP試行数とpayload variantはtransportから保存しますが、最終失敗までの全HTTP試行の個別履歴は保存しません。request metricsにはprompt本文、endpoint、command、API keyを含めません。`timeout`は明示的なtimeout例外または既存clientが返すtimeout errorから分類し、transport failure、endpoint incompatible、rate limit、その他HTTP error、invalid responseと分けます。endpoint互換性エラー以外では同じpromptを自動再送しません。
 
-旧runでmetricsが欠落する場合は未記録として扱います。保存先は`evaluation_json._run_metrics`ですが、load時はsemantic `evaluation`と`metrics`に分けます。そのため非決定的な時間値はreplay diffやfixture exportへ入りません。Webのlatest run、run list、run detailから確認できます。
+旧LLM検索計画のrequest metricsも履歴として保持します。旧runでmetricsが欠落する場合は未記録として扱います。保存先は`evaluation_json._run_metrics`ですが、load時はsemantic `evaluation`と`metrics`に分けます。そのため非決定的な時間値はreplay diffやfixture exportへ入りません。Webのlatest run、run list、run detailから確認できます。
 
 `metrics.triage_reuse`には`status`（`hit` / `miss`）、理由、利用した出力の生成日時を記録します。hitは実LLM requestへ数えず、`llm_requests`とその集計には実際の呼出しだけを載せます。`triage_ms`は再利用の照合と通常適用・trust確認を含み、hitでも0秒とは限りません。
 
 ### 将来比較用の記録
 
-通常enrichでは、検索計画を生成する時点のprompt・容量制限後のevidence・deterministic seed、整形前の解析済みLLM JSON、整形／fallback後のrepo・actor・post検索語、focus・reasonと、実行用に束ねた検索語を保存します。入力は初期収集後の実値です。容量制限前の全projectやwire response全文を複製する契約ではありません。planning requestの設定と、計画／収集の主要module内容hashも対応づけます。module hashの差は変更範囲を保守的に示し、その差だけで生成や採用への影響を断定しません。
+通常enrichでは検索計画に`mode=deterministic`を付け、初期収集後の名前・サービスhost・authority domain・採用済みGitHub slug・先頭NSIDを`input`へ、生成した計画と実行用検索語をそれぞれ保存します。計画の実装moduleの内容hashも対応づけます。旧LLM方式のprompt・evidence・seed・出力・request設定を持つ履歴はそのまま保持し、modeのない旧記録はLLM方式として読みます。異なる方式同士や入力の欠けた記録を同一入力の比較に使いません。module hashの差だけで生成や採用への影響を断定しません。
 
 検索の実行順、query、result/accepted count、候補、失敗は既存EvidenceBundleを使います。追加の`search_execution`はrequest budget、timeout、retry policyと、source/target別の試行回数・retry待機・経過時間です。attemptはbudget確認を含むcollector呼出しの試行で、HTTP request数ではありません。cache hitでも呼出しは数え、budget拒否の試行も含みます。待機はretry wrapperの実測で、別の内部retryやrate-limit待機は操作全体の経過時間へ含まれます。
 

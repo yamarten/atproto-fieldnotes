@@ -38,10 +38,8 @@ class TriageReuseTest(TempRegistryDbTestCase):
         self.runner = self.stack.enter_context(mock.patch.object(llm_transport, "run_local_llm", side_effect=self.run_llm))
 
     def run_llm(self, prompt, **_):
-        purpose = "planning" if "planning a focused investigation" in prompt else "triage"
-        self.requests.append(purpose)
-        payload = {"repo_search_queries": ["Example"]} if purpose == "planning" else copy.deepcopy(self.payload)
-        return payload, {"model": "test-model", "generated_at": self.now}
+        self.requests.append("triage")
+        return copy.deepcopy(self.payload), {"model": "test-model", "generated_at": self.now}
 
     def run_saved(self, project, **kwargs):
         self.bundle.project_key = project["project_key"]
@@ -71,7 +69,8 @@ class TriageReuseTest(TempRegistryDbTestCase):
         generated = project["last_llm_review_at"]
         self.now = "2026-09-08T00:00:00+00:00"
         project, run = self.run_saved(project)
-        self.assertEqual(self.requests[before:], ["planning"])
+        self.assertEqual(self.requests[before:], [])
+        self.assertEqual(run["metrics"]["llm_requests"], [])
         self.assertEqual(self.collection.call_count, 4)
         self.assertEqual(run["metrics"]["triage_reuse"]["status"], "hit")
         self.assertNotIn("triage", run["metrics"]["llm_request_summary"])
@@ -80,8 +79,8 @@ class TriageReuseTest(TempRegistryDbTestCase):
         self.assertTrue(run["evaluation"])
         self.assertTrue(run["observations"]["planning"]["complete"])
         plan = run["observations"]["planning"]["data"]
-        self.assertIn("planning a focused investigation", plan["prompt"])
-        self.assertEqual(plan["llm_output"]["repo_search_queries"], ["Example"])
+        self.assertEqual(plan["mode"], "deterministic")
+        self.assertNotIn("prompt", plan)
         self.assertIn("actor_search_queries", plan["plan"])
         self.assertEqual(run["observations"]["operations"]["data"]["collect_investigation_evidence"]["calls"], 1)
         self.assertEqual(run["observations"]["triage_changes"]["data"]["changed_components"], [])
@@ -99,7 +98,7 @@ class TriageReuseTest(TempRegistryDbTestCase):
                 mutation(project)
                 before = len(self.requests)
                 _, run = self.run_saved(project)
-                self.assertEqual(self.requests[before:], ["planning", "triage"])
+                self.assertEqual(self.requests[before:], ["triage"])
                 self.assertEqual(run["metrics"]["triage_reuse"]["status"], "miss")
 
     def test_config_prompt_and_age_changes_recompute(self):

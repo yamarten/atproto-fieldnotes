@@ -20,9 +20,17 @@ def section(observations: dict, key: str) -> Any:
     return value.get("data") if value.get("complete") else None
 
 
+def planning_mode(planning: dict) -> str:
+    return str(planning.get("mode") or "llm")
+
+
+def planning_input_key(planning: dict) -> str:
+    return "input" if planning_mode(planning) == "deterministic" else "prompt"
+
+
 def planning_conditions(planning: dict, execution: dict) -> dict:
     request = planning.get("request", {})
-    return {"request": {key: request.get(key) for key in (
+    return {"mode": planning_mode(planning), "request": {key: request.get(key) for key in (
         "transport", "model", "endpoint_hash", "requested_api_style", "api_style",
         "reasoning_effort", "max_output_tokens", "timeout_seconds", "prompt_version",
         "request_variant", "temperature")},
@@ -102,10 +110,12 @@ def summarize(rows: list[dict], *, details: bool = False) -> dict:
             pair = {"project_key": row["project_key"], "previous_run": old_row["run_id"], "run": row["run_id"],
                     "comparable": bool(planning and old_plan and execution and old_execution
                         and planning.get("status") == old_plan.get("status") == "success"
+                        and planning_mode(planning) == planning_mode(old_plan)
+                        and planning_input_key(planning) in planning and planning_input_key(old_plan) in old_plan
                         and old_row["application_status"] == row["application_status"] == "applied")}
             if pair["comparable"]:
                 pair.update(same_conditions=planning_conditions(planning, execution) == planning_conditions(old_plan, old_execution),
-                            same_input=planning.get("prompt") == old_plan.get("prompt"),
+                            same_input=planning[planning_input_key(planning)] == old_plan[planning_input_key(old_plan)],
                             same_plan=planning.get("plan") == old_plan.get("plan"),
                             same_search_queries=planning.get("search_queries") == old_plan.get("search_queries"))
             pairs.append(pair)

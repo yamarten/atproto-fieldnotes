@@ -49,7 +49,7 @@ export ATPROTO_SURVEY_LLM_TIMEOUT='300'
 
 現行QwenのモデルIDでは`prompts/model-rules/qwen-3.6-35b-a3b.txt`を自動選択します。別モデルには、そのモデルで確認した追加規則がある場合だけCLIまたは環境変数で指定します。
 
-固定評価と同じ出力上限で通常処理を確認する場合は、`--llm-max-output-tokens 2048`のように指定します。この値は調査計画の補助（planning）、採用済みリポジトリの解析、triageの各LLMリクエストへ共通して適用されます。省略時は接続先の設定を使います。
+固定評価と同じ出力上限で通常処理を確認する場合は、`--llm-max-output-tokens 2048`のように指定します。この値は採用済みリポジトリの解析、triageの各LLMリクエストへ共通して適用されます。省略時は接続先の設定を使います。
 
 endpointとモデルを指定した通常の`enrich`では、根拠・実行条件・手動判断が同じなら、30日未満の説明・分類結果を再利用します。検索と根拠の取得は毎回続けます。モデル名を変えずに中身を入れ替えた時など、同じ材料でも生成し直すには`ATPROTO_SURVEY_TRIAGE_REUSE=0 bin/project-registry enrich -p KEY`を使います。command方式では再利用しません。生成日時は元のまま保持し、調査実行記録の`metrics.triage_reuse`で再利用か再生成かを確認できます。
 

@@ -22,8 +22,7 @@ SECTION_LIMITS = {"planning": 96 * 1024, "search_outcomes": 48 * 1024,
 def planning_policy() -> dict[str, str]:
     root = Path(__file__).parent
     return {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in (
-        root / "investigation.py", root / "registry.py", root / "llm_evidence.py",
-        root / "transport" / "llm_transport.py")}
+        root / "investigation.py",)}
 
 
 def json_bytes(value: Any) -> bytes:

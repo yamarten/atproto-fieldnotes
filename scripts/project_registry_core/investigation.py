@@ -82,191 +82,79 @@ def clean_string_list(values: Any, *, limit: int | None = None) -> list[str]:
     return output[:limit] if limit is not None else output
 
 
-def clean_search_query(value: str) -> str:
+def github_search_term(value: str) -> str:
     query = str(value or "").strip()
     if not query:
         return ""
-    query = re.sub(r"\bsite:[^\s]+", "", query)
-    query = re.sub(r"\b(?:github|gitlab|bitbucket|bluesky)\b", "", query, flags=re.IGNORECASE)
-    return re.sub(r"\s+", " ", query).strip()
-
-
-def github_search_term(value: str) -> str:
-    query = clean_search_query(value)
-    if not query:
-        return ""
-    return f'"{query}"' if re.search(r"\s", query) else query
-
-
-def build_github_repo_search_queries(plan: dict[str, Any]) -> list[str]:
-    raw_queries = clean_string_list(plan.get("repo_search_queries"), limit=6)
-    normalized: list[str] = []
-    for raw in raw_queries:
-        cleaned = clean_search_query(raw)
-        if not cleaned:
-            continue
-        if re.search(r"\bOR\b", cleaned, flags=re.IGNORECASE):
-            normalized.append(cleaned)
-            continue
-        term = github_search_term(cleaned)
-        if term:
-            normalized.append(term)
-    unique_queries = unique_strings(normalized)
-    if len(unique_queries) <= 1:
-        return unique_queries
-
-    bundled: list[str] = []
-    for index in range(0, min(len(unique_queries), 6), 3):
-        bucket = unique_queries[index:index + 3]
-        if bucket:
-            bundled.append(" OR ".join(bucket))
-    return unique_strings(bundled)[:2]
-
-
-def query_contains_kana(value: str) -> bool:
-    return bool(re.search(r"[\u3040-\u309f\u30a0-\u30ff]", str(value or "")))
-
-
-def bsky_search_term(value: str) -> str:
-    query = clean_search_query(value)
-    if not query:
-        return ""
-    if re.search(r"[\s@#:\$\|/]", query):
+    if re.search(r'[\s"|]', query):
         escaped = query.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'
     return query
 
 
-def build_bsky_search_queries(plan: dict[str, Any], key: str, *, max_queries: int = 2) -> list[str]:
-    raw_queries = unique_strings(
-        [
-            cleaned
-            for cleaned in (
-                clean_search_query(raw)
-                for raw in clean_string_list(plan.get(key), limit=max_queries * 3)
-            )
-            if cleaned
-        ]
-    )
-    if not raw_queries:
-        return []
-
-    grouped: dict[bool, list[str]] = {True: [], False: []}
-    for query in raw_queries:
-        grouped[query_contains_kana(query)].append(query)
-
-    bundled: list[str] = []
-    for has_kana in (False, True):
-        bucket = unique_strings(grouped[has_kana])
-        terms = [term for term in (bsky_search_term(item) for item in bucket) if term]
-        if not terms:
-            continue
-        bundled.append(terms[0] if len(terms) == 1 else " | ".join(terms))
-    return bundled[:max_queries]
+def build_github_repo_search_queries(plan: dict[str, Any]) -> list[str]:
+    return unique_strings([term for raw in clean_string_list(plan.get("repo_search_queries"), limit=2)
+                           if (term := github_search_term(raw))])
 
 
-def seed_investigation_queries(project: dict[str, Any]) -> dict[str, list[str]]:
-    repo_queries: list[str] = []
-    actor_queries: list[str] = []
-    post_queries: list[str] = []
-    focus_terms: list[str] = []
-
-    if project.get("name"):
-        repo_queries.append(str(project["name"]))
-        actor_queries.append(str(project["name"]))
-        post_queries.append(str(project["name"]))
-        focus_terms.append(str(project["name"]))
-    for nsid in unique_strings(
-        list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", []))
-    ):
-        repo_queries.append(str(nsid))
-        actor_queries.append(str(nsid))
-        post_queries.append(str(nsid))
-        focus_terms.append(str(nsid))
-    for domain in project.get("authority_domains", [])[:3]:
-        repo_queries.append(str(domain))
-        actor_queries.append(str(domain))
-        post_queries.append(str(domain))
-        focus_terms.append(str(domain))
-    for handle in project.get("bluesky_handles", [])[:3]:
-        actor_queries.append(str(handle))
-        post_queries.append(str(handle))
-        focus_terms.append(str(handle))
-
-    return {
-        "repo_search_queries": unique_strings(repo_queries)[:5],
-        "actor_search_queries": unique_strings(actor_queries)[:5],
-        "post_search_queries": unique_strings(post_queries)[:5],
-        "focus_terms": unique_strings(focus_terms)[:8],
-    }
+def bsky_search_term(value: str) -> str:
+    query = str(value or "").strip()
+    if not query:
+        return ""
+    if re.search(r'[\s@#:$|/"\\]', query):
+        escaped = query.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return query
 
 
-@dataclass(frozen=True)
-class PlanningDependencies:
-    build_prompt: Callable[[dict[str, Any]], tuple[str, dict[str, Any]]]
-    run_llm: Callable[..., tuple[dict[str, Any], dict[str, Any]]]
-    note_failure: Callable[[dict[str, Any], str], None]
+def build_bsky_search_queries(plan: dict[str, Any], key: str) -> list[str]:
+    return [term for raw in clean_string_list(plan.get(key), limit=1)
+            if (term := bsky_search_term(raw))]
 
 
 def plan_investigation_queries(
-    project: dict[str, Any],
-    dependencies: PlanningDependencies,
-    *,
-    observation: dict[str, Any] | None = None,
-    llm_endpoint: str | None = None,
-    llm_model: str | None = None,
-    llm_api_key: str | None = None,
-    llm_reasoning_effort: str | None = None,
-    llm_api_style: str | None = None,
-    llm_max_output_tokens: int | None = None,
-) -> dict[str, Any]:
-    observation = observation if observation is not None else {}
-    seed_plan = seed_investigation_queries(project)
-    observation["seed_plan"] = seed_plan
-    try:
-        prompt, evidence = dependencies.build_prompt(project)
-        observation.update(prompt=prompt, evidence=evidence)
-        payload, meta = dependencies.run_llm(
-            prompt,
-            llm_endpoint=llm_endpoint,
-            llm_model=llm_model,
-            llm_api_key=llm_api_key,
-            llm_reasoning_effort=llm_reasoning_effort,
-            llm_api_style=llm_api_style,
-            llm_max_output_tokens=llm_max_output_tokens,
-        )
-        observation.update(llm_output=payload, status="success")
-        plan = {
-            "repo_search_queries": unique_strings(
-                [clean_search_query(item) for item in clean_string_list(payload.get("repo_search_queries"), limit=6) if clean_search_query(item)]
-            ) or seed_plan["repo_search_queries"],
-            "actor_search_queries": unique_strings(
-                [clean_search_query(item) for item in clean_string_list(payload.get("actor_search_queries"), limit=6) if clean_search_query(item)]
-            ) or seed_plan["actor_search_queries"],
-            "post_search_queries": unique_strings(
-                [clean_search_query(item) for item in clean_string_list(payload.get("post_search_queries"), limit=6) if clean_search_query(item)]
-            ) or seed_plan["post_search_queries"],
-            "focus_terms": clean_string_list(payload.get("focus_terms"), limit=8) or seed_plan["focus_terms"],
-            "reason": str(payload.get("reason") or "").strip(),
-            "llm_source": {**meta, "evidence": evidence},
-        }
-        observation["plan"] = {key: value for key, value in plan.items() if key != "llm_source"}
-        observation["search_queries"] = execution_queries(plan)
-        return plan
-    except Exception as exc:
-        dependencies.note_failure(project, f"investigation planning failed: {exc}")
-        from .transport.llm_transport import classify_llm_request_error
-        plan = {**seed_plan, "reason": "fallback deterministic plan", "llm_source": {}}
-        observation.update(status="fallback", error_category=classify_llm_request_error(exc),
-                           plan={key: value for key, value in plan.items() if key != "llm_source"})
-        observation["search_queries"] = execution_queries(plan)
-        return plan
+    project: dict[str, Any], *, observation: dict[str, Any] | None = None,
+) -> dict[str, list[str]]:
+    hosts: list[str] = []
+    for url in [project.get("website_url", ""), *project.get("service_urls", [])]:
+        try:
+            host = urllib.parse.urlsplit(str(url or "")).hostname
+        except ValueError:
+            continue
+        if host:
+            hosts.append(host)
+    hosts = unique_strings(hosts)
+    domains = unique_strings(hosts + clean_string_list(project.get("authority_domains")))
+    slugs = unique_strings([slug for url in project.get("project_repository_urls", [])
+                            if (slug := repo_url_core.extract_github_slug(url))])
+    name = str(project.get("name") or "").strip()
+    nsids = unique_strings(clean_string_list(project.get("input_nsids"))
+                           + clean_string_list(project.get("resolved_nsids")))[:1]
+    primary = next(iter(domains), name or next(iter(nsids), ""))
+    repo_primary = next(iter(slugs), primary)
+    # A URL-derived display name provides a short search hint, not an identity claim.
+    fallback = name.split(".")[0] if name in hosts else name
+    if not fallback or "." in fallback:
+        fallback = next(iter(nsids), fallback)
+    plan = {
+        "repo_search_queries": unique_strings([v for v in (repo_primary, fallback) if v]),
+        "actor_search_queries": [primary] if primary else [],
+        "post_search_queries": [primary] if primary else [],
+    }
+    if observation is not None:
+        observation.update(mode="deterministic", status="success",
+                           input={"name": name, "service_hosts": hosts,
+                                  "authority_domains": clean_string_list(project.get("authority_domains")),
+                                  "github_slugs": slugs, "nsids": nsids},
+                           plan={k: list(v) for k, v in plan.items()},
+                           search_queries=execution_queries(plan))
+    return plan
 
 
 def execution_queries(plan: dict[str, Any]) -> dict[str, list[str]]:
     return {"github_search": build_github_repo_search_queries(plan),
-            "bsky_actor_search": build_bsky_search_queries(plan, "actor_search_queries", max_queries=2),
-            "bsky_post_search": build_bsky_search_queries(plan, "post_search_queries", max_queries=2)}
+            "bsky_actor_search": build_bsky_search_queries(plan, "actor_search_queries"),
+            "bsky_post_search": build_bsky_search_queries(plan, "post_search_queries")}
 
 
 @dataclass(frozen=True)
@@ -474,7 +362,7 @@ def collect_investigation_evidence(
         host = urllib.parse.urlparse(str(url or "")).hostname
         if host:
             project_names.add(host.removeprefix("www."))
-    for query in build_bsky_search_queries(plan, "actor_search_queries", max_queries=2):
+    for query in build_bsky_search_queries(plan, "actor_search_queries"):
         observed_at = dependencies.now()
         bundle.add_record(evidence_record(
             kind="investigation_query",
@@ -534,7 +422,7 @@ def collect_investigation_evidence(
                 bluesky_rate_limited = True
                 break
 
-    for query in ([] if bluesky_rate_limited else build_bsky_search_queries(plan, "post_search_queries", max_queries=2)):
+    for query in ([] if bluesky_rate_limited else build_bsky_search_queries(plan, "post_search_queries")):
         observed_at = dependencies.now()
         bundle.add_record(evidence_record(
             kind="investigation_query",
@@ -644,8 +532,8 @@ def collect_investigation_evidence(
 
     planned = {
         "github_search": build_github_repo_search_queries(plan),
-        "bsky_actor_search": build_bsky_search_queries(plan, "actor_search_queries", max_queries=2),
-        "bsky_post_search": build_bsky_search_queries(plan, "post_search_queries", max_queries=2),
+        "bsky_actor_search": build_bsky_search_queries(plan, "actor_search_queries"),
+        "bsky_post_search": build_bsky_search_queries(plan, "post_search_queries"),
         "bsky_author_feed": unique_strings(actor_handles_to_probe)[:2],
     }
     for source, operation in (
