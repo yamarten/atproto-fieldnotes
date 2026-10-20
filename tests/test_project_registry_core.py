@@ -123,10 +123,9 @@ class ProjectRegistryIdentifierHelperTest(unittest.TestCase):
 
         self.assertEqual(shaped["resolved_nsids"], [nsid])
 
-    def test_text_seed_and_lexicon_detection_accept_case_sensitive_nsid(self) -> None:
+    def test_lexicon_detection_accepts_case_sensitive_nsid(self) -> None:
         nsid = "com.bartenderSky.preferences.profileMusic"
 
-        self.assertEqual(source_sync.parse_text_seed_line_values(nsid), [nsid])
         self.assertTrue(
             repository_material.repo_json_looks_like_lexicon(
                 "lexicons/com/bartenderSky/preferences/profileMusic.json",
@@ -394,6 +393,31 @@ class ProjectRegistrySembleSyncTest(unittest.TestCase):
         self.assertEqual(results[0]["seed_type"], "repo_url")
         self.assertEqual(results[0]["seed_value"], "https://github.com/example/project")
         self.assertEqual(results[0]["collection_label"], "current collection name")
+
+    def test_semble_keeps_direct_targets_and_skips_reference_pages(self) -> None:
+        nsid = "com.bartenderSky.preferences.profileMusic"
+        urls = [
+            "https://github.com/example/project", "https://example.com", nsid,
+            "https://bsky.app/profile/example.test/post/abc",
+            "https://bsky.app/profile/example.test",
+            "https://lexicon.garden/identity/did:plc:example",
+            f"https://pdsls.dev/at/did:plc:example/{nsid}",
+        ]
+        with mock.patch.object(http_transport_core, "request_json", return_value={
+            "urlCards": [{"url": url} for url in urls],
+            "pagination": {"hasMore": False},
+        }) as request:
+            scan = source_sync.fetch_semble_collection_source_sync_results(
+                {"handle": "example.test", "rkey": "apps", "label": "apps"},
+                pages=1, per_page=20, cutoff=None,
+            )
+        self.assertEqual({(item["seed_type"], item["seed_value"]) for item in scan["results"]}, {
+            ("repo_url", "https://github.com/example/project"),
+            ("service_url", "https://example.com"), ("nsid", nsid),
+        })
+        self.assertEqual(scan["evidence_only"], [])
+        self.assertEqual(scan["skipped_cards"], 4)
+        request.assert_called_once()
 
     def test_semble_service_subpage_is_evidence_only(self) -> None:
         source = {"handle": "example.test", "rkey": "collection", "label": "apps"}

@@ -261,26 +261,6 @@ def fetch_bsky_profile(actor: str) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def fetch_bsky_post_by_web_url(url: str) -> dict[str, Any]:
-    normalized = identifier_core.normalize_url(url)
-    parsed = urllib.parse.urlparse(normalized)
-    if parsed.netloc != "bsky.app":
-        return {}
-    segments = [segment for segment in parsed.path.split("/") if segment]
-    if len(segments) < 4 or segments[0] != "profile" or segments[2] != "post":
-        return {}
-    actor = segments[1]
-    rkey = segments[3]
-    profile = fetch_bsky_profile(actor)
-    did = str(profile.get("did") or "")
-    if not did:
-        return {}
-    params = urllib.parse.urlencode({"uris": f"at://{did}/app.bsky.feed.post/{rkey}"})
-    payload = http_transport.request_json(f"{BSKY_PUBLIC_API}/xrpc/app.bsky.feed.getPosts?{params}")
-    posts = payload.get("posts", []) if isinstance(payload, dict) else []
-    return posts[0] if posts else {}
-
-
 def bsky_record_urls(record: dict[str, Any]) -> list[str]:
     urls: list[str] = []
     facets = record.get("facets", []) if isinstance(record.get("facets", []), list) else []

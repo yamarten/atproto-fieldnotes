@@ -20,11 +20,6 @@ def _print(payload, *, execute: bool) -> int:
     return 0
 
 
-def cmd_import_seed_list(args: argparse.Namespace) -> int:
-    payload = _run_with_db(lambda conn: services.import_seed_list(conn, path=args.path, execute=bool(args.execute)))
-    return _print(payload, execute=bool(args.execute))
-
-
 def cmd_sync_bluesky_lexicons(args: argparse.Namespace) -> int:
     payload = _run_with_db(lambda conn: services.bluesky_lexicons(conn, execute=bool(args.execute)))
     return _print(payload, execute=bool(args.execute))

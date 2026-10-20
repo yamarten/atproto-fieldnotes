@@ -18,7 +18,6 @@ subcommands=(
   'review-stalled:Suggest lower-frequency tracking or revival'
   'review-ignore:Suggest low-value fork repos and derivative tools for ignore'
   'review-out-of-scope:Suggest related projects that are outside the survey scope'
-  'import-seed-list:Import a mixed text seed list'
   'sync-introduced:Mark matching projects as introduced from Bluesky posts'
   'sync-github-search:Search GitHub repositories and import repo seeds'
   'sync-lexicons:Import published Lexicon candidates'
@@ -264,11 +263,6 @@ case "$cmd" in
       '--interactive[Step through out-of-scope candidates interactively]' \
       '--note[Optional tracking note]:note:' \
       '--note-reason[Preset reason category]:reason:(auth_only client_only derivative_utility other)'
-    ;;
-  import-seed-list)
-    _arguments -S \
-      '1:path:_files' \
-      '--execute[Apply imports]'
     ;;
   sync-introduced)
     _arguments -S \

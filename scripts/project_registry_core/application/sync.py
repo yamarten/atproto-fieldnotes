@@ -21,10 +21,6 @@ def _positive_int(value: int | None, config: dict[str, Any], key: str, default: 
     return max(1, int(value if value is not None else config.get(key) or default))
 
 
-def import_seed_list(conn: sqlite3.Connection, *, path: str, execute: bool = False) -> dict[str, Any]:
-    return core.import_seed_list(conn, path, execute=execute)
-
-
 def bluesky_lexicons(conn: sqlite3.Connection, *, execute: bool = False) -> dict[str, Any]:
     config = _source_config("bluesky_official_lexicons")
     _require_enabled("bluesky_official_lexicons", config)

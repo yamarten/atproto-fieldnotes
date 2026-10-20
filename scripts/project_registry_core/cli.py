@@ -211,11 +211,6 @@ def build_parser() -> argparse.ArgumentParser:
     review_scope_parser.add_argument("--note-reason", choices=sorted(project_review.OUT_OF_SCOPE_REVIEW_NOTE_REASONS), help="Preset reason category to store with out-of-scope projects.")
     review_scope_parser.set_defaults(func=review_commands.cmd_review_out_of_scope)
 
-    seed_list_parser = subparsers.add_parser("import-seed-list", help="Import a mixed text seed list with headings, notes, and URLs.")
-    seed_list_parser.add_argument("path", help="Path to a plain-text seed list.")
-    seed_list_parser.add_argument("--execute", action="store_true", help="Apply imports. Without this flag, show a dry-run summary only.")
-    seed_list_parser.set_defaults(func=sync_commands.cmd_import_seed_list)
-
     sync_introduced_parser = subparsers.add_parser("sync-introduced", help="Search Bluesky posts and mark matching projects as introduced.")
     sync_introduced_parser.add_argument("--query", help="Override the configured Bluesky post search query.")
     sync_introduced_parser.add_argument("--limit", type=int, help="Override the configured posts-per-page budget.")

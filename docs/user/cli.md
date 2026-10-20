@@ -164,7 +164,6 @@ bin/project-registry set-atproto-usage -p PROJECT_KEY --clear
 
 | コマンド | 用途・情報源と入力 | 出力 | 副作用 |
 | --- | --- | --- | --- |
-| `import-seed-list` | 手元で集めた候補をまとめて登録する。見出しやメモを含むプレーンテキスト | 解析、照合、作成候補のJSON | `--execute` |
 | `sync-bluesky-lexicons` | 既存のBluesky登録へ公式schemaを補う。設定済み公式repositoryの`app.bsky.*` / `chat.bsky.*` record schema | Bluesky projectへ追加するcollectionのJSON | 外部接続。`--execute`で書き込み。`com.atproto.*`は対象外 |
 | `sync-introduced` | 紹介済み対象を再び通常候補に出さないため、投稿URLを既存登録へ反映する。Bluesky投稿検索、ページ上限、遡る期間 | 紹介URLとの照合結果のJSON | 外部接続。`--execute`でintroduced情報を書き込み |
 | `sync-github-search` | repositoryから未登録候補を探す。GitHubの検索条件、ページ上限、事前選別 | リポジトリの照合・作成候補のJSON | 外部接続。`--execute`で書き込み |

@@ -4,7 +4,7 @@
 
 発見入口は相互に補完します。collection活動はサービス名を知らないデータ利用、公開Lexiconはrecordがまだない仕様や非recordのAPI、repo検索はライブラリ・ツール・基盤、人のリンク集は他経路で弱いサービスURLやcollectionを作らないインフラを拾います。Sembleはこの補完を目的に使い、収集元自体を紹介の出力にはしません。[情報源の選び方](../../user/research-methods.md#探したいものに応じて入口を選ぶ)に調査へのつなぎ方をまとめています。
 
-Bluesky公式Lexiconの取り込みは、atpdashboardがBlueskyを除外する範囲を補います。他のrepo検索等でも拾うbsky Lexiconに正規の所属先が必要なため、Bluesky自体を登録プロジェクトとして扱います。人力調査からの移行に用いた`import-seed-list`は、継続利用する`add-seed`とは用途が異なり、[廃止候補](../todo.md#既存処理の存続判断)です。現在のcommandは残っています。
+Bluesky公式Lexiconの取り込みは、atpdashboardがBlueskyを除外する範囲を補います。他のrepo検索等でも拾うbsky Lexiconに正規の所属先が必要なため、Bluesky自体を登録プロジェクトとして扱います。
 
 ## 新規登録と既存projectへの追加
 
@@ -15,7 +15,7 @@ Bluesky公式Lexiconの取り込みは、atpdashboardがBlueskyを除外する�
 | `sync-lexicons` | 最初に受け入れた完全NSID一つ。公開Lexiconの各型に共通。残りは候補 |
 | `sync-collections` | 割当契約でまとめた全full collection。代表collectionにもadoptionを保存 |
 | GitHub / Tangled | 受入条件を通過したrepository URL |
-| Semble / seed list | 受け入れたseedのNSID、repository URL、service URL |
+| Semble | 受け入れたseedのNSID、repository URL、service URL |
 | `add-seed` / Webのシード登録 | 利用者が指定した対象。operator adoptionとして記録 |
 
 既存projectへの追加には各入口の照合・帰属規則を使い、登録起点と同じ扱いで候補全体を採用しません。`sync-bluesky-lexicons`は既存の一意な対象だけを更新し、新規projectを作りません。`sync-introduced`も新規登録せず、既存projectへの紹介URLの反映と要確認の保存を行います。対象の採用と発行元の真正性・projectの追跡価値は[project境界](project-boundaries.md#登録時に対象を採用する)で区別します。
