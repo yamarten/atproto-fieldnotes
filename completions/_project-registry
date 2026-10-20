@@ -176,6 +176,7 @@ case "$cmd" in
       '--fail-fast[Stop after the first failed project]' \
       '--run-id[Use this resumable checkpoint run ID]:run id:' \
       '--resume-run[Resume this checkpoint run ID]:run id:' \
+      '--rebind-checkpoint[Bind a legacy or moved checkpoint to the explicitly selected DB]' \
       '--checkpoint-path[Override the checkpoint JSON path]:path:_files' \
       '--no-checkpoint[Disable resumable checkpoint writing]' \
       '--no-prefetch[Use sequential initial collection for comparison]' \

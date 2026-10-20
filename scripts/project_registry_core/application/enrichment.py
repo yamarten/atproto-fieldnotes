@@ -63,6 +63,7 @@ class EnrichmentOptions:
     checkpoint_path: str = ""
     no_checkpoint: bool = False
     resume_run: str = ""
+    rebind_checkpoint: bool = False
     deep_investigation: bool = False
     prefetch: bool = True
     llm_endpoint: str = ""
@@ -123,17 +124,34 @@ def checkpoint_path(run_id: str, override: str = "") -> Path:
     return Path(override).expanduser() if override else core.ENRICH_RUNS_DIR / f"{_validate_run_id(run_id)}.json"
 
 
-def resume_command(run_id: str, override: str = "") -> str:
-    parts = ["project-registry", "enrich", "--all", "--resume-run", _validate_run_id(run_id)]
-    if override:
-        parts.extend(["--checkpoint-path", override])
+def resume_command(run_id: str, override: str = "", *, db_path: str) -> str:
+    parts = ["project-registry", "--db-path", db_path, "enrich", "--all",
+             "--resume-run", _validate_run_id(run_id),
+             "--checkpoint-path", str(checkpoint_path(run_id, override).resolve())]
     return " ".join(shlex.quote(part) for part in parts)
 
 
-def new_checkpoint(projects: list[dict[str, Any]], request: OperationRequest, options: EnrichmentOptions) -> dict[str, Any]:
+def checkpoint_database_path(conn: sqlite3.Connection) -> str:
+    path = next(str(row[2]) for row in conn.execute("PRAGMA database_list") if row[1] == "main")
+    if not path:
+        raise ValueError("enrich checkpoints require a file-backed DB; use --no-checkpoint")
+    return str(Path(path).resolve())
+
+
+def bind_checkpoint_database(checkpoint: dict[str, Any], db_path: str, *, rebind: bool = False) -> None:
+    stored = str(checkpoint.get("database_path") or "")
+    if not rebind and (not stored or not Path(stored).is_absolute() or str(Path(stored).resolve()) != db_path):
+        reason = "checkpoint database does not match the connected DB" if stored else "checkpoint has no database binding"
+        raise ValueError(f"{reason}; to adopt this checkpoint deliberately, use CLI --db-path PATH "
+                         "enrich --all --resume-run RUN --checkpoint-path FILE --rebind-checkpoint")
+    checkpoint["database_path"] = db_path
+
+
+def new_checkpoint(projects: list[dict[str, Any]], request: OperationRequest, options: EnrichmentOptions, *, db_path: str) -> dict[str, Any]:
     now = project_record.iso_now()
     return {
         "version": 1,
+        "database_path": db_path,
         "run_id": _validate_run_id(request.operation_id),
         "status": "running",
         "started_at": now,
@@ -178,7 +196,7 @@ def _options_from_checkpoint(options: EnrichmentOptions, checkpoint: dict[str, A
     stored = checkpoint.get("options")
     if not isinstance(stored, dict):
         return options
-    allowed = {item.name for item in fields(EnrichmentOptions)} - {"llm_api_key", "checkpoint_path", "resume_run", "no_checkpoint"}
+    allowed = {item.name for item in fields(EnrichmentOptions)} - {"llm_api_key", "checkpoint_path", "resume_run", "no_checkpoint", "rebind_checkpoint"}
     updates = {key: value for key, value in stored.items() if key in allowed and key != "llm_api_key_configured"}
     if "tracking_states" in updates:
         updates["tracking_states"] = tuple(str(item) for item in updates["tracking_states"] or ())
@@ -378,6 +396,8 @@ def _run(
         raise ValueError("resume_run requires all_projects")
     if options.resume_run and options.no_checkpoint:
         raise ValueError("resume_run cannot be combined with no_checkpoint")
+    if options.rebind_checkpoint and not options.resume_run:
+        raise ValueError("rebind_checkpoint requires resume_run")
     if not options.resume_run:
         configured_suffix = configured_triage_prompt_suffix_file(options)
         if configured_suffix:
@@ -401,8 +421,10 @@ def _run(
     checkpoint: dict[str, Any] | None = None
     written_path: Path | None = None
     resumed = False
+    db_path = checkpoint_database_path(conn) if options.all_projects and not options.no_checkpoint else ""
     if options.all_projects and options.resume_run:
         checkpoint = load_checkpoint(options.resume_run, options.checkpoint_path)
+        bind_checkpoint_database(checkpoint, db_path, rebind=options.rebind_checkpoint)
         options = _options_from_checkpoint(options, checkpoint)
         projects = _load_checkpoint_projects(conn, checkpoint)
         written_path = write_checkpoint(checkpoint, options.checkpoint_path)
@@ -410,7 +432,7 @@ def _run(
     else:
         projects = _select_projects(conn, options)
         if options.all_projects and not options.no_checkpoint:
-            checkpoint = new_checkpoint(projects, request, options)
+            checkpoint = new_checkpoint(projects, request, options, db_path=db_path)
             written_path = write_checkpoint(checkpoint, options.checkpoint_path)
 
     llm_triage_prompt_suffix = ""
@@ -439,7 +461,7 @@ def _run(
             "status": checkpoint.get("status", "running"),
             "resumed": resumed,
             "checkpoint_path": str(written_path or checkpoint_path(checkpoint["run_id"], options.checkpoint_path)),
-            "resume_command": resume_command(checkpoint["run_id"], options.checkpoint_path),
+            "resume_command": resume_command(checkpoint["run_id"], options.checkpoint_path, db_path=db_path),
             "selected_project_count": selected_total,
             "completed_project_count": completed_before,
             "remaining_project_count": len(projects),
@@ -578,7 +600,7 @@ def _run(
                 "skipped_project_count": len(skipped_projects),
                 "execution": prefetch.summary(),
                 **(
-                    {"resume_command": resume_command(checkpoint["run_id"], options.checkpoint_path)}
+                    {"resume_command": resume_command(checkpoint["run_id"], options.checkpoint_path, db_path=db_path)}
                     if checkpoint else {}
                 ),
             }
@@ -614,7 +636,7 @@ def _run(
                 "cancel_reason": cancellation.reason,
                 "run_id": checkpoint["run_id"],
                 "checkpoint_path": str(written_path),
-                "resume_command": resume_command(checkpoint["run_id"], options.checkpoint_path),
+                "resume_command": resume_command(checkpoint["run_id"], options.checkpoint_path, db_path=db_path),
                 "selected_project_count": selected_total,
                 "completed_project_count": len(checkpoint.get("completed_project_keys", [])),
             }
@@ -647,7 +669,7 @@ def _run(
     }
     if failed_projects:
         if checkpoint:
-            summary["resume_command"] = resume_command(checkpoint["run_id"], options.checkpoint_path)
+            summary["resume_command"] = resume_command(checkpoint["run_id"], options.checkpoint_path, db_path=db_path)
         error = {
             "type": "BulkEnrichmentError",
             "message": f"{len(failed_projects)} project(s) failed during bulk enrich",
@@ -656,7 +678,7 @@ def _run(
         return OperationResult(request.operation_id, request.operation, "failed", started_at, project_record.iso_now(), summary, error)
     if conflicted_projects:
         if checkpoint:
-            summary["resume_command"] = resume_command(checkpoint["run_id"], options.checkpoint_path)
+            summary["resume_command"] = resume_command(checkpoint["run_id"], options.checkpoint_path, db_path=db_path)
         publish("retry_wait", summary)
         return OperationResult(request.operation_id, request.operation, "retry_wait", started_at, project_record.iso_now(), summary)
     publish("completed", summary)

@@ -13,6 +13,8 @@ from ..jobs import CancellationToken, OperationEvent, OperationRequest
 
 
 def request_from_args(args: argparse.Namespace) -> OperationRequest:
+    if args.rebind_checkpoint and (not args.resume_run or args.registry_db_path is None):
+        raise ValueError("--rebind-checkpoint requires --resume-run and an explicit --db-path before enrich")
     operation_id = str(args.resume_run or args.run_id or "")
     return OperationRequest.create(
         "enrich",
@@ -36,6 +38,7 @@ def request_from_args(args: argparse.Namespace) -> OperationRequest:
             "checkpoint_path": str(args.checkpoint_path or ""),
             "no_checkpoint": bool(args.no_checkpoint),
             "resume_run": str(args.resume_run or ""),
+            "rebind_checkpoint": bool(args.rebind_checkpoint),
             "deep_investigation": bool(args.deep_investigation),
             "prefetch": not bool(args.no_prefetch),
             "llm_endpoint": str(args.llm_endpoint or ""),

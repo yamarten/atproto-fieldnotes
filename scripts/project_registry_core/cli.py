@@ -77,6 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
     enrich_parser.add_argument("--fail-fast", action="store_true", help="When used with --all, stop after the first failed project instead of continuing the bulk run.")
     enrich_parser.add_argument("--run-id", help="When used with --all, use this id for the resumable checkpoint file.")
     enrich_parser.add_argument("--resume-run", help="Resume a previous --all enrich run from its checkpoint run id.")
+    enrich_parser.add_argument("--rebind-checkpoint", action="store_true", help="Explicitly bind a legacy or moved checkpoint to the DB selected by --db-path when resuming.")
     enrich_parser.add_argument("--checkpoint-path", help="Override the enrich run checkpoint JSON path.")
     enrich_parser.add_argument("--no-checkpoint", action="store_true", help="When used with --all, disable resumable checkpoint writing.")
     enrich_parser.add_argument("--deep-investigation", action="store_true", help="Probe discovered resource/docs pages as additional evidence before LLM review.")

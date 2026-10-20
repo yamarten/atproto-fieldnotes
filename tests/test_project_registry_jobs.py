@@ -792,6 +792,25 @@ class ProjectRegistryJobTest(_ProjectRegistryJobFixtures, TempRegistryDbTestCase
         with self.assertRaisesRegex(ValueError, "invalid checkpoint"):
             self.manager.resume_checkpoint("../outside")
 
+    def test_real_worker_rejects_checkpoint_from_another_db_without_rewriting_it(self) -> None:
+        path = Path(self.tempdir.name) / "wrong-db.json"
+        path.write_text(json.dumps({
+            "version": 1, "run_id": "wrong-db", "database_path": str(self.db_path.parent / "other.db"),
+            "selected_project_keys": [], "completed_project_keys": [], "options": {},
+        }))
+        before = path.read_bytes()
+        request = OperationRequest.create("enrich", operation_id="wrong-db", execute=True,
+            parameters={"all_projects": True, "resume_run": "wrong-db", "checkpoint_path": str(path)})
+        result = subprocess.run(
+            [sys.executable, "-m", "project_registry_core.worker"],
+            input=json.dumps({"db_path": str(self.db_path), "request": request.to_dict()}),
+            text=True, capture_output=True, cwd=str(SCRIPTS.parent),
+            env={**os.environ, "PYTHONPATH": str(SCRIPTS)}, timeout=10,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("checkpoint database does not match", result.stdout)
+        self.assertEqual(path.read_bytes(), before)
+
     def test_real_worker_protocol_completes_empty_bulk_enrich_without_network(self) -> None:
         checkpoint = Path(self.tempdir.name) / "empty-run.json"
         request = OperationRequest.create(

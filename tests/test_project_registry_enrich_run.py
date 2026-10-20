@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from pathlib import Path
 from unittest import mock
 
@@ -12,6 +13,7 @@ from project_registry_core.evidence import EvidenceBundle
 from project_registry_core.jobs import CancellationToken, OperationRequest
 from project_registry_core import project_record
 from project_registry_core.persistence import storage
+from project_registry_core.persistence import database
 
 
 class _ProjectRegistryEnrichRunFixtures:
@@ -81,6 +83,85 @@ class ProjectRegistryEnrichRunUnitTest(_ProjectRegistryEnrichRunFixtures, Projec
 
 
 class ProjectRegistryEnrichRunTest(_ProjectRegistryEnrichRunFixtures, TempRegistryDbTestCase):
+    def interrupted_checkpoint(self, path):
+        token = CancellationToken()
+        token.request_cancel("before_first_item")
+        conn = registry.open_db()
+        try:
+            return enrichment.run(conn, self.request(path), cancellation=token)
+        finally:
+            conn.close()
+
+    def test_emitted_resume_command_keeps_custom_db_with_a_different_cli_default(self):
+        self.seed_projects()
+        path = Path(self.tempdir.name) / "checkpoint with spaces.json"
+        result = self.interrupted_checkpoint(path)
+        default_path = Path(self.tempdir.name) / "other.db"
+        other = database.open_database(default_path, create=True)
+        key = "proj:111111111111"
+        project_record.save_project(other, self.make_project(key))
+        before = project_record.fetch_project(other, key)
+        calls = []
+
+        def enrich(conn, project, **kwargs):
+            calls.append(enrichment.checkpoint_database_path(conn))
+            return dict(project, notes="resumed on original DB")
+
+        try:
+            with mock.patch.object(registry, "DB_PATH", default_path), \
+                 mock.patch.object(enrichment.enrichment_pipeline, "enrich_project", side_effect=enrich), \
+                 captured_stdout():
+                code = cli.main(shlex.split(result.data["resume_command"])[1:])
+            self.assertEqual(code, 0)
+            self.assertEqual(calls, [str(self.db_path.resolve())] * 2)
+            self.assertEqual(project_record.fetch_project(other, key), before)
+            conn = registry.open_db()
+            try:
+                self.assertEqual(project_record.fetch_project(conn, key)["notes"], "resumed on original DB")
+            finally:
+                conn.close()
+        finally:
+            other.close()
+
+    def test_legacy_and_moved_checkpoints_require_explicit_rebinding(self):
+        self.seed_projects()
+        path = Path(self.tempdir.name) / "bound.json"
+        for old_path in (None, str(Path(self.tempdir.name) / "old-location.db")):
+            with self.subTest(old_path=old_path):
+                self.interrupted_checkpoint(path)
+                payload = json.loads(path.read_text())
+                if old_path is None:
+                    payload.pop("database_path")
+                else:
+                    payload["database_path"] = old_path
+                path.write_text(json.dumps(payload))
+                before = path.read_bytes()
+                conn = registry.open_db()
+                try:
+                    with mock.patch.object(enrichment.enrichment_pipeline, "enrich_project") as enrich:
+                        with self.assertRaisesRegex(ValueError, "rebind-checkpoint"):
+                            enrichment.run(conn, self.request(path, resume_run="test-run"))
+                        enrich.assert_not_called()
+                        self.assertEqual(path.read_bytes(), before)
+                finally:
+                    conn.close()
+                with mock.patch.object(enrichment.enrichment_pipeline, "enrich_project",
+                                       side_effect=lambda conn, project, **kw: project), captured_stdout():
+                    code = cli.main(["--db-path", str(self.db_path), "enrich", "--all",
+                                     "--resume-run", "test-run", "--checkpoint-path", str(path),
+                                     "--rebind-checkpoint"])
+                self.assertEqual(code, 0)
+                rebound = json.loads(path.read_text())
+                self.assertEqual(rebound["database_path"], str(self.db_path.resolve()))
+                self.assertNotIn("rebind_checkpoint", rebound["options"])
+
+    def test_rebinding_requires_explicit_db_selection_and_resume(self):
+        for args in (["enrich", "--all", "--resume-run", "old", "--rebind-checkpoint"],
+                     ["--db-path", str(self.db_path), "enrich", "--all", "--rebind-checkpoint"]):
+            with self.subTest(args=args):
+                with self.assertRaisesRegex(ValueError, "explicit --db-path"):
+                    enrichment_commands.request_from_args(cli.build_parser().parse_args(args))
+
     def test_operation_request_and_checkpoint_omit_api_key_value(self) -> None:
         checkpoint_path = Path(self.tempdir.name) / "run.json"
         request = self.request(checkpoint_path)
@@ -95,6 +176,7 @@ class ProjectRegistryEnrichRunTest(_ProjectRegistryEnrichRunFixtures, TempRegist
             [{"project_key": "proj:111111111111"}],
             request,
             options,
+            db_path=str(self.db_path.resolve()),
         )
         written = enrichment.write_checkpoint(checkpoint, str(checkpoint_path))
         loaded = enrichment.load_checkpoint("test-run", str(checkpoint_path))
@@ -400,6 +482,7 @@ class ProjectRegistryEnrichRunTest(_ProjectRegistryEnrichRunFixtures, TempRegist
                 selected,
                 request,
                 enrichment.EnrichmentOptions.from_request(request),
+                db_path=str(self.db_path.resolve()),
             )
             checkpoint["status"] = "failed"
             checkpoint["failed_projects"] = [{

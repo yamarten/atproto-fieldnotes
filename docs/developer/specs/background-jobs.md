@@ -79,6 +79,8 @@ project処理中に対象keyがmergeされてaliasになった場合や更新番
 
 `enrich --all`は既定で`data/enrich-runs/<run_id>.json`を使います。開始時の`selected_project_keys`は対象の順序を固定しますが、処理snapshotは固定しません。各件開始時に最新のcanonical projectを読み直し、tracking state、`new_only`、`retry_failures`の条件を再確認します。条件から外れた対象や削除された対象は理由付きの`skipped_projects`へ記録し、調査成功件数には含めません。同じprocess内では、処理済みのcanonical projectを重複実行しません。
 
+checkpointの`database_path`は実接続DBの絶対path（symlink解決後）です。CLI・Web workerとも再開前に接続先と照合し、不一致またはこのfieldを持たない旧checkpointは、調査・checkpoint更新前に拒否します。再開案内はDBとcheckpointの絶対pathを含みます。同じpathのDB内容が置換されたことまで識別するものではありません。旧checkpointの引継ぎや意図的なDB移動・複製先での再開は、CLIで`--db-path`と`--resume-run`を明示し、`--rebind-checkpoint`を付けて接続先へ関連付け直します。この許可はcheckpointのoptionへ保存せず、その操作限りです。元の対象key・完了状態は維持するため、対応するDBを選ぶ必要があります。
+
 - project保存後に`completed_project_keys`を更新する
 - 想定内の競合を`conflicted_projects`へ記録し、完了扱いにしない。過去の未解決attemptのrun IDも保持する
 - 一般障害を`failed_projects`、存在しないkeyを`missing_project_keys`、処理中keyを`current_project_key`へ記録する

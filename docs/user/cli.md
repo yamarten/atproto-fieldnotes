@@ -93,6 +93,14 @@ project-registry enrich --all --resume-run weekly-20260714
 
 調査中に同じ登録プロジェクトが編集・統合・分割された場合は、古い保存を拒否し、調査成果を「未反映」の履歴として残します。他の対象は続行し、競合だけが残れば`retry_wait`、終了コード`2`と再開コマンドを返します。再開すると最新状態から外部取得・LLMも再実行するため、その分の処理時間がかかります。各件開始時に追跡状態などを確認し、対象外になったものは理由を記録して調査しません。`--retry-failures`はcollector失敗の選択条件で、保存競合の再開には`--resume-run`を使います。
 
+出力される再開コマンドは、接続中DBとcheckpointの絶対pathを保持します。再開時はcheckpointに記録されたDB pathと照合するため、別DBへの誤接続やDB path未記録の旧checkpointは拒否されます。旧checkpointを引き継ぐ場合や、意図的にDBを移動・複製した場合だけ、対応するDBとcheckpointを確認して次の形で再関連付けします。Webからの再開が同じ理由で失敗した場合も、このCLI操作を使います。元の完了件・対象keyは引き継ぎます。
+
+```bash
+project-registry --db-path /absolute/path/survey.db enrich --all \
+  --resume-run weekly-20260714 --checkpoint-path /absolute/path/weekly-20260714.json \
+  --rebind-checkpoint
+```
+
 1件の登録プロジェクトが失敗しても既定では残りを続行し、一括実行全体は最終的に`failed`、終了コード`1`になります。`--fail-fast`は最初の失敗後に止めます。Ctrl+Cは処理中の登録プロジェクトの完了・保存と、開始済みの先行取得の回収後に止まり、再開コマンドを出して終了コード`130`を返します。未処理の先行成果は未反映履歴へ残し、再開時に最新状態から再取得します。即時停止ではないため、停止までの時間は外部リクエストのタイムアウトと残りの初期取得量に依存します。
 
 既定対象外の追跡状態は`--include-*`、明示列挙は`--tracking-states`、全状態は`--all-tracking-states`で含めます。
