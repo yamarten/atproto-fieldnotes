@@ -36,6 +36,10 @@ serviceの稼働状態とNSID ownershipを確認するレビュー表示も、�
 
 ### Enrichの実行順序
 
+![初期収集と帰属確認、repo解析、固定規則による追加検索、説明と分類の更新案、再評価、保存の調査フロー](../../images/registry-investigation-flow.png)
+
+図は登録済み一件の通常調査の主要工程です。根拠の適用・帰属の評価は収集途中でも行い、repository解析とtriageは条件が一致する保存済み結果を再利用します。採用済みrepositoryがない場合はrepo解析を飛ばして追加調査へ進みます。
+
 `enrich` は次の順で動きます。
 
 1. seed由来の事実収集

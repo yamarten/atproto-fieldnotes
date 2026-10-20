@@ -497,6 +497,10 @@ Lexicon schema recordの公開は`did_publishes_schema`として分けます。m
 
 この節は通常導線で使われる`trust-graph-v2`の規則です。前半の合意済み判断モデル全体を実装済みとは扱いません。
 
+![架空のField Notesプロジェクトに帰属するサービス、repo、独自Lexiconと、外部の依存先・参照先を区別した信頼グラフ](../../images/registry-trust-graph.png)
+
+架空の「Field Notes プロジェクト」では、手動採用済みのroot serviceを起点に、公式repoとの相互参照と独自Lexiconの発行情報を確認します。domainはservice hostとの完全一致を表す経路の中継点で、Lexicon側はDNS委譲先のDID documentとPDSのmatching schema recordまで検証した例です。保留・除外がない場合を示し、破線の依存・参照関係は採用に使う信頼経路ではありません。
+
 `trust-graph-v2`のpage↔repository edgeは、`project_relations`の現在の観測から導出します。`repository_trust.project_edges()`が共通投影で、候補URLの確認（candidate probe）、URLの信頼評価、Explain、shadow比較が同じ投影を使います。`trust_graph.graph()`は判定用、`stored_graph()`は保存用です。page↔repository以外のedgeと評価履歴は`state_json.evidence.trust_graph`に残します。
 
 - `project_repository`のwebsite/service→repo、repo→website/serviceを方向付きedgeへ投影し、confirmedだけを強い経路として扱います。

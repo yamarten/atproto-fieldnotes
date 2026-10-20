@@ -6,14 +6,9 @@
 
 ## 全体の流れ
 
-```mermaid
-flowchart TD
-    register[発見・登録<br/>候補の照合・取り込み] --> db
-    db[(SQLite<br/>現在状態・手動判断<br/>調査履歴)] -->|調査対象・保存済み情報| investigate
-    investigate[調査・判断<br/>根拠の収集と更新案の評価] -->|手動判断を尊重して保存| db
-    db --> view[閲覧・レビュー<br/>CLI / Web]
-    view -->|採用・除外・保留・編集| db
-```
+![利用者のブラウザとCLI、共通処理、SQLite、情報ソース、LLM、調査ブラウザの接続構成](../images/registry-system-context.png)
+
+図の枠はツールの構成範囲であり、端末やネットワークの境界ではありません。LLMはAPIまたは外部commandで接続し、調査ブラウザはPlaywright導入時に描画後の画面・到達先・エラーを観測します。情報源と認証の設定は[接続設定](../user/configuration.md)を参照してください。
 
 1. **発見・登録** — source別のsyncが候補を既存projectへ照合し、対象commandでは未知の候補を新規登録する。
 2. **調査・判断** — enrichが根拠を収集し、resourceの帰属、説明、分類、稼働状態を評価する。観測したlinkやLLMの提案をそのまま採用するわけではない。

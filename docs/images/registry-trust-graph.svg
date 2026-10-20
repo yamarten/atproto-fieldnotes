@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1120" viewBox="0 0 1600 1120" role="img"><title>信頼グラフ</title><desc>架空のField Notesプロジェクト。手動採用済みサービスとリポジトリの相互参照を確認する。サービスの完全一致ホストと、DNS委譲・schema公開を検証した独自Lexiconとの双方向経路から帰属を確認する。依存先と参照Lexiconはこのプロジェクトの外に置く。</desc>
+<path d="M0,0 H1600 Q1600,0 1600,0 V1120 Q1600,1120 1600,1120 H0 Q0,1120 0,1120 V0 Q0,0 0,0 Z" fill="#FFFFFF" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="70" y="82" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="43" font-weight="600" fill="#173D48" text-anchor="start">信頼グラフ</text>
+<path d="M112,130 H1488 Q1530,130 1530,172 V763 Q1530,805 1488,805 H112 Q70,805 70,763 V172 Q70,130 112,130 Z" fill="#EDF8F3" stroke="#B6DFD0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="110" y="179" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="27" font-weight="500" fill="#087F78" text-anchor="start">Field Notes プロジェクト</text>
+<path d="M204.5,210 H395.5 Q415,210 415,229.5 V229.5 Q415,249 395.5,249 H204.5 Q185,249 185,229.5 V229.5 Q185,210 204.5,210 Z" fill="#087F78" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="300" y="237" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="22" font-weight="500" fill="#FFFFFF" text-anchor="middle">手動で採用済み</text>
+<path d="M1117.5,210 H1342.5 Q1362,210 1362,229.5 V229.5 Q1362,249 1342.5,249 H1117.5 Q1098,249 1098,229.5 V229.5 Q1098,210 1117.5,210 Z" fill="#087F78" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1230" y="237" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="22" font-weight="500" fill="#FFFFFF" text-anchor="middle">相互参照で採用</text>
+<path d="M370,304 C610,235 920,235 1160,304" fill="none" stroke="#087F78" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1149.322268400817,294.4613393028262 L1160,304 L1145.8138079441442,305.9369963743826" fill="none" stroke="#087F78" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="775" y="235" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="25" font-weight="500" fill="#087F78" text-anchor="middle">① 公式の「Source code」リンク</text>
+<path d="M1160,355 C920,410 610,410 370,355" fill="none" stroke="#087F78" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M381.31710451614487,363.7705840951816 L370,355 L384.01651716827126,352.0781433177588" fill="none" stroke="#087F78" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="775" y="445" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="25" font-weight="500" fill="#087F78" text-anchor="middle">② Homepage から同じサービスへ</text>
+<path d="M361,365 C480,430 480,535 354,603" fill="none" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M368.29514808388143,602.194555240937 L354,603 L362.6614893304507,591.5991841266298" fill="none" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M246,603 C120,535 120,430 239,365" fill="none" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M224.70485191611863,365.80544475906305 L239,365 L230.3385106695493,376.40081587337016" fill="none" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="300" y="534" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="23" font-weight="500" fill="#087F78" text-anchor="middle">ホスト完全一致</text>
+<path d="M360,608 C545,545 805,545 990,608" fill="none" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M979.6616674439517,598.094502538461 L990,608 L975.7548495904659,609.4407254456528" fill="none" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="675" y="551" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="23" font-weight="500" fill="#087F78" text-anchor="middle">DNS委譲 ＋ schema 公開を検証</text>
+<path d="M990,652 C805,720 545,720 360,652" fill="none" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M370.1638832102628,662.0844175879491 L360,652 L374.2681249301708,650.8081061385182" fill="none" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="675" y="737" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="23" font-weight="500" fill="#087F78" text-anchor="middle">NSID の authority domain</text>
+<path d="M1300,330 H1460 Q1490,330 1490,360 V850" fill="none" stroke="#A6B3B7" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 9"/>
+<path d="M1490,850 Q1490,860 1480,860 H600 Q540,860 540,900" fill="none" stroke="#A6B3B7" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 9"/>
+<path d="M546,887 L540,900 L534,887" fill="none" stroke="#A6B3B7" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1490,850 V870 Q1490,900 1460,900 H1290 Q1240,900 1240,910" fill="none" stroke="#A6B3B7" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 9"/>
+<path d="M1246,897 L1240,910 L1234,897" fill="none" stroke="#A6B3B7" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M734,838 H1036 Q1050,838 1050,852 V868 Q1050,882 1036,882 H734 Q720,882 720,868 V852 Q720,838 734,838 Z" fill="#FFFFFF" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="885" y="869" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="23" font-weight="400" fill="#697D83" text-anchor="middle">依存パッケージとして利用</text>
+<text x="1375" y="941" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="22" font-weight="400" fill="#697D83" text-anchor="middle">Lexicon を参照</text>
+<path d="M228,330 a72,72 0 1,0 144,0 a72,72 0 1,0 -144,0" fill="#087F78" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="300" y="340" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="27" font-weight="500" fill="#FFFFFF" text-anchor="middle">サービス</text>
+<text x="300" y="439" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="30" font-weight="600" fill="#173D48" text-anchor="middle">Field Notes</text>
+<text x="300" y="477" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="21" font-weight="400" fill="#697D83" text-anchor="middle">fieldnotes.example</text>
+<path d="M1158,330 a72,72 0 1,0 144,0 a72,72 0 1,0 -144,0" fill="#FFFFFF" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1230" y="340" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="31" font-weight="600" fill="#087F78" text-anchor="middle">repo</text>
+<text x="1230" y="439" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="30" font-weight="600" fill="#173D48" text-anchor="middle">field-notes</text>
+<text x="1230" y="477" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="20" font-weight="400" fill="#697D83" text-anchor="middle">github.com/example/field-notes</text>
+<path d="M240,630 a60,60 0 1,0 120,0 a60,60 0 1,0 -120,0" fill="#FFFFFF" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="300" y="640" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="24" font-weight="500" fill="#087F78" text-anchor="middle">domain</text>
+<text x="300" y="737" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="25" font-weight="500" fill="#173D48" text-anchor="middle">fieldnotes.example</text>
+<text x="300" y="776" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="22" font-weight="400" fill="#697D83" text-anchor="middle">ドメイン</text>
+<path d="M959.5,506 H1140.5 Q1160,506 1160,525.5 V525.5 Q1160,545 1140.5,545 H959.5 Q940,545 940,525.5 V525.5 Q940,506 959.5,506 Z" fill="#087F78" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1050" y="533" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="22" font-weight="500" fill="#FFFFFF" text-anchor="middle">帰属を確認</text>
+<path d="M990,630 a60,60 0 1,0 120,0 a60,60 0 1,0 -120,0" fill="#FFFFFF" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1050" y="640" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="25" font-weight="500" fill="#087F78" text-anchor="middle">NSID</text>
+<text x="1050" y="737" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="25" font-weight="500" fill="#173D48" text-anchor="middle">example.fieldnotes.note</text>
+<text x="1050" y="776" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="22" font-weight="400" fill="#697D83" text-anchor="middle">独自 Lexicon</text>
+<path d="M487,955 a53,53 0 1,0 106,0 a53,53 0 1,0 -106,0" fill="#F3F5F5" stroke="#A6B3B7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="540" y="965" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="25" font-weight="500" fill="#697D83" text-anchor="middle">repo</text>
+<path d="M1187,965 a53,53 0 1,0 106,0 a53,53 0 1,0 -106,0" fill="#F3F5F5" stroke="#A6B3B7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1240" y="975" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="24" font-weight="500" fill="#697D83" text-anchor="middle">NSID</text>
+<text x="540" y="1052" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="27" font-weight="500" fill="#173D48" text-anchor="middle">shared-atproto-client</text>
+<text x="1240" y="1052" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="27" font-weight="500" fill="#173D48" text-anchor="middle">app.bsky.feed.post</text>
+<text x="540" y="1090" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="22" font-weight="400" fill="#697D83" text-anchor="middle">依存先のライブラリ</text>
+<text x="1240" y="1090" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="22" font-weight="400" fill="#697D83" text-anchor="middle">参照された Lexicon</text>
+</svg>

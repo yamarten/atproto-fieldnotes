@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2000" height="1100" viewBox="0 0 2000 1100" role="img"><title>接続構成</title><desc>利用者のブラウザはWebサーバーを、ターミナルはCLIを使う。Webの長時間処理は別プロセスのworkerで実行する。共通処理がSQLite、LLM、調査ブラウザを利用する。情報源はGitHub・Tangled、Bluesky・Semble、collectiondata.usounds.workのcollection inventory、Jetstreamの公開record、DNS・DID document・PDS、Webサイト。ブラウザはWebサイトを閲覧する。境界はツールの構成範囲であり、ホスト配置を限定しない。</desc>
+<path d="M0,0 H2000 Q2000,0 2000,0 V1100 Q2000,1100 2000,1100 H0 Q0,1100 0,1100 V0 Q0,0 0,0 Z" fill="#FFFFFF" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="70" y="82" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="43" font-weight="600" fill="#173D48" text-anchor="start">接続構成</text>
+<path d="M472,145 H1098 Q1130,145 1130,177 V938 Q1130,970 1098,970 H472 Q440,970 440,938 V177 Q440,145 472,145 Z" fill="#FFFFFF" stroke="#B6DFD0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="480" y="193" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="29" font-weight="600" fill="#087F78" text-anchor="start">Project Registry</text>
+<path d="M92,230 H338 Q360,230 360,252 V338 Q360,360 338,360 H92 Q70,360 70,338 V252 Q70,230 92,230 Z" fill="#EFF4FB" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="94" y="275" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="26" font-weight="600" fill="#426EAA" text-anchor="start">利用者のブラウザ</text>
+<text x="94" y="315" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="22" font-weight="400" fill="#173D48" text-anchor="start">Web UI</text>
+<path d="M92,430 H338 Q360,430 360,452 V518 Q360,540 338,540 H92 Q70,540 70,518 V452 Q70,430 92,430 Z" fill="#EFF4FB" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="94" y="475" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="28" font-weight="600" fill="#426EAA" text-anchor="start">ターミナル</text>
+<text x="94" y="515" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="22" font-weight="400" fill="#173D48" text-anchor="start">コマンド操作</text>
+<path d="M502,230 H718 Q740,230 740,252 V338 Q740,360 718,360 H502 Q480,360 480,338 V252 Q480,230 502,230 Z" fill="#EDF8F3" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="504" y="275" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="28" font-weight="600" fill="#087F78" text-anchor="start">Web サーバー</text>
+<text x="504" y="315" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="22" font-weight="400" fill="#173D48" text-anchor="start">API / ジョブ管理</text>
+<path d="M852,230 H1068 Q1090,230 1090,252 V338 Q1090,360 1068,360 H852 Q830,360 830,338 V252 Q830,230 852,230 Z" fill="#EDF8F3" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="854" y="275" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="28" font-weight="600" fill="#087F78" text-anchor="start">調査 worker</text>
+<text x="854" y="315" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="22" font-weight="400" fill="#173D48" text-anchor="start">別プロセス</text>
+<path d="M502,430 H718 Q740,430 740,452 V518 Q740,540 718,540 H502 Q480,540 480,518 V452 Q480,430 502,430 Z" fill="#EDF8F3" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="504" y="475" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="30" font-weight="600" fill="#087F78" text-anchor="start">CLI</text>
+<path d="M502,625 H1068 Q1090,625 1090,647 V763 Q1090,785 1068,785 H502 Q480,785 480,763 V647 Q480,625 502,625 Z" fill="#EDF8F3" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="504" y="670" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="31" font-weight="600" fill="#087F78" text-anchor="start">共通処理</text>
+<text x="504" y="710" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="22" font-weight="400" fill="#173D48" text-anchor="start">発見・調査・帰属・評価</text>
+<text x="504" y="755" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="21" font-weight="500" fill="#087F78" text-anchor="start">application service</text>
+<path d="M622,845 H948 Q970,845 970,867 V923 Q970,945 948,945 H622 Q600,945 600,923 V867 Q600,845 622,845 Z" fill="#EFF4FB" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="624" y="890" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="29" font-weight="600" fill="#426EAA" text-anchor="start">SQLite</text>
+<text x="624" y="922" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="23" font-weight="400" fill="#173D48" text-anchor="start">現在状態・判断・調査履歴</text>
+<path d="M360,279 H462" fill="none" stroke="#426EAA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M449,273 L462,279 L449,285" fill="none" stroke="#426EAA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M480,322 H378" fill="none" stroke="#426EAA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M391,328 L378,322 L391,316" fill="none" stroke="#426EAA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="420" y="258" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="21" font-weight="500" fill="#426EAA" text-anchor="middle">HTTP</text>
+<path d="M360,484 H462" fill="none" stroke="#426EAA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M449,478 L462,484 L449,490" fill="none" stroke="#426EAA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M740,282 H812" fill="none" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M799,276 L812,282 L799,288" fill="none" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="785" y="261" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="20" font-weight="500" fill="#087F78" text-anchor="middle">起動</text>
+<path d="M740,330 H763 Q775,330 775,342 V607" fill="none" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M781,594 L775,607 L769,594" fill="none" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="790" y="580" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="21" font-weight="500" fill="#087F78" text-anchor="start">閲覧・編集</text>
+<path d="M610,540 V607" fill="none" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M616,594 L610,607 L604,594" fill="none" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M960,360 V607" fill="none" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M966,594 L960,607 L954,594" fill="none" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="982" y="499" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="21" font-weight="500" fill="#087F78" text-anchor="start">調査ジョブ</text>
+<path d="M760,785 V827" fill="none" stroke="#426EAA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M766,814 L760,827 L754,814" fill="none" stroke="#426EAA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M810,845 V803" fill="none" stroke="#426EAA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M804,816 L810,803 L816,816" fill="none" stroke="#426EAA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1240,145 H1930 Q1960,145 1960,175 V725 Q1960,755 1930,755 H1240 Q1210,755 1210,725 V175 Q1210,145 1240,145 Z" fill="#FFFFFF" stroke="#DAE3E5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1240" y="190" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="29" font-weight="600" fill="#173D48" text-anchor="start">情報ソース</text>
+<path d="M1262,215 H1548 Q1570,215 1570,237 V343 Q1570,365 1548,365 H1262 Q1240,365 1240,343 V237 Q1240,215 1262,215 Z" fill="#F3F5F5" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1264" y="260" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="27" font-weight="600" fill="#173D48" text-anchor="start">GitHub / Tangled</text>
+<text x="1264" y="300" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="21" font-weight="400" fill="#173D48" text-anchor="start">リポジトリ情報</text>
+<text x="1264" y="337" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="21" font-weight="400" fill="#173D48" text-anchor="start">README・コード</text>
+<path d="M1622,215 H1908 Q1930,215 1930,237 V343 Q1930,365 1908,365 H1622 Q1600,365 1600,343 V237 Q1600,215 1622,215 Z" fill="#F3F5F5" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1624" y="260" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="27" font-weight="600" fill="#173D48" text-anchor="start">Bluesky / Semble</text>
+<text x="1624" y="300" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="21" font-weight="400" fill="#173D48" text-anchor="start">投稿検索・追跡コレクション</text>
+<text x="1624" y="337" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="21" font-weight="400" fill="#173D48" text-anchor="start">紹介投稿・ブックマーク</text>
+<path d="M1262,390 H1548 Q1570,390 1570,412 V518 Q1570,540 1548,540 H1262 Q1240,540 1240,518 V412 Q1240,390 1262,390 Z" fill="#F3F5F5" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1264" y="435" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="25" font-weight="600" fill="#173D48" text-anchor="start">Collection inventory</text>
+<text x="1264" y="475" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="20" font-weight="400" fill="#173D48" text-anchor="start">collectiondata.usounds.work</text>
+<text x="1264" y="512" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="20" font-weight="400" fill="#173D48" text-anchor="start">NSID・record数・活動</text>
+<path d="M1622,390 H1908 Q1930,390 1930,412 V518 Q1930,540 1908,540 H1622 Q1600,540 1600,518 V412 Q1600,390 1622,390 Z" fill="#F3F5F5" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1624" y="435" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="28" font-weight="600" fill="#173D48" text-anchor="start">Jetstream</text>
+<text x="1624" y="475" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="20" font-weight="400" fill="#173D48" text-anchor="start">com.atproto.lexicon.schema</text>
+<text x="1624" y="512" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="20" font-weight="400" fill="#173D48" text-anchor="start">sh.tangled.repo</text>
+<path d="M1262,565 H1548 Q1570,565 1570,587 V693 Q1570,715 1548,715 H1262 Q1240,715 1240,693 V587 Q1240,565 1262,565 Z" fill="#F3F5F5" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1264" y="610" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="27" font-weight="600" fill="#173D48" text-anchor="start">DNS / DID / PDS</text>
+<text x="1264" y="650" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="21" font-weight="400" fill="#173D48" text-anchor="start">DNS委譲・DID document</text>
+<text x="1264" y="687" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="21" font-weight="400" fill="#173D48" text-anchor="start">schema・record sample</text>
+<path d="M1622,565 H1908 Q1930,565 1930,587 V693 Q1930,715 1908,715 H1622 Q1600,715 1600,693 V587 Q1600,565 1622,565 Z" fill="#F3F5F5" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1624" y="610" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="28" font-weight="600" fill="#173D48" text-anchor="start">Webサイト</text>
+<text x="1624" y="650" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="21" font-weight="400" fill="#173D48" text-anchor="start">公式ページ・リンク・OAuth</text>
+<text x="1624" y="687" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="21" font-weight="400" fill="#173D48" text-anchor="start">HTML・描画後の画面</text>
+<path d="M1262,840 H1548 Q1570,840 1570,862 V978 Q1570,1000 1548,1000 H1262 Q1240,1000 1240,978 V862 Q1240,840 1262,840 Z" fill="#EFF4FB" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1264" y="885" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="30" font-weight="600" fill="#426EAA" text-anchor="start">LLM</text>
+<text x="1264" y="925" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="22" font-weight="400" fill="#173D48" text-anchor="start">API / 外部コマンド</text>
+<text x="1264" y="962" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="22" font-weight="400" fill="#173D48" text-anchor="start">素材解析・説明・分類</text>
+<path d="M1622,840 H1908 Q1930,840 1930,862 V958 Q1930,980 1908,980 H1622 Q1600,980 1600,958 V862 Q1600,840 1622,840 Z" fill="#EFF4FB" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1624" y="885" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="28" font-weight="600" fill="#426EAA" text-anchor="start">調査ブラウザ</text>
+<text x="1624" y="925" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="21" font-weight="400" fill="#173D48" text-anchor="start">Playwright / Chromium</text>
+<text x="1624" y="962" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="21" font-weight="400" fill="#173D48" text-anchor="start">描画・到達・エラー</text>
+<path d="M1090,670 H1130 Q1150,670 1150,650 V540 Q1150,520 1170,520 H1192" fill="none" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1179,514 L1192,520 L1179,526" fill="none" stroke="#087F78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1178" y="497" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="21" font-weight="500" fill="#087F78" text-anchor="middle">取得</text>
+<path d="M1090,706 H1160 Q1180,706 1180,726 V900 Q1180,920 1200,920 H1222" fill="none" stroke="#426EAA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1209,914 L1222,920 L1209,926" fill="none" stroke="#426EAA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1103,700 L1090,706 L1103,712" fill="none" stroke="#426EAA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1090,745 H1120 Q1140,745 1140,765 V1020 Q1140,1040 1160,1040 H1745 Q1765,1040 1765,1020 V998" fill="none" stroke="#426EAA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1759,1011 L1765,998 L1771,1011" fill="none" stroke="#426EAA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1103,739 L1090,745 L1103,751" fill="none" stroke="#426EAA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1765,840 V733" fill="none" stroke="#426EAA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1759,746 L1765,733 L1771,746" fill="none" stroke="#426EAA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1790" y="799" font-family="Hiragino Sans, Noto Sans JP, sans-serif" font-size="21" font-weight="500" fill="#426EAA" text-anchor="start">Web閲覧</text>
+</svg>
