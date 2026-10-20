@@ -18,6 +18,7 @@ DEFAULT_HEADERS = {
 REQUEST_TIMEOUT_DEFAULT = 60.0
 REQUEST_TIMEOUT_DISCOVERY_SEARCH = 12.0
 MAX_HTTP_REDIRECTS = 5
+SENSITIVE_HEADERS = {"authorization", "proxy-authorization", "cookie", "cookie2"}
 
 
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -91,6 +92,22 @@ def validate_outbound_fetch_url(url: str, *, allow_blocked_hosts: bool = False) 
     return normalized
 
 
+def _origin(url: str) -> tuple[str, str | None, int]:
+    parsed = urllib.parse.urlparse(url)
+    return parsed.scheme, parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
+
+
+def _validate_redirect(current_url: str, next_url: str, *, headers: dict[str, str], data: bytes | None) -> None:
+    current, target = _origin(current_url), _origin(next_url)
+    if current[0] == "https" and target[0] != "https":
+        raise ValueError("outbound redirect would downgrade HTTPS")
+    if current != target and (data is not None or any(name.lower() in SENSITIVE_HEADERS for name in headers)):
+        # POST bodies can contain passwords even without an Authorization header.
+        # Reject before a 303 drops the body; redirect permission is not consent
+        # to send credentials or an API payload to a different origin.
+        raise ValueError("cross-origin redirect is not allowed for authenticated or body-bearing requests")
+
+
 def request_bytes(
     url: str,
     headers: dict[str, str] | None = None,
@@ -140,6 +157,7 @@ def request_bytes_with_final_url(
                         urllib.parse.urljoin(current_url, location),
                         allow_blocked_hosts=allow_blocked_hosts,
                     )
+                    _validate_redirect(current_url, next_url, headers=merged_headers, data=data)
                 finally:
                     exc.close()
                 current_url = next_url

@@ -18,6 +18,8 @@ Web UIは起動したprocessの環境変数を使うため、起動前に設定�
 
 `ATPROTO_SURVEY_LLM_ENDPOINT`は利用者が管理する信頼済みの接続先として扱い、localhostやLANも許可します。
 
+HTTP接続ではHTTPSからHTTPへの転送を拒否します。認証headerまたは送信本文を伴うAPI呼出しは、同じscheme・host・portへの転送だけを許可します。別originへの転送が必要な接続先は、信頼できる最終endpointを設定してください。認証も本文もないページ取得は、既存の接続先検証を通る別originへの転送を許可します。
+
 OpenAI互換endpoint方式:
 
 ```bash
