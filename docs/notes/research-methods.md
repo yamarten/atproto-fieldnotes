@@ -1,8 +1,8 @@
 # atprotoの活用事例を調べる
 
-人がブラウザーとメモで調べる時にも、別の調査ツールを作る時にも使える調べ方をまとめます。発見、帰属・信用判断、説明へつながる手掛かりを選び、何を確認できたかを根拠に合わせて残します。ツールの全機能を説明する一覧ではありません。
+atprotoの活用事例を収集・調査するツールの開発を通じて、人力調査で培ったコツと、自動化を試して得た知見を整理しました。類似のツールを作る人や、人力で調査する人に向けて、情報源の選び方、帰属の裏付け方、機能とデータ利用の確かめ方を紹介します。
 
-以下は実務上の経験と仕様・既存調査に基づく方法です。定量的な有効率を保証するものではなく、例の「栞棚」「路地ログ」「PageKit」は架空です。確認した原典や日付を必要な範囲で残すと、変化や食い違いを再確認できます。履歴保存の方式や量は別の設計判断です。
+調査手順の例に登場するサービスやライブラリは架空です。
 
 ## 探したいものに応じて入口を選ぶ
 
@@ -79,7 +79,7 @@ repo Rの管理者は、自分のREADMEへ「栞棚の公式実装です」と�
 
 一つのサービスの情報は、サイト、Web・モバイルのrepo、データ定義などに分かれている。提供者は利用や開発に必要な案内をそれらの間へ置くため、**資料間の参照と役割の説明を辿ると、断片から構成を組み立てられる。** 作者や名称の一致は、その探索を始める手掛かりになる。
 
-K02が「この関係の主張を信用できるか」を扱うのに対し、ここでは確認した関係を使って「全体が何から成り、別の取り組みとどうつながるか」を調べる。一人が複数のサービスを作ることも、一つのrepoを複数サービスが共有することもあるため、共通点が生じた理由を読む。[対象と構成要素の考え方][boundaries]
+一人が複数のサービスを作ることも、一つのrepoを複数サービスが共有することもある。資料間の関係を確かめながら、構成要素なのか、関連する別の取り組みなのかを区別する。[対象と構成要素の考え方][boundaries]
 
 ### 手元の手掛かりから進める
 
@@ -164,14 +164,14 @@ collectionが分かれば、`listReposByCollection`の先頭に出るDIDを調�
 
 ## 関連資料
 
-ツールの操作は[利用ガイド](guide.md)、調査を自動処理へ組み込む時の取得範囲は[調査仕様](../developer/specs/investigation.md)を参照してください。
+ツールの操作は[利用ガイド](../user/guide.md)、調査を自動処理へ組み込む時の取得範囲は[調査仕様](../developer/specs/investigation.md)を参照してください。
 
-[semble-purpose]: configuration.md
+[semble-purpose]: ../user/configuration.md
 [discovery]: ../developer/specs/discovery-and-sync.md
 [sources]: ../../config/sources.json
 [boundaries]: ../developer/specs/project-boundaries.md
 [handle-official]: https://atproto.com/specs/handle#handle-resolution
-[semantics-notes]: ../notes/feature-collection-semantics-evaluation.md
+[semantics-notes]: feature-collection-semantics-evaluation.md
 [investigation]: ../developer/specs/investigation.md
 [evaluation]: ../developer/specs/project-evaluation.md
 [did-comparison]: ../developer/specs/project-boundaries.md
