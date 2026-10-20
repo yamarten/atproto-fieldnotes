@@ -34,7 +34,7 @@ flowchart TD
 
 CLIの`commands/`とWeb APIは入力をapplication serviceへ渡し、結果をtext/JSONまたはHTTP responseへ変換します。長時間処理ではCLIはserviceを直接呼び、Webは別processの`worker.py`を介します。serviceが進捗eventと終了resultを返し、enrichでは対象選択・保存・checkpoint・再開も担当します。
 
-紹介候補・要レビュー一覧の取得とpayload組立ては`application/review.py`、判定・採点は`project_review.py`が担当します。通常一覧・batch・単件取得は同じreview項目生成を使い、全体の順位付けとbatchの走査位置は各入口で保持します。
+紹介候補・要レビュー一覧の取得とpayload組立ては`application/review.py`、判定・採点は`project_review.py`が担当します。通常一覧・batch・単件取得は、詳細と同じ完全runtime viewから同じreview項目生成を使います。評価入力を縮約して再計算せず、全体の順位付けとbatchの走査位置は各入口で保持します。
 
 追跡状態レビュー（stalled / ignore / out-of-scope）は`application/review.py`が候補抽出・並べ替えと状態・メモの保存を担当し、対話CLIと非対話serviceで共有します。候補選択時のprojectと更新番号を`ReviewSnapshot`で保持し、利用者の入力後もそのsnapshotで保存競合を検査します。対話入力・理由の選択・表示は`commands/review.py`、候補ID・計画照合・進捗・中断はserviceが担当します。CLIのDB接続はコマンド入口で開閉します。
 

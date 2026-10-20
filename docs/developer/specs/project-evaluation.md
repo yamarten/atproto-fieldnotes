@@ -206,6 +206,10 @@ probeがprojectを支持し、検証済みauthorityの完全一致hostが正常�
 
 匿名browserのlogin到達は認証後の利用を保証せず、runtime/network errorだけでは一時障害と恒久停止を区別できません。`unverified`は`dead`や`private`の確定結果ではありません。
 
+#### 要レビュー一覧の評価入力
+
+要レビュー一覧・対話batch・単件項目は、詳細と同じ正規化済みの完全runtime viewから寄与度・review signal・順位を計算します。保存された評価値をそのまま表示するのではなく、識別子・関係根拠・手動判断を含む現在の保存材料に共通規則を適用します。関係根拠や認証専用フラグを省いて寄与度を再計算せず、公開Lexiconの変更通知とそのdismiss判断も保持します。一覧はproject本体・子行・更新番号を同じread snapshotで読み、各projectの正規化と保存用baseline作成は一度です。重複候補の再探索は行いません。
+
 #### Service statusの要レビュー条件
 
 LLM の `manual_review_recommended=true` は保存しますが、`manual_review_kind=service_status_manual_check`は単に `service_status_confidence=low` というだけでは review queue に載せません。

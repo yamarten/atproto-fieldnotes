@@ -215,7 +215,7 @@ def cmd_review_queue(args: argparse.Namespace) -> int:
     if interactive:
         batch_size = 100
         total_limit = max(1, int(args.limit)) if args.limit is not None else None
-        project_list = project_record.list_review_projects(conn, tracking_states=tracking_states)
+        project_list = project_record.list_projects(conn, tracking_states=tracking_states)
         next_index = 0
         emitted = 0
 

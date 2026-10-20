@@ -2495,35 +2495,6 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project_merge.compute_duplicate_candidates = original_compute
             conn.close()
 
-    def test_lightweight_review_shape_matches_full_review_signals(self) -> None:
-        conn = registry.open_db()
-        try:
-            project = self.make_project("proj:abababababab", "nsid", "app.example.post")
-            project["name"] = "Review Candidate"
-            project["manual_review_recommended"] = True
-            project["manual_review_kind"] = "identity_resolution"
-            project["manual_review_priority"] = "high"
-            project["service_url_candidates"] = ["https://candidate.example"]
-            project["candidate_project_repository_urls"] = ["https://github.com/example/candidate"]
-            project["collection_observations"] = [{"recent_count": 2, "observed_at": "2026-05-25T00:00:00+00:00"}]
-            project_record.save_project(conn, project)
-            conn.commit()
-
-            row = conn.execute("SELECT * FROM projects WHERE project_key = ?", ("proj:abababababab",)).fetchone()
-            payload = project_record.project_from_row_payload(row)
-            full = project_record.ensure_project_shape(dict(payload))
-            light = project_record.lightweight_review_project_shape(dict(payload))
-            full_signals = project_review.compute_review_signals(full, assume_shaped=True)
-            light_signals = project_review.compute_review_signals(light, assume_shaped=True)
-
-            self.assertEqual(
-                [item["kind"] for item in light_signals],
-                [item["kind"] for item in full_signals],
-            )
-            self.assertEqual(application_review.review_queue(conn, tracking_states={"active"}, limit=1)[0]["project_key"], "proj:abababababab")
-        finally:
-            conn.close()
-
     def test_review_queue_prioritizes_atproto_contribution_for_equal_signals(self) -> None:
         conn = registry.open_db()
         try:

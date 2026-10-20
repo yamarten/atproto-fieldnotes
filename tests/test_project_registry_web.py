@@ -1873,6 +1873,32 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         self.assertEqual(status, 200)
         self.assertEqual(payload["items"], [])
 
+    def test_review_api_preserves_relation_contribution_and_publication_notice(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = project_record.fetch_project(conn, "proj:111111111111")
+            project["relation_evidence"] = [{
+                "relation": {"subject": {"type": "service_url", "value": "https://example.com"},
+                             "predicate": "defines_schema", "object": {"type": "nsid", "value": "app.example.post"},
+                             "locator": "https://example.com/schema", "method": "fixture"},
+                "source": "fixture", "classification": "candidate", "observed_at": "2026-09-01T00:00:00+00:00",
+            }]
+            project["publication_review"] = ["publisher_changed"]
+            project_record.save_project(conn, project)
+        finally:
+            conn.close()
+        status, payload, _ = self.request("/api/review-queue?limit=10")
+        self.assertEqual(status, 200)
+        item = next(row for row in payload["items"] if row["project_key"] == "proj:111111111111")
+        self.assertEqual(item["atproto_contribution_level"], "core")
+        self.assertEqual(item["atproto_contribution_score"], 90)
+        self.assertIn("lexicon_publication_changed", [s["kind"] for s in item["signals"]])
+        status, detail, _ = self.request("/api/projects/proj:111111111111")
+        self.assertEqual(status, 200)
+        self.assertEqual(detail["review"], item)
+        self.assertEqual(detail["evaluation"]["atproto_contribution_level"], item["atproto_contribution_level"])
+        self.assertEqual(detail["evaluation"]["atproto_contribution_score"], item["atproto_contribution_score"])
+
     def test_promotion_queue_api_exposes_policy_projection(self) -> None:
         conn = registry.open_db()
         project = project_record.fetch_project(conn, "proj:111111111111")

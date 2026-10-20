@@ -580,7 +580,7 @@ def review_queue(
     kinds: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     queue: list[dict[str, Any]] = []
-    project_list = project_record.list_review_projects(conn, tracking_states=tracking_states)
+    project_list = project_record.list_projects(conn, tracking_states=tracking_states)
     for project in project_list:
         entry = _review_queue_entry(
             dict(project), kinds=kinds, conn=conn,
@@ -601,7 +601,7 @@ def build_review_queue_batch(
     batch_size: int = 100,
 ) -> tuple[list[dict[str, Any]], int]:
     batch: list[dict[str, Any]] = []
-    projects = project_list or project_record.list_review_projects(conn, tracking_states=tracking_states)
+    projects = project_list or project_record.list_projects(conn, tracking_states=tracking_states)
     index = max(0, int(start_index or 0))
     target_size = max(1, int(batch_size or 100))
     while index < len(projects) and len(batch) < target_size:
@@ -625,8 +625,7 @@ def build_review_queue_item(
     project = project_record.fetch_project(conn, project_key)
     if project is None:
         return None
-    shaped = project_record.lightweight_review_project_shape(project)
-    return _review_queue_entry(shaped, kinds=kinds, conn=conn)
+    return _review_queue_entry(project, kinds=kinds, conn=conn)
 
 
 def _review_queue_entry(
