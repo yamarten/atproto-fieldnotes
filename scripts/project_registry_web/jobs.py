@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import collections
 import calendar
+import copy
 import datetime as dt
 import json
 import os
@@ -389,7 +390,8 @@ class JobManager:
         else:
             raise ValueError("schedules must be an array or object")
         with self._lock:
-            schedules = self._schedule_state.setdefault("schedules", {})
+            candidate = copy.deepcopy(self._schedule_state)
+            schedules = candidate.setdefault("schedules", {})
             for raw in iterable:
                 if not isinstance(raw, dict):
                     raise ValueError("schedule item must be an object")
@@ -405,7 +407,7 @@ class JobManager:
                     "preset_id": preset_id,
                     "updated_at": utc_now(),
                 }
-            self._save_schedule_state_locked()
+            self._save_schedule_state_locked(state=candidate)
             self.run_scheduler_once_locked()
             return self._schedule_snapshot_locked()
 
@@ -522,12 +524,20 @@ class JobManager:
             "queue": normalized_queue,
         }
 
-    def _save_schedule_state_locked(self) -> None:
-        self._schedule_state["updated_at"] = utc_now()
+    def _save_schedule_state_locked(self, *, state: dict[str, Any] | None = None) -> None:
+        candidate = dict(self._schedule_state) if state is None else state
+        candidate["updated_at"] = utc_now()
         self._schedule_path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._schedule_path.with_suffix(self._schedule_path.suffix + ".tmp")
-        tmp.write_text(json.dumps(self._schedule_state, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
-        tmp.replace(self._schedule_path)
+        try:
+            tmp.write_text(json.dumps(candidate, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+            tmp.replace(self._schedule_path)
+        finally:
+            tmp.unlink(missing_ok=True)
+        if state is None:
+            self._schedule_state["updated_at"] = candidate["updated_at"]
+        else:
+            self._schedule_state = candidate
 
     def _schedule_snapshot_locked(self) -> dict[str, Any]:
         now = dt.datetime.now(dt.timezone.utc)

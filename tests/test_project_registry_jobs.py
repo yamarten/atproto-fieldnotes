@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import copy
 import datetime as dt
 import os
 import subprocess
@@ -254,6 +255,33 @@ class ProjectRegistryJobUnitTest(_ProjectRegistryJobFixtures, ProjectRecordTestC
 
 
 class ProjectRegistryJobTest(_ProjectRegistryJobFixtures, TempRegistryDbTestCase):
+    def test_schedule_batch_validation_and_persistence_failure_leave_no_partial_change(self):
+        self.manager._save_schedule_state_locked()
+        before = copy.deepcopy(self.manager._schedule_state)
+        disk_before = self.manager._schedule_path.read_bytes()
+        updates = [{"preset_id": "enrich_all", "enabled": True, "weekday": 0,
+                    "time": "03:00", "timezone": "UTC"}]
+        with mock.patch.object(self.manager, "_spawn_locked") as spawn:
+            with self.assertRaisesRegex(ValueError, "timezone"):
+                self.manager.update_schedules([*updates, {"preset_id": "sync_introduced", "timezone": "Typo/Zone"}])
+            self.assertEqual(self.manager._schedule_state, before)
+            for failed_operation in ("write_text", "replace"):
+                with self.subTest(failed_operation=failed_operation):
+                    with mock.patch.object(Path, failed_operation, side_effect=OSError("disk failure")):
+                        with self.assertRaisesRegex(OSError, "disk failure"):
+                            self.manager.update_schedules(updates)
+                    self.assertEqual(self.manager._schedule_state, before)
+                    self.assertEqual(self.manager._schedule_path.read_bytes(), disk_before)
+                    self.assertFalse(self.manager._schedule_path.with_suffix(".json.tmp").exists())
+            self.manager.run_scheduler_once(dt.datetime(2026, 10, 19, 4, tzinfo=dt.timezone.utc))
+            spawn.assert_not_called()
+            self.assertEqual(self.manager._schedule_state, before)
+        reloaded = JobManager(self.db_path, enable_scheduler=False)
+        try:
+            self.assertEqual(reloaded._schedule_state, before)
+        finally:
+            reloaded.close()
+
     def setUp(self) -> None:
         super().setUp()
         conn = registry.open_db()
