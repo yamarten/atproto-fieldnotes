@@ -2246,9 +2246,10 @@ function parseSeedInput(value) {
   return {seed: match[2].trim(), type: match[1].toLowerCase()};
 }
 
-function seedForm() {
+function seedForm({pageUrl = ""} = {}) {
   return `<form id="seed-form" class="seed-form">
     <label>NSID・リポジトリURL・サービスURL<input id="seed-value" type="text" required autocomplete="off" placeholder="https://example.com"></label>
+    ${pageUrl ? `<div class="actions"><button id="use-page-seed" type="button" title="${esc(pageUrl)}">見ていたURLを使う</button></div>` : ""}
     <p class="muted">種類を指定する場合は repo_url: https://... のように入力します。</p>
     <div class="actions"><button id="preview-seed" type="submit" class="primary">プレビュー</button></div>
     <div id="seed-preview"></div><p id="seed-message" class="notice" role="status" hidden></p>
@@ -2256,13 +2257,21 @@ function seedForm() {
   </form>`;
 }
 
-function bindSeedForm({projectKey = "", projectName = "", revision = "", initialSeed = "", dialog = null} = {}) {
+function bindSeedForm({projectKey = "", projectName = "", revision = "", initialSeed = "", pageUrl = "", dialog = null} = {}) {
   const form = $("seed-form"), input = $("seed-value"), preview = $("seed-preview");
   const save = $("save-seed"), message = $("seed-message"), previewButton = $("preview-seed");
+  const usePage = pageUrl ? $("use-page-seed") : null;
   let request = 0, payload = null, saving = false;
   const showError = (error) => { message.textContent = error.message; message.hidden = false; };
   const invalidate = () => { request++; payload = null; save.hidden = true; preview.innerHTML = ""; message.hidden = true; };
   input.oninput = invalidate;
+  if (usePage) usePage.onclick = () => {
+    if (saving) return;
+    input.value = pageUrl;
+    invalidate();
+    previewButton.disabled = false;
+    input.focus({preventScroll:true});
+  };
   form.onsubmit = async (event) => {
     event.preventDefault();
     if (saving) return;
@@ -2297,6 +2306,7 @@ function bindSeedForm({projectKey = "", projectName = "", revision = "", initial
     const submitted = payload;
     saving = true;
     input.disabled = previewButton.disabled = save.disabled = true;
+    if (usePage) usePage.disabled = true;
     message.textContent = "保存中…"; message.hidden = false;
     mutationQueue = mutationQueue.then(async () => {
       try {
@@ -2314,6 +2324,7 @@ function bindSeedForm({projectKey = "", projectName = "", revision = "", initial
       } finally {
         saving = false;
         input.disabled = previewButton.disabled = save.disabled = false;
+        if (usePage) usePage.disabled = false;
       }
     }).catch((error) => status(error.message, true));
   };
@@ -2323,8 +2334,12 @@ function bindSeedForm({projectKey = "", projectName = "", revision = "", initial
 function addProjectSeed(projectKey, projectName = projectKey) {
   status("");
   const dialog = $("seed-dialog");
-  $("seed-dialog-content").innerHTML = `<p>追加先: ${esc(projectName)}</p>${seedForm()}`;
-  bindSeedForm({projectKey, projectName, revision:state.detailRevision, dialog});
+  let pageUrl = "";
+  if (state.screen === "browser" && state.pageUrl) {
+    try { pageUrl = browserPageUrl(state.pageUrl); } catch { /* No usable source page. */ }
+  }
+  $("seed-dialog-content").innerHTML = `<p>追加先: ${esc(projectName)}</p>${seedForm({pageUrl})}`;
+  bindSeedForm({projectKey, projectName, revision:state.detailRevision, pageUrl, dialog});
   $("cancel-seed").onclick = () => dialog.close();
   dialog.onclose = () => { if (!dialog.open) $("seed-dialog-content").replaceChildren(); };
   showDialogWithoutInputFocus(dialog);

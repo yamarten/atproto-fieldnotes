@@ -170,6 +170,60 @@ const preview = {seed_type:"repo_url", seed_value:"https://forge.example/a/b", c
 })().catch(error => { console.error(error); process.exitCode=1; });
 ''')
 
+    def test_existing_seed_source_uses_page_context_and_requires_new_preview(self):
+        self.run_javascript(r'''
+const nodes = new Map();
+document.getElementById = id => {
+  if (!nodes.has(id)) nodes.set(id, {innerHTML:"",value:"",hidden:true,isConnected:true,
+    disabled:false,addEventListener(){},querySelectorAll(){return [];},focus(){},
+    showModal(){},close(){}});
+  return nodes.get(id);
+};
+const node = id => document.getElementById(id);
+status = () => {};
+global.requestAnimationFrame = callback => callback();
+state.screen="browser";
+state.pageUrl="https://source.example/app?token=secret#fragment";
+state.detailRevision="opened-revision";
+addProjectSeed("proj:target", "Target");
+assert.match(node("seed-dialog-content").innerHTML, /見ていたURLを使う/);
+assert.ok(!node("seed-dialog-content").innerHTML.includes("secret"));
+assert.equal(node("seed-value").value, ""); // deliberate choice, no auto-fill or save
+const submit = () => node("seed-form").onsubmit({preventDefault(){}});
+const preview = {seed_type:"service_url",seed_value:"https://source.example/app",candidates:[]};
+let calls=[], finish;
+loadDetail=async()=>{}; loadList=async()=>{};
+(async () => {
+  api = () => new Promise(resolve => { finish=resolve; });
+  node("seed-value").value="https://manual.example/";
+  const pending=submit();
+  node("use-page-seed").onclick();
+  assert.equal(node("seed-value").value,"https://source.example/app");
+  assert.equal(node("preview-seed").disabled,false);
+  finish(preview); await pending;
+  assert.equal(node("save-seed").hidden,true); // late preview cannot save old input
+  node("save-seed").onclick();
+  api=async(path,options)=>{ calls.push([path,options]); return options ? {project_key:"proj:target"} : preview; };
+  await submit();
+  assert.match(calls[0][0], /seed=https%3A%2F%2Fsource.example%2Fapp/);
+  node("use-page-seed").onclick();
+  assert.equal(node("save-seed").hidden,true); // choosing source also revokes a ready preview
+  await submit(); node("save-seed").onclick();
+  assert.equal(node("use-page-seed").disabled,true);
+  node("use-page-seed").onclick(); // no input changes while saving
+  await mutationQueue;
+  assert.deepEqual(JSON.parse(calls.at(-1)[1].body),{seed:"https://source.example/app",type:"",project_key:"proj:target",expected_revision:"opened-revision"});
+  assert.equal(node("use-page-seed").disabled,false);
+  assert.ok(!seedForm().includes("use-page-seed"));
+  state.screen="projects";
+  addProjectSeed("proj:target");
+  assert.ok(!node("seed-dialog-content").innerHTML.includes("use-page-seed"));
+  state.screen="browser"; state.pageUrl="javascript:alert(1)";
+  addProjectSeed("proj:target");
+  assert.ok(!node("seed-dialog-content").innerHTML.includes("use-page-seed"));
+})().catch(error => { console.error(error); process.exitCode=1; });
+''')
+
     def test_browser_matches_show_nsid_reason_and_escape_values(self):
         self.run_javascript(r'''
 const container = {innerHTML: "", insertAdjacentHTML: (_, html) => {container.innerHTML = html + container.innerHTML;}};
