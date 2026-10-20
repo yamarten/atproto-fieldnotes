@@ -35,6 +35,48 @@ bin/project-registry-web --host 127.0.0.1 --port 8765 --db-path data/dev/survey.
 
 検証用Webは実運用token・定期設定を使いません。画面・静的asset・設定・一覧APIと、外部通信のないreview dry-run等の実workerを確認して停止します。[確認環境の選び方](../developer/workflows/change-acceptance.md#確認環境と接続先)を参照し、使用中portの既存processを確認して接続先の取り違えを避けます。`status`でPython本体・標準ライブラリが候補世代の`python/`内、実行入口が候補世代の`venv/`内であることを確認します。各世代の`requirements.txt`は実際に導入したversion一覧で、再構築用に保持します。venv・Python本体は絶対pathを含むため別checkoutへコピー・移動せず、移行先で再準備します。
 
+## ブラウザー観測の導入
+
+匿名ブラウザー確認、`verify-service --lane browser`、`monitor-services --execute`には、Playwrightと対応するChromiumが必要です。通常の`enrich`も、リポジトリの公開先をサービスとして確認する条件を満たす場合にブラウザーを使います。基本導入の`requirements.txt`には含まれず、未導入でこの経路を使うと取得失敗として記録されます。架空デモの閲覧・編集には不要です。
+
+リポジトリのルートで、新しい専用世代を準備します。以下の`browser`は未使用の世代名に置き換えられます。[requirements-browser.txt](../../requirements-browser.txt)は本体依存も含み、その宣言範囲から依存を解決します。既存世代は変更しません。
+
+```bash
+bin/project-registry-python-env prepare browser 3.14 requirements-browser.txt
+export PROJECT_REGISTRY_PYTHON_ENV="$PWD/.runtime/browser/venv"
+bin/project-registry-python-env status
+bin/_project-registry-python browser-install -m playwright install chromium
+```
+
+`status`の`venv`が指定した候補世代であることを確認します。`browser-install`はwrapperのエラー表示用の名前で、後続の`-m playwright`を選択中のPythonで実行します。`prepare`が導入するのはPythonパッケージまでで、最後のコマンドが対応するChromium（headless shellを含む）を取得します。取得にはネットワーク接続が必要です。
+
+ブラウザー本体はPython世代の外に置かれ、macOSの既定保存先は`~/Library/Caches/ms-playwright`です。同じOSユーザーのCLI・Web・workerから使います。`PLAYWRIGHT_BROWSERS_PATH`を独自設定する場合は導入時と実行時で同じ値を使い、LaunchAgentにもその環境変数を渡す必要があります。保存先とversionの対応は[Playwright公式のブラウザー管理](https://playwright.dev/python/docs/browsers#managing-browser-binaries)を参照してください。
+
+候補指定を保ったまま、次の確認を行います。一時的なブラウザーを起動してメモリ上のHTMLを描画し、JavaScriptを実行して終了します。DBや外部サイトは使いません。
+
+```bash
+bin/_project-registry-python browser-check - <<'PY'
+import sys
+from importlib.metadata import version
+from playwright.sync_api import sync_playwright
+
+with sync_playwright() as p:
+    browser = p.chromium.launch(headless=True)
+    try:
+        page = browser.new_page()
+        page.set_content("<p id='result'>ready</p>")
+        page.eval_on_selector("#result", "el => el.textContent = 'ok'")
+        assert page.locator("#result").inner_text() == "ok"
+        print(f"OK: Python={sys.executable}, Playwright={version('playwright')}, Chromium={browser.version}")
+    finally:
+        browser.close()
+PY
+```
+
+`OK`と候補世代のPython実pathが出れば、その世代からChromiumを起動できます。`No module named playwright`なら候補指定と準備に渡したrequirementsを、実行ファイルがない旨のエラーなら同じ候補指定での`install chromium`と保存先を確認します。この確認は外部サービスへの到達や利用可否の検証ではありません。
+
+確認後は`unset PROJECT_REGISTRY_PYTHON_ENV`で一時指定を解除します。採用する場合は[切替と復旧](#切替と復旧)の`candidate`を`browser`へ読み替え、常駐Webも候補世代で新規起動します。起動済みWebは環境変数の変更や通常reloadだけでは切り替わりません。後日Pythonを更新する際は、この世代の`requirements.txt`を使ってPlaywrightを引き継ぎ、新しい世代でもブラウザーの導入・起動確認を行います。共有するブラウザー保存先は、旧Python世代の整理に合わせて一括削除しません。
+
 ## 切替と復旧
 
 検証後は`unset PROJECT_REGISTRY_PYTHON_ENV`し、候補を選択します。CLIだけなら既存処理の終了を待ちます。常駐Webがある場合は実行中job・workerとCLIを確認し、[WebのPython切替手順](web-ui.md#python環境の切替)で停止・再起動します。本番適用は実装受入とは別の承認段階です。
