@@ -112,6 +112,7 @@ Firefox拡張のポップアップは、`embed=popup`のWeb UIをiframeへ埋め
 | `repositories/repository_material.py` | 取得済みfileからmanifest・configuration・Lexicon・source hintを抽出 |
 | `repositories/repository_analysis.py` | confirmed repoの解析素材縮約、revision・policy単位の再利用、成功結果と最新試行の管理 |
 | `service.py` / `tangled.py` / `relations.py` | service観測、Tangled PDS/UFOs、typed relation。Tangledの所有観測とproject固有のrepository候補判定を分離し、integrationは採用済みrepoだけから候補テキストを適用 |
+| `service_discovery.py` / `application/service_discovery.py` | 未採用サービスURLの出所・候補判定・再試行台帳と、DBからの対象選定・予算・観測保存。browser取得は`service.py`を共用し、稼働状態やconfirmed帰属は変更しない |
 | `html_link_context.py` / `account_links.py` / `developer_links.py` | 共有HTMLリンク文脈抽出と、websiteが案内する公式Bluesky account、開発・保守の役割を示すaccountの候補判定。developerの自己申告も根拠付き候補に限定する。repositoryの判定は`repositories/`が担当 |
 | `tangled_identity.py` | 同期用DID・handle双方向検証と取得失敗の分類。帰属・保留保存は`source_sync.py` |
 | `oauth_metadata.py` / `oauth_scope_parser.mjs` | 取得済みOAuth metadataを公式SDKで解析。Nodeで外部取得はしない |

@@ -31,7 +31,7 @@
   },
   {
     "case_id": "passing-reads-browser-surface",
-    "input_project": {"project_key": "proj:963b3e93b616", "seed_type": "service_url", "seed_value": "https://www.passingreads.org", "name": "Passing Reads", "service_status": "unverified"},
+    "input_project": {"project_key": "proj:963b3e93b616", "seed_type": "service_url", "seed_value": "https://www.passingreads.org", "service_urls": ["https://www.passingreads.org"], "manual_seeds": [{"type": "service_url", "value": "https://www.passingreads.org"}], "name": "Passing Reads", "service_status": "unverified"},
     "bundle": {"schema_version": 2, "project_key": "proj:963b3e93b616", "collected_at": "2026-06-13T00:00:00+00:00", "records": [{"kind": "service_verification", "source": "service_browser:https://www.passingreads.org", "classification": "confirmed", "observed_at": "2026-06-13T00:00:00+00:00", "value": {"requested_url": "https://www.passingreads.org", "lane": "browser", "pages": [{"url": "https://www.passingreads.org", "title": "Passing Reads", "text_extract": "Read", "network_errors": [], "console_errors": []}, {"url": "https://www.passingreads.org/login", "title": "Sign in", "text_extract": "Sign in", "network_errors": [], "console_errors": []}], "login_surface_reached": true, "js_rendered": true}, "context": {}}], "failures": [], "collector_results": []},
     "expected_evaluation": {"service_status": "live", "service_status_confidence": "high"}
   }

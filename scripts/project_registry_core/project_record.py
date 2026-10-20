@@ -197,6 +197,7 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "relation_evidence",
         "trust_graph",
         "service_verification_results",
+        "service_url_investigations",
         "url_aliases",
     ),
 }
@@ -712,6 +713,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "project_site_url_candidates": [],
         "resource_url_records": [],
         "service_url_candidates": [],
+        "service_url_investigations": [],
         "failed_service_urls": [],
         "supported_service_urls": [],
         "service_status": "unknown",
@@ -1050,6 +1052,8 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["service_verification_results"] = [
         dict(item) for item in defaults.get("service_verification_results", []) if isinstance(item, dict)
     ]
+    defaults["service_url_investigations"] = [dict(item) for item in defaults.get("service_url_investigations", [])
+                                              if isinstance(item, dict) and item.get("url")]
     defaults["url_aliases"] = [dict(item) for item in defaults.get("url_aliases", []) if isinstance(item, dict)]
     defaults["manual_seeds"] = unique_manual_seeds(defaults.get("manual_seeds", []))
     defaults["project_repository_url"] = repo_url_core.canonical_repo_url(str(defaults.get("project_repository_url") or ""))

@@ -282,6 +282,7 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 | `compare-identifier-storage` | 指定DBの現行identifierと判断履歴から、非現行identifier・採用理由・時間関係を分離した保存案への移行を投影し、`--output`へ構造化reportを出力。`--materialized-db`を指定するとreview manifestを新しい複製DBへ適用する | 入力DBはread-only。reportと、明示した場合だけ新規複製DBへ書き込み。既存複製DBは上書きしない |
 | `verify-service` | 登録プロジェクトまたはシード、任意URL、調査方法（`static\|deep\|browser`） | 外部接続。`--execute`で評価と再評価可能な調査実行記録をDBへ保存 |
 | `monitor-services` | `--min-age-days`（既定30）、`--limit`（既定20） | 既定は未確認・古いconfirmed service URLの一覧だけ。`--execute`で匿名browser確認と保存 |
+| `investigate-service-urls` | `--limit`（既定50）、`--budget-seconds`（既定900） | 既定は出所を限定した未採用URLの選定だけ。`--execute`で匿名browser調査・候補判定と試行履歴を保存 |
 
 帰属・移行の比較コマンドは通常の調査や自動採用へ結果を適用しません。旧根拠の再収集は移行前DBが必要で、現在ページは過去の観測の再現ではありません。複製へ判断を適用する経路も、元DBへの移行実行ではありません。用途に合う入力DB・review manifestを用意し、出力の未確認事項を見て規則変更や手動採用を別途判断します。[帰属の判断モデル](../developer/specs/project-boundaries.md#判断モデル)と[比較用経路の境界](../developer/specs/project-boundaries.md#shadow比較の契約)を参照してください。
 
@@ -318,7 +319,11 @@ corpusは保存済みプロフィールを根拠と分けて保持します。`-
 ```bash
 project-registry monitor-services --limit 20
 project-registry monitor-services --limit 20 --execute
+project-registry investigate-service-urls --limit 50 --budget-seconds 900
+project-registry investigate-service-urls --limit 100 --budget-seconds 1800 --execute
 ```
+
+`investigate-service-urls`は採用前の調査で、URL候補・採用済みrepoの公開先・取得成功済みauthority URLだけを対象にします。一般リンクを網羅巡回せず、除外・保留や帰属衝突を尊重します。上限は1〜1,000 URL・1〜14,400秒です。時間上限は新規URLへの着手を止めるためのもので、開始済み処理の即時終了は保証しません。結果の選定件数・試行件数・観測/失敗/競合件数・積み残し・経過時間・終了理由を確認してください。未採用URLの観測は候補へ渡しますが、表示成功だけでサービスを採用したり、projectを稼働中へ変えたりしません。
 
 最後に確認できた利用面と最新の試行は別に保持します。確認結果は現在の利用を保証するものではなく、HTTPエラーだけで提供終了とは判断しません。単独のservice確認で全体調査の鮮度は更新しません。
 

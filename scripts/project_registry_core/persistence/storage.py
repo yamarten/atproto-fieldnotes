@@ -353,7 +353,7 @@ def update_run_metrics_phase(
 
 def stage_investigation_run(project: dict[str, Any], **arguments: Any) -> str:
     """Prepare bounded history in memory; collectors must not open a write transaction."""
-    run_id = f"inv:{uuid.uuid4().hex}"
+    run_id = arguments.pop("run_id", None) or f"inv:{uuid.uuid4().hex}"
     arguments["run_id"] = run_id
     arguments["input_project"] = sanitize_runtime_snapshot(arguments["input_project"])
     arguments["output_project"] = sanitize_runtime_snapshot(arguments["output_project"])

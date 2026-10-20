@@ -159,6 +159,8 @@ registry全体のsource設定・watermark・identifier exclusionはproject snaps
 
 `evidence.oauth_client_metadata`はmetadata URLごとの最新のscope宣言と解析を保持します。履歴の正本はEvidenceBundleです。`repo`と未解決`include`から作る`requests_permission` relationはこの観測から再構成し、scope削減時に古いrelationを除きます。読込・保存時の再構成は通信やparser実行を伴いません。[観測の意味と上限](investigation.md#oauth-client-metadataの観測)を参照してください。
 
+`evidence.service_url_investigations`は未採用URLの現行仮説ごとの最新試行、最後の成功、出所・内容のfingerprint、再試行時刻、観測と調査run IDを保持します。詳細なbrowser観測の32件上限から独立し、押出しで未試行へ戻しません。現行の出所がなくなった仮説はcurrent stateから除き、詳細・過去の試行は調査履歴へ残します。期限内guardでは試行台帳を保持します。同じURLのmergeでは最新の試行を選び、統合後の出所・guardで再評価します。未採用URLの成功観測はprojectの稼働状態や帰属の確定を意味しません。
+
 ### 説明の編集制御と観測時点
 
 schema v5の`state_json.evidence.editorial`に説明の更新方法（`mode=automatic / review`）、現在文面の`profile_hash`、直近の`last_update`、必要な場合だけ更新案`proposal`と見送り案のhashを保存します。更新案は本文3field、比較元のhash、変更種別、理由、最大4件の根拠抜粋、生成時点を持ちます。全文の版履歴や全変更のevent列は作りません。説明本体は従来どおりprofileの`tagline / summary`とstateの`features`です。

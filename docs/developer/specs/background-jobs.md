@@ -100,7 +100,9 @@ cancel・fail-fast・snapshot変更・対象外化等で使えなかった先行
 
 ## Scheduled preset
 
-`service_observation`は`monitor_services` workerを通して、前回browser試行から30日以上経過したconfirmed service URLを最大20件確認します。対象・取消し・競合の扱いは[観測仕様](investigation.md#browser観測)を参照してください。初期設定は無効、毎週土曜03:00 Asia/Tokyoです。この値は有効化前の初期値であり、実データ量での妥当性を確認済みの運用頻度ではありません。既存scheduleを自動有効化・変更しません。
+`service_observation`は`observe_services` workerの中で、既存`monitor_services`によるconfirmed service URLの再確認（前回browser試行から30日以上、最大20件）と、[未採用URLの調査](investigation.md#未採用urlの調査)を順に実行します。別scheduleは作りません。未採用側の初期値は50 URL・15分で、同じ設定の`discovery_limit`（1〜1,000）・`discovery_budget_minutes`（1〜240）を画面から保存でき、次のdispatch時にworkerへ渡します。これらは蓄積件数を踏まえて調整する初期値であり、全対象を短期間で覆える恒久運用値ではありません。
+
+個別URLの失敗・競合は両段のsummaryへ残して次段を続行します。全体調査の完了と個別取得成功を分け、`outcome=partial`でもURL単位の再試行管理へ任せて定期presetを完了し、次の予定を塞ぎません。共通のbrowser依存不足・DB障害・取消しは処理を止め、従来のpreset保留・再開の対象です。初期設定は無効、毎週土曜03:00 Asia/Tokyoです。既存scheduleの有効状態・日時・保存済み予算を自動変更しません。旧`monitor_services`段階が保留・実行待ちに残る場合は同じpresetの組立てworkerへ読み替え、最新の対象と試行履歴から再選定します。
 
 `Operations`のscheduled preset（定期実行する処理の組合せ）は、通常enrich、追跡範囲を広げたenrich後の`review-stalled`一括反映、introduced sync、introduced以外のsync後の新規登録projectだけのenrichを実行します。presetごとに毎週または第N週の曜日、時刻、time zoneを設定します。Webからexecuteしたsyncは、sourceごとの件数、候補key / URL、成否、所要時間を、保存量を制限して直近4回分保存します。
 

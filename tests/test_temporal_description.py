@@ -233,7 +233,7 @@ class TemporalDescriptionTest(_TemporalDescriptionFixtures, TempRegistryDbTestCa
             events = []
             result = worker._run_simple(conn, request, CancellationToken(), events.append)
             self.assertEqual(result.status, "completed")
-            self.assertEqual(result.data["summary"]["due_count"], 1)
+            self.assertEqual(result.data["summary"]["confirmed"]["due_count"], 1)
             with mock.patch.object(registry, "collect_service_verification", side_effect=AssertionError("cancelled run fetched")):
                 self.assertEqual(investigation.monitor_services(conn, execute=True, cancel_requested=lambda: True)["operation_status"], "cancelled")
         finally:

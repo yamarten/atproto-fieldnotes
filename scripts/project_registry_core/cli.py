@@ -496,6 +496,12 @@ def build_parser() -> argparse.ArgumentParser:
     monitor_parser.add_argument("--execute", action="store_true")
     monitor_parser.set_defaults(func=investigation_commands.cmd_monitor_services)
 
+    discovery_parser = subparsers.add_parser("investigate-service-urls", help="Inspect unadopted service hypotheses; --execute saves bounded anonymous browser investigations.")
+    discovery_parser.add_argument("--limit", type=int, default=50)
+    discovery_parser.add_argument("--budget-seconds", type=int, default=900)
+    discovery_parser.add_argument("--execute", action="store_true")
+    discovery_parser.set_defaults(func=investigation_commands.cmd_investigate_service_urls)
+
     repair_parser = subparsers.add_parser("repair-db", help="Normalize stored project JSON, refresh derived fields, and report collisions.")
     repair_parser.add_argument("--execute", action="store_true", help="Apply normalization and derived-field refreshes. Without this flag, show a dry-run summary only.")
     repair_parser.set_defaults(func=maintenance_commands.cmd_repair_db)

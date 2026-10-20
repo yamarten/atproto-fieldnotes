@@ -346,9 +346,12 @@ def apply_service_evidence(
             project["service_verification_results"] = service.merge_service_verification_results(
                 project.get("service_verification_results", []), value
             )
+            if value.get("lane") == "browser_discovery":
+                from . import service_discovery
+                service_discovery.apply(project, value, record.observed_at)
             if value.get("lane") in {"static", "deep", "follow_up"}:
                 dependencies.apply_probe(project, str(value.get("requested_url") or ""), value)
-            elif value.get("lane") == "browser":
+            elif value.get("lane") == "browser" and requested_url in project.get("service_urls", []):
                 apply_saved_service_probe(project, service.browser_service_observation(value))
     for failure in bundle.failures:
         note_failure(project, failure.message)

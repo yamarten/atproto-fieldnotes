@@ -60,6 +60,7 @@ from project_registry_core.repositories import repository_sources as repository_
 from project_registry_core import project_record
 from project_registry_core import naming as naming_core
 from project_registry_core import editorial
+from project_registry_core import service_discovery
 
 from project_registry_core import usage_material
 
@@ -304,6 +305,8 @@ def authority_service_candidate_has_saved_probe_support(project: dict[str, Any],
     normalized = identifier_core.normalize_url(service_url)
     if not normalized:
         return False
+    if service_discovery.supports_candidate(project, normalized):
+        return True
     for item in project.get("service_verification_results", []):
         if not isinstance(item, dict):
             continue
@@ -1648,6 +1651,9 @@ def service_url_allowed_for_project(project: dict[str, Any], url: str, *, confir
     normalized = project_record.normalize_confirmed_service_url(url) if confirmed else project_record.normalize_project_service_candidate_url(project, url)
     if not normalized:
         return False
+    if not confirmed and (service_discovery.retains_candidate(project, normalized)
+                          or service_discovery.supports_candidate(project, normalized)):
+        return not service_url_is_guarded(project, normalized)
     if not confirmed and any(claim["url"] == normalized for claim in repository_analysis_core.service_publications(project)):
         return not service_url_is_guarded(project, normalized)
     if confirmed and url_has_current_trust(project, "service_url", normalized):
@@ -4816,7 +4822,9 @@ def project_current_service_observation(project: dict[str, Any]) -> dict[str, An
                     )
 
         browser = lanes.get("browser")
-        if browser is not None:
+        if browser is not None and requested_url in {
+            identifier_core.normalize_url(str(url)).rstrip("/") for url in project.get("service_urls", [])
+        }:
             has_supported_observation = True
             browser_observation = service_core.browser_service_observation(browser)
             base_time = service_core.observation_time(lanes.get(base_lane, {}))
@@ -5081,6 +5089,7 @@ def build_llm_evidence_bundle(
         "service_urls": project.get("service_urls", []),
         "resource_url_records": project_record.resource_url_record_values(project),
         "service_url_candidates": project.get("service_url_candidates", []),
+        "unadopted_url_observations": service_discovery.triage_observations(project),
         "failed_service_urls": project.get("failed_service_urls", []),
         "supported_service_urls": project.get("supported_service_urls", []),
         "lexicon_scope": project.get("lexicon_scope") or "unknown",
@@ -5451,6 +5460,17 @@ def collect_homepage_role_evidence(
         and facts["existing_role"] != "service"
     )
     service_kinds = {claim.get("service_kind", "unknown") for claim in facts["publication_claims"]}
+    cached_browser = service_discovery.cached_assessment(project, requested_url) if can_verify else {}
+    if cached_browser and not service_kinds.intersection({"api", "pds"}):
+        facts["visible_surface"] = bool(cached_browser.get("successful_page")
+            and cached_browser.get("positive_surface") and not cached_browser.get("rendered_errors")
+            and cached_browser.get("url") == url)
+        facts["browser_status"] = "reused_unadopted_observation"
+        facts["browser_evidence"] = {"source": f"service_browser_discovery:{requested_url}",
+                                    "observed_at": cached_browser.get("observed_at"),
+                                    "run_id": cached_browser.get("run_id"),
+                                    "requested_url": requested_url, "url": cached_browser.get("url"),
+                                    "assessment": cached_browser}
     if allow_browser and can_verify and service_kinds.intersection({"api", "pds"}):
         protocol = service_core.collect_protocol_service_evidence(url, probe=probe_service_url)
         facts["protocol_evidence"] = protocol
@@ -5464,7 +5484,7 @@ def collect_homepage_role_evidence(
             source="service_protocol", operation="verify", status="success" if protocol["verified"] else "partial",
             observed_at=observed_at, request_count=protocol["request_count"], result_count=int(protocol["verified"]),
         ))
-    if allow_browser and can_verify and not service_kinds.intersection({"api", "pds"}):
+    if allow_browser and can_verify and not cached_browser and not service_kinds.intersection({"api", "pds"}):
         browser = service_core.collect_browser_service_evidence(
             project, requested_url,
             service_core.BrowserDependencies(navigate=service_core.playwright_navigate, now=project_record.iso_now),
@@ -5889,6 +5909,7 @@ def finalize_project_shape(project: dict[str, Any], *, restore_manual_repositori
     purge_guarded_service_observations(project)
     purge_guarded_service_relations(project)
     sync_authority_service_candidates_from_probe_results(project)
+    service_discovery.reconcile(project)
     prune_nsid_authority_service_url_guesses(project)
     pre_prune_external_lexicons = project_record.compute_external_lexicons(project)
     prune_project_lexicon_identity(project)

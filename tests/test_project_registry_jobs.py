@@ -444,11 +444,28 @@ class ProjectRegistryJobTest(_ProjectRegistryJobFixtures, TempRegistryDbTestCase
         queued = self.manager.run_scheduled_preset("service_observation")
         self.assertEqual(queued["queue"][0]["preset_id"], "service_observation")
         completed = self.wait_for(queued["queue"][0]["current_job_id"], {"completed"})
-        self.assertEqual(completed["operation"], "monitor_services")
-        self.assertEqual(completed["request"]["parameters"]["min_age_days"], 30)
-        self.assertEqual(completed["request"]["parameters"]["limit"], 20)
+        self.assertEqual(completed["operation"], "observe_services")
+        self.assertEqual(completed["request"]["parameters"]["discovery_limit"], 50)
+        self.assertEqual(completed["request"]["parameters"]["discovery_budget_seconds"], 900)
         preset = next(item for item in self.manager.list_schedules()["items"] if item["preset_id"] == "service_observation")
         self.assertFalse(preset["schedule"]["enabled"])
+
+    def test_service_observation_budget_is_saved_and_used_without_changing_schedule(self) -> None:
+        before = next(item for item in self.manager.list_schedules()["items"] if item["preset_id"] == "service_observation")["schedule"]
+        self.manager.update_schedules([{"preset_id": "service_observation", "discovery_limit": 120, "discovery_budget_minutes": 25}])
+        after = next(item for item in self.manager.list_schedules()["items"] if item["preset_id"] == "service_observation")["schedule"]
+        self.assertEqual({k: after[k] for k in before if not k.startswith("discovery_")},
+                         {k: before[k] for k in before if not k.startswith("discovery_")})
+        queued = self.manager.run_scheduled_preset("service_observation")
+        completed = self.wait_for(queued["queue"][0]["current_job_id"], {"completed"})
+        self.assertEqual(completed["request"]["parameters"]["discovery_limit"], 120)
+        self.assertEqual(completed["request"]["parameters"]["discovery_budget_seconds"], 1500)
+        with self.assertRaises(ValueError):
+            self.manager.update_schedules([{"preset_id": "service_observation", "discovery_limit": 0}])
+        for invalid in (1.5, True):
+            with self.assertRaises(ValueError):
+                self.manager.update_schedules([{"preset_id": "service_observation", "discovery_limit": invalid}])
+        self.assertEqual(next(item for item in self.manager.list_schedules()["items"] if item["preset_id"] == "service_observation")["schedule"], after)
 
     def test_manual_scheduled_preset_runs_sequence_steps(self) -> None:
         queued = self.manager.run_scheduled_preset("sync_sources_then_enrich")

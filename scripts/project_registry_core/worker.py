@@ -203,6 +203,11 @@ def _run_simple(
             )
         elif request.operation == "verify_service":
             payload = _run_verify_service(conn, request)
+        elif request.operation == "observe_services":
+            payload = investigation.observe_services(conn, execute=request.execute,
+                discovery_limit=int(request.parameters.get("discovery_limit", 50)),
+                discovery_budget_seconds=int(request.parameters.get("discovery_budget_seconds", 900)),
+                progress=progress, cancel_requested=lambda: cancellation.cancel_requested)
         elif request.operation == "monitor_services":
             payload = investigation.monitor_services(
                 conn, execute=request.execute,
@@ -271,7 +276,7 @@ def run_payload(payload: dict[str, Any]) -> int:
     def emit(event: OperationEvent) -> None:
         _write({"type": "event", "payload": event.to_dict()})
 
-    if request.operation not in {"enrich", "sync", "review", "verify_service", "monitor_services"}:
+    if request.operation not in {"enrich", "sync", "review", "verify_service", "monitor_services", "observe_services"}:
         raise ValueError(f"unsupported worker operation: {request.operation}")
     conn = database.open_database(db_path, create=False)
     try:

@@ -63,6 +63,10 @@ const displayLabels = {
   "schedule time must be HH:MM": "定期実行の時刻はHH:MM形式で指定してください",
   "schedule week_of_month must be between 0 and 5": "定期実行の週は毎週または第1〜第5週を指定してください",
   "schedule weekday must be between 0 and 6": "定期実行の曜日を選択してください",
+  "discovery_limit must be 1..1000": "未採用URLの上限は1〜1,000件で指定してください",
+  "discovery_budget_minutes must be 1..240": "未採用URLの調査時間は1〜240分で指定してください",
+  "discovery_limit must be an integer": "未採用URLの上限は整数で指定してください",
+  "discovery_budget_minutes must be an integer": "未採用URLの調査時間は整数で指定してください",
   "identifier value could not be normalized": "識別子の値を確認してください。正規化できませんでした",
   "review target is stale or does not belong to this project": "レビュー対象が変更されたか、別プロジェクトに属しています。詳細を再読込してください",
   "guarded identifier cannot be added as a seed": "除外・保留中の識別子はシードへ追加できません",
@@ -228,6 +232,9 @@ const displayLabels = {
   "review": "追跡状態の見直し",
   "verify_service": "匿名ブラウザー確認",
   "monitor_services": "サービス観測",
+  "observe_services": "サービス観測・未採用URL調査",
+  "observe confirmed then investigate unadopted URLs": "採用済みサービスの再確認 → 未採用URLの調査",
+  "Observe due confirmed services, then investigate unadopted service URLs with a separate adjustable budget. No automatic tracking changes.": "採用済みサービスを再確認し、別の処理予算で未採用URLを調査します。追跡状態は自動変更しません。",
   "lexicon_publication_changed": "Lexiconの発行根拠・帰属の確認",
   "missing_project_identity": "プロジェクトが表す対象の確認",
   "review_project_identity_and_tracking": "対象の採用・プロジェクト自体の追跡判断",
@@ -1725,6 +1732,7 @@ function renderDetail(data) {
     ${project.editorial?.proposal ? `<p class="notice">根拠付きの説明更新案があります。紹介情報の「編集」から確認できます。</p>` : ""}
     ${section("Lexicon公開情報", renderPublicationSchemas(project.publication_schemas, project.publication_review))}
     ${section("確認時点", renderServiceObservations(project.service_observations))}
+    ${list(project.service_url_investigations).length ? section("未採用URLの調査", `<p class="muted">リンク先の観測です。プロジェクトへの帰属は未確定です。</p>${list(project.service_url_investigations).map(item => `<details><summary>${esc(item.url)} · ${esc(displayLabel(item.status))}</summary><p>${link(item.url)} · ${esc(formatTimestamp(item.attempted_at))}</p><p>${item.assessment?.positive_surface ? "利用画面を観測" : "利用画面は未確認"}${item.retry_at ? ` · 再試行対象: ${esc(formatTimestamp(item.retry_at))}以降` : ""}</p><p>${esc(item.assessment?.excerpt || "本文なし")}</p></details>`).join("")}`) : ""}
     ${section("主機能でのatproto利用", renderAtprotoUsage(promotionPolicy.atproto_usage))}
     ${section("リンク・資料", renderProjectLinks(overview))}
     ${section("評価", `<dl class="kv"><dt>atproto寄与度</dt><dd>${pill(evaluation.atproto_contribution_level)} 点数 ${esc(evaluation.atproto_contribution_score)}</dd><dt>技術的な学び</dt><dd>${pill(evaluation.technical_interest_level)} 点数 ${esc(evaluation.technical_interest_score)}</dd><dt>サービス状態の確信度</dt><dd>${esc(displayLabel(evaluation.service_status_confidence))}</dd><dt>説明の未記入項目</dt><dd>${descriptionMissingText(evaluation.description_missing)}</dd><dt>紹介候補一覧での扱い</dt><dd>${pill(promotionLabel(promotionVisibilityLabels, promotionPolicy.candidate_visibility?.group || "excluded"))}</dd><dt>サービスの利用画面</dt><dd>${pill(promotionLabel(promotionServiceLabels, promotionPolicy.service_evidence_group || "not_applicable"))}</dd><dt>紹介候補の優先度</dt><dd>${pill(promotionLabel(promotionPriorityLabels, priorityGroup))} ${esc(promotionPolicy.priority_reason || "")}</dd><dt>紹介スコア</dt><dd>${esc(promotionPolicy.score_breakdown?.total ?? 0)}</dd><dt>技術評価の説明</dt><dd>${esc(evaluation.technical_interest_summary || "なし")}</dd></dl>${renderPromotionScore(promotionPolicy.score_breakdown)}`, "<p>説明に未記入の項目があっても、技術やサービスの手掛かりがあれば候補になります。</p><p>atproto寄与度は確認できた利用の強さ、技術的な学びは独自性や学習価値、紹介スコアは一覧の並び順です。紹介可否の最終判断は利用者が行います。</p>")}
@@ -2701,10 +2709,12 @@ function renderJobs(items) {
         : "";
     const target = job.request?.parameters?.project_key || (job.request?.parameters?.all_projects ? "bulk" : job.request?.parameters?.source || job.request?.parameters?.kind || "operation");
     const plan = job.operation === "review" && job.status === "completed" && !job.request?.execute ? job.result?.data?.summary : null;
+    const discovery = job.result?.data?.summary?.unadopted;
     return `<article class="job-card ${esc(job.status)}"><div class="card-title"><strong>${esc(displayLabel(job.operation))} · ${esc(displayLabel(target))}</strong>${pill(job.status, job.status)}</div>
       <div class="meta-row"><span>${esc(job.job_id)}</span><span>${esc(count)}</span><span>${job.elapsed_seconds === null || job.elapsed_seconds === undefined ? "" : `経過 ${esc(formatDuration(job.elapsed_seconds))}`}</span><span>${job.eta_seconds === null || job.eta_seconds === undefined ? "" : `残り時間（推定） ${esc(formatDuration(job.eta_seconds))}`}</span></div>
       ${job.last_item ? `<p class="muted">直近: ${esc(job.last_item.project_key)} ${esc(job.last_item.name || "")}</p>` : ""}
       ${job.result?.data?.summary?.reason === "source_disabled" ? `<p class="muted">情報源が無効のためスキップしました。</p>` : ""}
+      ${discovery ? `<p>未採用URL調査: ${esc(discovery.processed_count)}件試行（観測 ${esc(discovery.observed_count)}・取得失敗 ${esc(discovery.failed_count)}・競合 ${esc(discovery.conflicted_count)}） · 積み残し ${esc(discovery.remaining_due_count)}件 · ${esc(formatDuration(discovery.elapsed_seconds))} · ${esc(({url_budget:"URL件数上限", time_budget:"調査時間上限", cancelled:"停止要求", selection_exhausted:"今回の選定分を終了"})[discovery.stop_reason] || discovery.stop_reason)}</p>${job.result?.data?.summary?.outcome === "partial" ? `<p class="notice">一部のURLを確認できませんでした。採用済みサービスの結果も詳細から確認できます。</p>` : ""}` : ""}
       ${job.error ? `<p class="job-error">${esc(apiErrorMessage(job.error))}</p>` : ""}
       <div class="actions">
         ${job.can_cancel ? `<button class="danger small" data-job-cancel="${esc(job.job_id)}">停止を要求</button>` : ""}
@@ -2759,6 +2769,7 @@ function renderSchedules(data) {
         <label>曜日<select data-schedule-field="weekday" data-preset-id="${esc(item.preset_id)}">${scheduleWeekdayOptions(schedule.weekday)}</select></label>
         <label>時刻<input type="time" data-schedule-field="time" data-preset-id="${esc(item.preset_id)}" value="${esc(schedule.time || "03:00")}"></label>
         <label>タイムゾーン<input data-schedule-field="timezone" data-preset-id="${esc(item.preset_id)}" value="${esc(schedule.timezone || "Asia/Tokyo")}"></label>
+        ${item.preset_id === "service_observation" ? `<label>未採用URLの上限<input type="number" min="1" max="1000" data-schedule-field="discovery_limit" data-preset-id="${esc(item.preset_id)}" value="${esc(schedule.discovery_limit ?? 50)}"></label><label>未採用URLの調査時間（分）<input type="number" min="1" max="240" data-schedule-field="discovery_budget_minutes" data-preset-id="${esc(item.preset_id)}" value="${esc(schedule.discovery_budget_minutes ?? 15)}"></label>` : ""}
       </div>
       <p class="muted">次回: ${esc(formatTimestamp(item.next_due_at))}</p>
       ${statusLine ? `<p class="muted">${esc(statusLine)}</p>` : ""}
@@ -2777,7 +2788,7 @@ function collectScheduleUpdates() {
     const item = updates.get(presetId) || {preset_id: presetId};
     const field = input.dataset.scheduleField;
     if (field === "enabled") item[field] = input.checked;
-    else if (field === "weekday" || field === "week_of_month") item[field] = Number(input.value);
+    else if (["weekday", "week_of_month", "discovery_limit", "discovery_budget_minutes"].includes(field)) item[field] = Number(input.value);
     else item[field] = input.value;
     updates.set(presetId, item);
   });

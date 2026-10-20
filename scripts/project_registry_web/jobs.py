@@ -26,8 +26,8 @@ WEEKDAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 SCHEDULE_PRESETS: dict[str, dict[str, Any]] = {
     "service_observation": {
         "label": "Service observation",
-        "description": "Observe up to 20 confirmed service URLs last checked at least 30 days ago, including stable/stalled/out-of-scope projects. No automatic tracking changes.",
-        "default_schedule": {"enabled": False, "week_of_month": 0, "weekday": 5, "time": "03:00", "timezone": "Asia/Tokyo"},
+        "description": "Observe due confirmed services, then investigate unadopted service URLs with a separate adjustable budget. No automatic tracking changes.",
+        "default_schedule": {"enabled": False, "week_of_month": 0, "weekday": 5, "time": "03:00", "timezone": "Asia/Tokyo", "discovery_limit": 50, "discovery_budget_minutes": 15},
     },
     "enrich_all": {
         "label": "Enrich all",
@@ -69,7 +69,7 @@ def _step(operation: str, label: str, parameters: dict[str, Any], *, execute: bo
 
 def preset_steps(preset_id: str) -> list[dict[str, Any]]:
     if preset_id == "service_observation":
-        return [_step("monitor_services", "observe due services", {"min_age_days": 30, "limit": 20})]
+        return [_step("observe_services", "observe confirmed then investigate unadopted URLs", {})]
     if preset_id == "enrich_all":
         return [_step("enrich", "enrich --all", {"all_projects": True})]
     if preset_id == "enrich_all_states":
@@ -165,12 +165,22 @@ def _normalize_schedule(raw: dict[str, Any], *, defaults: dict[str, Any]) -> dic
     hour, minute = _parse_schedule_time(str(merged.get("time") or "03:00"))
     timezone = str(merged.get("timezone") or "Asia/Tokyo").strip() or "Asia/Tokyo"
     _timezone(timezone)
+    budget = {}
+    if "discovery_limit" in defaults:
+        for key, maximum in (("discovery_limit", 1000), ("discovery_budget_minutes", 240)):
+            value = int(raw.get(key, defaults[key]))
+            if isinstance(raw.get(key), bool) or (isinstance(raw.get(key), float) and raw[key] != value):
+                raise ValueError(f"{key} must be an integer")
+            if not 1 <= value <= maximum:
+                raise ValueError(f"{key} must be 1..{maximum}")
+            budget[key] = value
     return {
         "enabled": bool(merged.get("enabled")),
         "week_of_month": week_of_month,
         "weekday": weekday,
         "time": f"{hour:02d}:{minute:02d}",
         "timezone": timezone,
+        **budget,
     }
 
 
@@ -448,6 +458,11 @@ class JobManager:
             return OperationRequest.create("sync", parameters=parameters, execute=bool(step.get("execute", True)))
         if operation == "review":
             return OperationRequest.create("review", parameters=parameters, execute=bool(step.get("execute", True)))
+        if operation == "observe_services":
+            schedule = self._schedule_state["schedules"][preset_id]
+            parameters.update(discovery_limit=schedule["discovery_limit"],
+                              discovery_budget_seconds=60 * schedule["discovery_budget_minutes"])
+            return OperationRequest.create(operation, parameters=parameters, execute=True)
         if operation in {"monitor_services"}:
             return OperationRequest.create(operation, parameters=parameters, execute=True)
         raise ValueError(f"unsupported scheduled operation: {operation}")
@@ -487,6 +502,10 @@ class JobManager:
             except ValueError:
                 schedule = _normalize_schedule(defaults, defaults=defaults)
             normalized[preset_id] = {**existing, **schedule, "preset_id": preset_id}
+            if preset_id == "service_observation" and any(
+                step.get("operation") == "monitor_services" for step in existing.get("pending_steps", [])
+            ):
+                normalized[preset_id]["pending_steps"] = preset_steps(preset_id)
             if preset_id == "enrich_all_states" and _has_legacy_all_state_enrich(existing.get("pending_steps") or []):
                 # Old checkpoints restore the old selection options as well.
                 # Keep those files for explicit manual use; reselect scheduled work.
@@ -500,6 +519,10 @@ class JobManager:
             if preset_id not in SCHEDULE_PRESETS:
                 continue
             entry = dict(item)
+            if preset_id == "service_observation":
+                for field in ("remaining_steps", "retry_steps"):
+                    entry[field] = [preset_steps(preset_id)[0] if step.get("operation") == "monitor_services" else step
+                                    for step in entry.get(field, [])]
             if preset_id == "enrich_all_states" and _has_legacy_all_state_enrich(
                 [*(entry.get("remaining_steps") or []), *(entry.get("retry_steps") or [])]
             ):
@@ -551,7 +574,7 @@ class JobManager:
                 "label": preset["label"],
                 "description": preset["description"],
                 "steps": [{"operation": step["operation"], "label": step["label"]} for step in preset_steps(preset_id)],
-                "schedule": {key: schedule.get(key) for key in ("enabled", "week_of_month", "weekday", "time", "timezone")},
+                "schedule": {key: schedule.get(key) for key in ("enabled", "week_of_month", "weekday", "time", "timezone", "discovery_limit", "discovery_budget_minutes") if key in schedule},
                 "weekday_label": WEEKDAY_LABELS[int(schedule.get("weekday") or 0)],
                 "due_now": bool(due and schedule.get("enabled") and schedule.get("last_period") != period),
                 "next_due_at": _schedule_next_due_at(schedule, now),

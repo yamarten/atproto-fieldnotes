@@ -1644,6 +1644,7 @@ class ProjectRegistryResearchPipelineTest(ProjectRecordTestCase):
 
     def test_browser_collector_does_not_treat_followed_link_as_confirmed_login_surface(self) -> None:
         project = self.make_project("proj:browser", "service_url", "https://example.com")
+        registry.add_manual_seed(project, "service_url", "https://example.com", source="test")
         original = copy.deepcopy(project)
         pages = {
             "https://example.com": {"url": "https://example.com", "title": "App", "text": "Welcome", "links": [{"href": "https://example.com/login", "text": "Log in"}], "js_rendered": True},
@@ -1663,6 +1664,7 @@ class ProjectRegistryResearchPipelineTest(ProjectRecordTestCase):
 
     def test_browser_collector_confirms_password_form_and_preserves_summary(self) -> None:
         project = self.make_project("proj:browserform", "service_url", "https://example.com")
+        registry.add_manual_seed(project, "service_url", "https://example.com", source="test")
         pages = {
             "https://example.com": {
                 "url": "https://example.com", "title": "App", "text": "Welcome",
@@ -1696,6 +1698,7 @@ class ProjectRegistryResearchPipelineTest(ProjectRecordTestCase):
 
     def test_browser_collector_separates_oauth_entry_and_rendered_errors(self) -> None:
         project = self.make_project("proj:browseroauth", "service_url", "https://example.com")
+        registry.add_manual_seed(project, "service_url", "https://example.com", source="test")
         page = {
             "url": "https://example.com", "title": "App login", "text": "Continue",
             "links": [], "js_rendered": True,
@@ -1758,6 +1761,7 @@ class ProjectRegistryResearchPipelineTest(ProjectRecordTestCase):
                 return copy.deepcopy(pages[len(calls) - 1])
 
             project = self.make_project(f"proj:{case['case_id']}", "service_url", case["service_url"])
+            registry.add_manual_seed(project, "service_url", case["service_url"], source="test")
             bundle = service_core.collect_browser_service_evidence(
                 project,
                 case["service_url"],

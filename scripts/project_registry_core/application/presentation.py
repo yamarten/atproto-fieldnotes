@@ -694,6 +694,7 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "service_observations": [service.observation_summary(item) for item in prepared.get("service_verification_results", [])
                                  if item.get("lane") in {"static", "deep", "authority", "browser"}
                                  and item.get("requested_url") in prepared.get("service_urls", [])],
+        "service_url_investigations": list(prepared.get("service_url_investigations", [])),
         "state": state,
         "system_notes": list(prepared.get("system_notes") or []),
         "first_seen_at": str(row["first_seen_at"]),

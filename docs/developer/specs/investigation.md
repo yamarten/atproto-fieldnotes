@@ -302,6 +302,20 @@ metadata URLごとの最新観測をcurrent stateに保持します。scopeが�
   - 認証入力、登録、投稿は行いません
   - browser結果は surface 到達と runtime/network error を evidence に残します
 
+### 未採用URLの調査
+
+`investigate-service-urls`は、採用済みサービスの稼働再確認とは別に、既存service candidate、採用済みrepositoryの現行公開先・役割未確定homepage、現行owned NSIDの完全一致authorityで静的取得に成功したURLを調べます。空HTMLだけに限定しません。生のauthority逆引き、一般の投稿・record内リンクや`evidence_urls`から巡回先を増やしません。既知のdocs/package/account/repository/funding URL、補助ページ、API/PDS宣言、非公開address、guard・非現行URL・他projectの確定URL・競合するrepository公開先は対象にしません。API/PDSの実在確認は既存protocol確認の責務です。
+
+対象stateは`active / stable / stalled / out_of_scope`です。紹介予定とservice未採用projectを優先し、出所別に巡回して1 project・同一URL各1件を選びます。未試行・意味のある入力変更を4巡、期限到来の再試行を1巡で選び、空いた枠は他へ回します。rootの観測時刻だけでは再取得せず、出所・現行NSID・公開先の根拠・ページ内容hash・policyの変更で再評価します。成功したが帰属不明の観測は入力変更まで再巡回しません。一時失敗は7・30・90日後を再試行対象とし、404/410は入力変更まで保留します。
+
+ブラウザcollectorは共有し、未採用側は`browser_discovery` laneと出所付きhypothesisを保存します。最初のpageが正常に取得・可視観測され、利用画面とAT Protocol/PDSの具体的な痕跡が同じexact URLにある場合にcandidateを支持します。ログイン欄やHTTP成功だけでは確定せず、未採用観測から`website_url`・confirmed・projectの稼働状態・追跡状態・`last_enriched_at`を変えません。表示された`continue to PDS`も認証入口の観測に含めますが、認証の成功ではありません。既存candidateの取得失敗は自動block/削除にしません。
+
+既定は50 URL・900秒で、件数または経過時間で新しいURLへの着手を止めます。URL内のnavigationにも残り時間を渡し、1 URLの操作予算は最大45秒、同一siteの認証入口は最大2件です。ブラウザ起動・DNS・終了処理を含む厳密なprocess終了期限や、subresource込みのHTTP request数の上限ではありません。取消しはURL境界とnavigation前で確認し、完了していない試行を成功として保存しません。個別失敗・競合後は独立したURLを続行し、共通の依存不足・DB障害は処理を止めます。ブラウザは利用者のsessionを使わず、既存outbound規則でnavigation・redirect・subresource・WebSocketの内部address宛接続を拒否します。
+
+試行台帳は`state_json.evidence.service_url_investigations`へ、観測32件の押出しとは独立に保持します。保存・replay・finalizeでも現在の出所とguardを確認して候補を維持します。次回enrichには上限付きの`unadopted_url_observations`を、帰属未確認の調査材料として渡し、説明用`description_sources`とは分けます。30日以内で出所とURLが一致する成功観測は、既存repository homepage判定の独立した帰属条件を満たす時にブラウザ再実行の代わりに使えます。直後の自動enrich・追跡stateの復帰は行いません。
+
+同じURLが複数projectの候補にあるだけでは、帰属を補強しません。直接の公開先・authority根拠が競合するURLは保留し、根拠の弱い共通candidateも紹介予定による明示的な調査関心がなければ巡回しません。画面のconsole/network errorも保存しますが、表示された入口を候補として扱うことと、エラーのない利用面を採用根拠にすることを分けます。repository homepageへの成功観測の再利用では従来どおりエラーのある画面を確定の根拠にしません。
+
 ### Browser観測
 
 匿名browser確認は、描画後のページで何が表示され、どこへ到達したかを観測します。登録・認証入力・投稿を行わない操作範囲と、保存量の上限は前節までの規則に従います。

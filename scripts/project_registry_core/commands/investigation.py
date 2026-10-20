@@ -6,6 +6,18 @@ from pathlib import Path
 
 from .. import registry as core
 from ..application import investigation as services
+from ..application import service_discovery
+
+
+def cmd_investigate_service_urls(args: argparse.Namespace) -> int:
+    conn = core.open_db()
+    try:
+        payload = service_discovery.investigate(conn, execute=args.execute,
+            limit=args.limit, budget_seconds=args.budget_seconds)
+    finally:
+        conn.close()
+    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    return 1 if payload["operation_status"] in {"partial", "failed", "retry_wait"} else 0
 
 
 def cmd_monitor_services(args: argparse.Namespace) -> int:

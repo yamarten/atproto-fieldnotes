@@ -11,6 +11,31 @@ from .. import replay as replay_core
 from ..persistence import storage as investigation_storage
 from project_registry_core import project_record
 from .. import service
+from . import service_discovery
+
+
+def observe_services(conn: sqlite3.Connection, *, execute: bool = False, discovery_limit: int = 50,
+                     discovery_budget_seconds: int = 900, progress: Any = None,
+                     cancel_requested: Any = None) -> dict[str, Any]:
+    """Compose independent budgets without making URL failures prerequisites."""
+    if cancel_requested and cancel_requested():
+        return {"operation_status": "cancelled"}
+    if execute:
+        service.ensure_browser_available()
+    def phase_progress(phase: str):
+        return lambda done, total, detail: progress(done, total, {**detail, "phase": phase}) if progress else None
+    monitored = monitor_services(conn, execute=execute, progress=phase_progress("confirmed"),
+                                 cancel_requested=cancel_requested)
+    if cancel_requested and cancel_requested():
+        return {"confirmed": monitored, "operation_status": "cancelled"}
+    discovered = service_discovery.investigate(conn, execute=execute, limit=discovery_limit,
+        budget_seconds=discovery_budget_seconds, progress=phase_progress("unadopted"), cancel_requested=cancel_requested)
+    statuses = {monitored["operation_status"], discovered["operation_status"]}
+    # URL failures have their own durable cooldown/retry state. Do not leave a
+    # preset checkpoint that disables subsequent scheduled observations.
+    return {"confirmed": monitored, "unadopted": discovered,
+            "outcome": "partial" if statuses.intersection({"partial", "retry_wait"}) else "completed",
+            "operation_status": "cancelled" if "cancelled" in statuses else "completed"}
 
 
 def verify_service(

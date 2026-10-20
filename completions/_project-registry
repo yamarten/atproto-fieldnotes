@@ -44,6 +44,7 @@ subcommands=(
   'evaluate-relation-assessment-corpus:Run the predicate-specific relation assessor against a fixed corpus'
   'verify-service:Verify a service with static, deep-page, or browser checks'
   'monitor-services:Inspect or observe due confirmed services'
+  'investigate-service-urls:Inspect or investigate unadopted service URLs'
   'repair-db:Normalize stored data and refresh derived fields'
   'audit-url-fields:Report URL field usage and invariant violations'
   'audit-trust-graph:Report trust-graph confirmation issues'
@@ -466,6 +467,9 @@ case "$cmd" in
     ;;
   monitor-services)
     _arguments '--min-age-days[Minimum days since last browser attempt]:days:' '--limit[Maximum service URLs]:count:' '--execute[Observe and save due services]'
+    ;;
+  investigate-service-urls)
+    _arguments '--limit[Maximum unadopted URLs]:count:' '--budget-seconds[Stop starting URLs after this many seconds]:seconds:' '--execute[Investigate and save selected URLs]'
     ;;
   verify-service)
     _arguments -S \

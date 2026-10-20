@@ -1073,6 +1073,14 @@ def combine_records(target: dict[str, Any], source: dict[str, Any]) -> dict[str,
     merged["oauth_client_metadata"] = oauth_metadata.normalize_results(
         list(merged.get("oauth_client_metadata", [])) + list(source.get("oauth_client_metadata", []))
     )
+    investigations = {}
+    for item in sorted(list(merged.get("service_url_investigations", [])) + list(source.get("service_url_investigations", [])),
+                       key=lambda value: str(value.get("attempted_at", ""))):
+        prior = investigations.get(item["url"], {})
+        successful = max((prior.get("last_success", {}), item.get("last_success", {})),
+                         key=lambda value: str(value.get("observed_at", "")))
+        investigations[item["url"]] = {**item, "last_success": successful}
+    merged["service_url_investigations"] = list(investigations.values())
     project_record.sync_source_repo_provider_views(merged)
 
     merged["bluesky_handles"] = project_record.unique_list(list(merged.get("bluesky_handles", [])) + list(source.get("bluesky_handles", [])))

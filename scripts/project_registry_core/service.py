@@ -4,7 +4,9 @@ import hashlib
 import datetime as dt
 import json
 import re
+import time
 import urllib.parse
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -13,6 +15,7 @@ from .repositories import project_repository_policy
 from .evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
 from .relations import relation_record
 from . import account_links, developer_links, usage_material
+from .transport import http_transport
 
 SUPPORTING_PAGE_PATHS = {
     "about",
@@ -561,8 +564,8 @@ def browser_page_auth_features(page: dict[str, Any]) -> dict[str, bool]:
         text = str(action.get("text") or "").lower()
         href = str(action.get("href") or "").lower()
         provider = any(token in f"{text} {href}" for token in (
-            "atproto", "bluesky", "github", "google", "apple", "discord", "microsoft",
-        ))
+            "atproto", "bluesky", "github", "google", "apple", "discord", "microsoft", "personal data server",
+        )) or re.search(r"\bpds\b", text) is not None
         oauth_entry_detected = oauth_entry_detected or (
             "oauth" in href
             or "/authorize" in href
@@ -670,6 +673,7 @@ def collect_browser_service_evidence(
     project: dict[str, Any],
     service_url: str,
     dependencies: BrowserDependencies,
+    *, lane: str = "browser", hypothesis: dict[str, Any] | None = None,
 ) -> EvidenceBundle:
     observed_at = dependencies.now()
     bundle = EvidenceBundle(project_key=str(project.get("project_key") or ""), collected_at=observed_at)
@@ -712,12 +716,14 @@ def collect_browser_service_evidence(
         ))
         value = {
             "requested_url": service_url,
-            "lane": "browser",
+            "lane": lane,
+            **({"hypothesis": hypothesis} if hypothesis else {}),
             "observed_at": observed_at,
             "pages": [
                 {
                     "url": str(page.get("url") or ""),
                     "requested_url": str(page.get("requested_url") or ""),
+                    "status_code": int(page.get("status_code") or 0),
                     "visibility_observed": page.get("visibility_observed") is True,
                     "title": str(page.get("title") or ""),
                     "text_extract": bounded_text(str(page.get("text") or ""), 6000),
@@ -757,26 +763,27 @@ def collect_browser_service_evidence(
             for page in value["pages"]
         ))
         bundle.add_record(EvidenceRecord(
-            kind="service_verification", source=f"service_browser:{service_url}",
+            kind="service_verification", source=f"service_{lane}:{service_url}",
             classification="confirmed", observed_at=observed_at, value=value,
         ))
         bundle.add_collector_result(CollectorResult(
-            source="service_browser", operation="anonymous_navigation", status="success",
+            source=f"service_{lane}", operation="anonymous_navigation", status="success",
             observed_at=observed_at, request_count=len(pages), result_count=len(pages),
         ))
     except Exception as exc:
         bundle.add_record(EvidenceRecord(
-            kind="service_verification", source=f"service_browser:{service_url}",
+            kind="service_verification", source=f"service_{lane}:{service_url}",
             classification="candidate", observed_at=observed_at,
-            value={"requested_url": service_url, "lane": "browser", "observed_at": observed_at,
+            value={"requested_url": service_url, "lane": lane, "observed_at": observed_at,
+                   **({"hypothesis": hypothesis} if hypothesis else {}),
                    "fetch_error": "browser_error", "pages": []},
         ))
         bundle.add_failure(CollectorFailure(
-            source="service_browser", operation="anonymous_navigation", target=service_url,
+            source=f"service_{lane}", operation="anonymous_navigation", target=service_url,
             category="browser_error", message=f"browser verification failed for {service_url}: {exc}", retryable=False,
         ))
         bundle.add_collector_result(CollectorResult(
-            source="service_browser", operation="anonymous_navigation", status="failed",
+            source=f"service_{lane}", operation="anonymous_navigation", status="failed",
             observed_at=observed_at, request_count=1, stop_reason="browser_error",
         ))
     return bundle
@@ -790,14 +797,39 @@ def playwright_page_payload(
     browser_args: list[str] | None = None,
     transport_fallback: str = "",
 ) -> dict[str, Any]:
-    browser = playwright.chromium.launch(headless=True, args=list(browser_args or []))
+    deadline = time.monotonic() + timeout_ms / 1000
+    def remaining_timeout() -> int:
+        remaining = int(1000 * (deadline - time.monotonic()))
+        if remaining <= 0:
+            raise TimeoutError("browser navigation budget exhausted")
+        return remaining
+    http_transport.validate_outbound_fetch_url(url)
+    browser = playwright.chromium.launch(headless=True, args=list(browser_args or []), timeout=remaining_timeout())
     try:
-        page = browser.new_page()
+        page = browser.new_page(service_workers="block")
+        def allow_request(route: Any) -> None:
+            try:
+                http_transport.validate_outbound_fetch_url(route.request.url)
+            except ValueError:
+                route.abort("blockedbyclient")
+            else:
+                route.continue_()
+        page.context.route("**/*", allow_request)
+        def allow_socket(route: Any) -> None:
+            try:
+                http_transport.validate_outbound_fetch_url(
+                    route.url.replace("wss://", "https://", 1).replace("ws://", "http://", 1))
+            except ValueError:
+                route.close()
+            else:
+                route.connect_to_server()
+        page.context.route_web_socket("**/*", allow_socket)
         network_errors: list[str] = []
         console_errors: list[str] = []
         page.on("requestfailed", lambda request: network_errors.append(f"{request.method} {request.url}"))
         page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
-        page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+        page.set_default_timeout(remaining_timeout())
+        response = page.goto(url, wait_until="networkidle", timeout=remaining_timeout())
         menu_expanded_count = page.locator('button[aria-haspopup="menu"]').evaluate_all(
             """els => {
                 const visible = els.filter(item => item.offsetWidth || item.offsetHeight || item.getClientRects().length);
@@ -809,10 +841,11 @@ def playwright_page_payload(
         if menu_expanded_count:
             page.wait_for_timeout(200)
         return {
+            "status_code": response.status if response else 0,
             "visibility_observed": True,
             "url": page.url,
             "title": page.title(),
-            "text": page.locator("body").inner_text(timeout=timeout_ms),
+            "text": page.locator("body").inner_text(timeout=remaining_timeout()),
             "links": page.locator("a[href]").evaluate_all(
                 "els => els.slice(0, 100).map(a => ({href: a.href, text: (a.innerText || '').trim(), visible: a.checkVisibility({opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true})}))"
             ),
@@ -862,6 +895,7 @@ def playwright_page_payload(
 
 
 def playwright_navigate(url: str, *, timeout_ms: int = 30000) -> dict[str, Any]:
+    started = time.monotonic()
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as exc:  # pragma: no cover - optional dependency
@@ -872,13 +906,29 @@ def playwright_navigate(url: str, *, timeout_ms: int = 30000) -> dict[str, Any]:
         except Exception as exc:
             if "ERR_SOCKET_NOT_CONNECTED" not in str(exc):
                 raise
+            remaining = timeout_ms - int(1000 * (time.monotonic() - started))
+            if remaining <= 0:
+                raise TimeoutError("browser navigation budget exhausted") from exc
             return playwright_page_payload(
                 playwright,
                 url,
-                timeout_ms=timeout_ms,
+                timeout_ms=remaining,
                 browser_args=["--disable-http2"],
                 transport_fallback="disable_http2_after_socket_not_connected",
             )
+
+
+def ensure_browser_available() -> None:
+    """Check the shared dependency once, before recording any URL attempts."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise RuntimeError("browser verification requires requirements-browser.txt") from exc
+    with sync_playwright() as playwright:
+        if not Path(playwright.chromium.executable_path).is_file():
+            raise RuntimeError("browser verification requires installed Chromium")
+        browser = playwright.chromium.launch(headless=True, timeout=5000)
+        browser.close()
 
 
 def protocol_service_endpoint(url: str) -> str:
