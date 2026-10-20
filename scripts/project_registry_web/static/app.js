@@ -97,9 +97,9 @@ const displayLabels = {
   "active": "通常追跡",
   "stable": "安定稼働",
   "stalled": "活動停滞",
-  "out_of_scope": "調査範囲外",
+  "out_of_scope": "スコープ外",
   "archived": "アーカイブ",
-  "ignore": "追跡対象外",
+  "ignore": "無視",
   "beta": "ベータ公開",
   "live": "利用可能",
   "dead": "提供終了",
@@ -301,16 +301,16 @@ const displayLabels = {
   "Sync sources + enrich": "外部情報の取り込み・新規分の調査",
   "All-state maintenance": "全追跡状態の調査・見直し",
   "Extended tracking maintenance": "追跡範囲を広げた調査・見直し",
-  "Observe up to 20 confirmed service URLs last checked at least 30 days ago, including stable/stalled/out-of-scope projects. No automatic tracking changes.": "最終確認から30日以上経過した採用済みサービスURLを最大20件観測します。安定稼働・活動停滞・調査範囲外も対象です。追跡状態は変更しません。",
+  "Observe up to 20 confirmed service URLs last checked at least 30 days ago, including stable/stalled/out-of-scope projects. No automatic tracking changes.": "最終確認から30日以上経過した採用済みサービスURLを最大20件観測します。安定稼働・活動停滞・スコープ外も対象です。追跡状態は変更しません。",
   "Run normal enrich --all for active projects.": "通常追跡中のプロジェクトを一括調査します。",
   "Run introduced-post sync with SQLite updates.": "紹介済み投稿を取り込み、SQLiteを更新します。",
   "Run non-introduced sync sources, then enrich newly created projects only.": "紹介済み投稿以外の外部情報を取り込み、新規登録分だけを調査します。",
   "Run enrich --all across every tracking state, then apply stalled review updates.": "すべての追跡状態を対象に一括調査し、活動停滞・安定稼働への見直しを適用します。",
-  "Investigate active, stable, stalled and out-of-scope projects, then apply stalled review updates. Ignore and archived projects require explicit manual investigation.": "通常追跡・安定稼働・活動停滞・調査範囲外を一括調査し、活動に基づく追跡状態の見直しを適用します。追跡不要・アーカイブは対象外です。再調査が必要な場合は手動で明示的に指定してください。",
+  "Investigate active, stable, stalled and out-of-scope projects, then apply stalled review updates. Ignore and archived projects require explicit manual investigation.": "通常追跡・安定稼働・活動停滞・スコープ外を一括調査し、活動に基づく追跡状態の見直しを適用します。無視・アーカイブは対象外です。再調査が必要な場合は手動で明示的に指定してください。",
   "observe due services": "確認時期を迎えたサービスを観測",
   "enrich --all": "通常追跡中の全件調査",
   "enrich --all --all-tracking-states": "全追跡状態の調査",
-  "enrich --all --include-stable --include-stalled --include-out-of-scope": "追跡不要・アーカイブ以外の調査",
+  "enrich --all --include-stable --include-stalled --include-out-of-scope": "無視・アーカイブ以外の調査",
   "review stalled --execute": "活動停滞・安定稼働への変更を適用",
   "sync introduced": "紹介済み投稿の取り込み",
   "sync github": "GitHubから取り込み",
@@ -2455,9 +2455,9 @@ function renderOperations() {
       <details class="tracking-state-options"><summary>追加する追跡状態</summary><div class="checkbox-grid">
         <label><span><input id="enrich-stable" type="checkbox"> 安定稼働</span></label>
         <label><span><input id="enrich-stalled" type="checkbox"> 活動停滞</span></label>
-        <label><span><input id="enrich-out-of-scope" type="checkbox"> 調査範囲外</span></label>
+        <label><span><input id="enrich-out-of-scope" type="checkbox"> スコープ外</span></label>
         <label><span><input id="enrich-archived" type="checkbox"> アーカイブ</span></label>
-        <label><span><input id="enrich-ignore" type="checkbox"> 追跡対象外</span></label>
+        <label><span><input id="enrich-ignore" type="checkbox"> 無視</span></label>
       </div></details>
       <button id="start-enrich" class="primary">調査を開始</button>
     </div><code>project-registry enrich --all</code></article>
@@ -2473,7 +2473,7 @@ function renderOperations() {
       <button id="start-sync" class="primary">取り込みを開始</button>
     </div><code>project-registry sync-&lt;source&gt; [--execute]</code></article>
     <article class="operation-card"><h3>追跡状態の見直し</h3><p>保存済み情報で確認（通信なし）</p><div class="controls">
-      <label>レビュー<select id="review-kind"><option value="stalled">活動停滞・安定稼働</option><option value="out_of_scope">調査範囲外</option><option value="ignore">無関係・対象を特定できないもの</option></select></label>
+      <label>レビュー<select id="review-kind"><option value="stalled">活動停滞・安定稼働</option><option value="out_of_scope">スコープ外</option><option value="ignore">無視</option></select></label>
       <label>候補の件数上限<input id="review-limit" type="number" min="1" max="500" value="50"></label>
       <label id="review-inactivity-label">活動なしとする日数<input id="review-inactivity" type="number" min="1" max="3650" value="45"></label>
       <label id="review-freshness-label">調査結果の有効日数<input id="review-freshness" type="number" min="1" max="3650" value="30"></label>

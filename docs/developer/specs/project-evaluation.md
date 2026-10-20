@@ -393,7 +393,7 @@ fingerprintのversionは`promotion-attention-v1`です。category、service状�
 
 ### review-out-of-scope / review-ignore
 
-`review-out-of-scope`は、atprotoとの関連を保持しつつ、現在の紹介・重点調査対象から外す候補を返します。以下の`owned protocol surface`は、`project_has_owned_protocol_surface()`が見るNSID・NSID候補・namespace・collection活動観測の有無を指します。所有がconfirmedであることだけを条件にする語ではありません。
+`review-out-of-scope`は、atprotoとの関連を保持しつつ、現在の紹介・重点調査のスコープ外にする候補を返します。以下の`owned protocol surface`は、`project_has_owned_protocol_surface()`が見るNSID・NSID候補・namespace・collection活動観測の有無を指します。所有がconfirmedであることだけを条件にする語ではありません。
 
 - `auth_only_without_owned_protocol_surface`
   - `atproto_auth_only=true`
@@ -404,11 +404,11 @@ fingerprintのversionは`promotion-attention-v1`です。category、service状�
   - owned protocol surfaceがない
   - `category=lexicon` ではない
 
-対象外への変更案を適用したprojectは`tracking_state=out_of_scope`になります。この状態は通常のenrich・追跡状態レビュー・紹介候補一覧の対象外ですが、マージ候補計算には含め、明示enrichと手動復帰を許します。その後のsyncで新しいNSID等が既存projectへ紐づく経路も維持します。
+スコープ外への変更案を適用したprojectは`tracking_state=out_of_scope`になります。この状態は通常のenrich・追跡状態レビュー・紹介候補一覧の対象外ですが、マージ候補計算には含め、明示enrichと手動復帰を許します。その後のsyncで新しいNSID等が既存projectへ紐づく経路も維持します。
 
 `out_of_scope` projectにowned protocol surfaceが見つかった場合、同じコマンドは `owned_protocol_surface_detected` / `suggested_tracking_state=active` を返します。`--execute` なしでは更新せず、復帰も確認可能なqueueとして扱います。sync/enrichの途中で自動復帰する処理は未接続です。
 
-`review-ignore`は、無関係・誤登録・独立した同一性を持たない複製など、追跡不要なprojectの候補を返します。
+`review-ignore`は、無関係・誤登録・独立した同一性を持たない複製など、無視するprojectの候補を返します。
 
 現状の kind は次です。
 

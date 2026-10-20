@@ -410,9 +410,9 @@ provider別repo一覧とresource URL一覧はcanonical dataからhelperで導出
 - `active`: 通常の継続調査対象
 - `stable`: 安定しており通常の全件enrich頻度を下げる
 - `stalled`: 立ち消え気味だがarchivedとは確定しない
-- `out_of_scope`: atprotoとの関係はあるが現在の紹介・重点調査対象外
+- `out_of_scope`（スコープ外）: atprotoとの関係はあるが現在の紹介・重点調査対象外
 - `archived`: 開発終了または追跡完了
-- `ignore`: 無関係・誤登録・再評価価値の低いnoise
+- `ignore`（無視）: 無関係・誤登録・再評価価値の低いnoise
 
 `service_status`:
 

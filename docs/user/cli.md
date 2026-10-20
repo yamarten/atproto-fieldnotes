@@ -27,9 +27,9 @@ CLI/Webの手動確認には`project-registry dev-db`で架空データ5件を�
 | `active` | 通常の調査・要レビュー項目の対象。 |
 | `stable` | 稼働は安定しており、調査頻度を下げる。 |
 | `stalled` | 立ち消え気味だが、archivedと確定するほどではない。 |
-| `out_of_scope` | atprotoとの関係は保持するが、現在の紹介・重点調査対象外。 |
+| `out_of_scope` | スコープ外。atprotoとの関係は保持するが、現在の紹介・重点調査対象外。 |
 | `archived` | 終了・保管扱い。 |
-| `ignore` | 調査対象として追わないノイズ。 |
+| `ignore` | 無視。調査対象として追わないノイズ。 |
 
 追跡状態は調査対象を選ぶための区分で、データを削除したり、状態ごとに調査時刻を予約したりするものではありません。通常の`enrich --all`は`active`だけ、通常の紹介候補一覧は`active / stable`を対象にします。単体指定や追加状態の指定では通常対象外も調査でき、`--all-tracking-states`は`ignore / archived`も含みます。`stable`は活動観測に基づく継続調査上の扱いであり、現在サービスが動く保証ではありません。[追跡状態の見直し条件](../developer/specs/project-evaluation.md#追跡と再調査)と、[定期処理の対象](web-ui.md#定期実行)を確認してください。
 
@@ -106,10 +106,10 @@ project-registry enrich --all --resume-run weekly-20260714
 | `review-queue` | 追跡状態、理由（signal kind）、件数上限、`--interactive` | 要レビュー項目のJSON | 既定なし。対話操作で選んだ処理は書き込み |
 | `promotion-queue` | 追跡状態、紹介候補の種類、`--view`、件数上限、personal toolの包含、`--interactive` | 紹介候補のJSON | 既定なし。対話操作で選んだ処理は書き込み |
 | `review-stalled` | 活動日数、`enrich`の鮮度、`--execute`または`--interactive` | 追跡状態の変更候補JSON | 既定なし。execute/interactiveで書き込み |
-| `review-ignore` | 状態、件数上限、note/reason、実行方式 | 追跡対象外にする候補のJSON | 既定なし。execute/interactiveで書き込み |
-| `review-out-of-scope` | 状態、件数上限、note/reason、実行方式 | 調査範囲外または復帰候補のJSON | 既定なし。execute/interactiveで書き込み |
+| `review-ignore` | 状態、件数上限、note/reason、実行方式 | 無視する候補のJSON | 既定なし。execute/interactiveで書き込み |
+| `review-out-of-scope` | 状態、件数上限、note/reason、実行方式 | スコープ外または復帰候補のJSON | 既定なし。execute/interactiveで書き込み |
 
-`review-stalled`は活動状況と保存済み調査の鮮度から`active`、`stable`、`stalled`間の変更を提案します。`review-ignore`はatprotoの登録プロジェクトとして追わない候補、`review-out-of-scope`は関係を保持したまま現在の調査対象外にする候補です。
+`review-stalled`は活動状況と保存済み調査の鮮度から`active`、`stable`、`stalled`間の変更を提案します。`review-ignore`はatprotoの登録プロジェクトとして無視する候補、`review-out-of-scope`は関係を保持したままスコープ外にする候補です。
 
 `--interactive`では1件ずつ確認します。skipはその実行中だけ先送りし、DBへ書きません。`--execute`は表示対象の候補を一括適用します。
 

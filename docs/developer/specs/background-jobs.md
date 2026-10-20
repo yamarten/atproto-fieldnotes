@@ -102,7 +102,7 @@ cancel・fail-fast・snapshot変更・対象外化等で使えなかった先行
 
 `Operations`のscheduled preset（定期実行する処理の組合せ）は、通常enrich、追跡範囲を広げたenrich後の`review-stalled`一括反映、introduced sync、introduced以外のsync後の新規登録projectだけのenrichを実行します。presetごとに毎週または第N週の曜日、時刻、time zoneを設定します。Webからexecuteしたsyncは、sourceごとの件数、候補key / URL、成否、所要時間を、保存量を制限して直近4回分保存します。
 
-`enrich_all_states`（画面名「追跡範囲を広げた調査・見直し」）は、通常調査対象外の変化を拾い直すため、`active / stable / stalled / out_of_scope`を調査します。`ignore / archived`は追跡不要・追跡完了という判断を尊重して除外し、必要時に個別調査やCLIの明示指定で手動調査します。「今すぐ実行」も同じ範囲です。保存済みの日時・有効設定を維持するためpreset IDは変更しません。旧仕様の全状態enrichが保留・実行待ちに残っている場合は、読込み時に新しい対象範囲での調査と後段の見直しへ置き換えます。旧checkpoint自体は変更せず、明示的に手動再開した場合は元の全状態の対象範囲を引き継ぎます。
+`enrich_all_states`（画面名「追跡範囲を広げた調査・見直し」）は、通常調査対象外の変化を拾い直すため、`active / stable / stalled / out_of_scope`を調査します。無視・アーカイブ（`ignore / archived`）は除外し、必要時に個別調査やCLIの明示指定で手動調査します。「今すぐ実行」も同じ範囲です。保存済みの日時・有効設定を維持するためpreset IDは変更しません。旧仕様の全状態enrichが保留・実行待ちに残っている場合は、読込み時に新しい対象範囲での調査と後段の見直しへ置き換えます。旧checkpoint自体は変更せず、明示的に手動再開した場合は元の全状態の対象範囲を引き継ぎます。
 
 想定内の競合では、独立した後続stepを続行します。`sync_sources_then_enrich`の各sourceは独立し、最後の`new_only` enrichは保存済みの未調査projectを処理します。`enrich_all_states`の`review-stalled`は先行enrichの完了を必須とし、未完了なら`deferred`として保存します。一般障害（`failed`）、明示中断（`cancelled`）、worker起動失敗では、そのpresetの後続stepを停止します。workerの異常終了もjobが`failed`になれば同じ扱いです。
 

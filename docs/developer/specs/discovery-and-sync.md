@@ -192,7 +192,7 @@ owner解決と既存repo URLへのexact照合を先に行います。owner解決
 
 結果の`skipped_forks`は新規作成から除外した件数です。各`results`とprogressには`outcome=skipped_fork`、`reason=tangled_fork_excluded_from_discovery`、`fork_source`とその形式を返します。解決済みownerの通常結果にも`fork`と`fork_source_status`を返し、不明を`false`にしません。`results`の既存の先頭100件制限は維持します。
 
-除外は追跡不要のoperator判断ではなく、取り込み対象の選別です。`--no-create-unmatched`や`--all-history`でも選別し、除外だけなら未一致の保留とは数えずsequenceを進められます。除外候補の専用再試行queueは作りません。新しいrecord updateや明示的な履歴再走査で再評価しますが、再走査も同じ選別規則を使います。登録したいforkは明示登録してください。既存projectの削除、ignore化、mergeは行いません。
+除外はprojectを無視するoperator判断ではなく、取り込み対象の選別です。`--no-create-unmatched`や`--all-history`でも選別し、除外だけなら未一致の保留とは数えずsequenceを進められます。除外候補の専用再試行queueは作りません。新しいrecord updateや明示的な履歴再走査で再評価しますが、再走査も同じ選別規則を使います。登録したいforkは明示登録してください。既存projectの削除、ignore化、mergeは行いません。
 
 #### Ownerのidentityと解決不能record
 
