@@ -21,6 +21,8 @@ repository、service、Lexiconなどの外部対象（resource）の帰属・採
 
 未検証・期限切れ・帰属競合のある公開Lexiconを登録起点として採用しただけでは、merge用のtrusted collectionを増やしません。現在有効な公開検証または独立した採用根拠が必要です。採用来歴が要再確認なら、その根拠だけでmergeを支持しません。
 
+Webの既存projectへの「識別子を追加」は、採用と候補追加を選べます。`POST /api/seeds`の`classification`は省略時`confirmed`で従来の手動seed登録、`candidate`では既存の`project_key`とrevisionを必須にします。候補追加はNSID・repo URL・service URLを候補fieldへ保存し、manual seed・confirm decision・登録起点は作りません。採用済み値の格下げと除外・保留の暗黙解除は拒否し、通常の候補採用操作で後から採用できます。新規projectでは候補のみの登録を受け付けません。
+
 ### 判断の流れ
 
 1. collectorが外部情報を観測する。
@@ -252,7 +254,7 @@ graph nodeはedgeのendpointまたはpathの中継点です。node自体にcandi
 
 role確定済み候補を作れるのは、原則としてconfirmedなproject identifierから対象identifierへの、静的に許可された直接の帰属関係がある場合です。対象identifierからconfirmed identifierへの自己申告方向は根拠として保存できますが、それだけではcandidateを作りません。`uses`、`mentions`、名前一致、registrable domain一致、host suffix、任意README linkは帰属関係へ昇格しません。
 
-この原則の対象は、既存projectへ別kindのidentifierを候補として追加する処理です。collectorがcollection観測から暫定projectを作る処理には、次節の収集入口ごとの登録規則を使います。
+この原則の対象は、自動調査で既存projectへ別kindのidentifierを候補として追加する処理です。collectorがcollection観測から暫定projectを作る処理には、次節の収集入口ごとの登録規則を使います。
 
 #### Sync時の既存projectへの取込を分ける
 

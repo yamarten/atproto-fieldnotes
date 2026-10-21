@@ -684,6 +684,7 @@ class JobManager:
                 "job_id": current_job_id,
                 "status": "skipped" if skipped else job.status,
                 **({"reason": "source_disabled"} if skipped else {}),
+                **({"outcome": "partial"} if isinstance(summary, dict) and summary.get("outcome") == "partial" else {}),
                 "completed_at": job.completed_at,
             })
             current["completed_steps"] = completed

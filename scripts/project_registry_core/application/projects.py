@@ -9,11 +9,13 @@ from project_registry_core import naming
 from .. import editorial
 
 import sqlite3
+from dataclasses import asdict
 from typing import Any, Callable, Iterable
 
 from .. import registry as core
 from ..identity import identifiers
 from project_registry_core import project_record
+from ..persistence import runtime_view
 
 
 def _clear_exact_identifier_guards(project: dict[str, Any], identifier_type: str, value: str) -> None:
@@ -42,9 +44,16 @@ def add_seed(
     seed: str,
     seed_type: str | None = None,
     project_key: str | None = None,
+    classification: str = "confirmed",
     commit: bool = True,
 ) -> dict[str, Any]:
+    if classification not in {"confirmed", "candidate"}:
+        raise ValueError("invalid identifier classification")
     resolved_type = core.detect_seed_type(seed, seed_type)
+    if classification == "candidate":
+        return _add_candidate_identifier(
+            conn, seed=seed, seed_type=resolved_type, project_key=project_key, commit=commit,
+        )
     project = core.ensure_project_for_seed(
         conn,
         resolved_type,
@@ -117,6 +126,45 @@ def add_seed(
         "seed_type": resolved_type,
         "seed_value": normalized_value,
         "confirmed_role": confirmed_role,
+        "name": project.get("name", ""),
+    }
+
+
+def _add_candidate_identifier(
+    conn: sqlite3.Connection, *, seed: str, seed_type: str,
+    project_key: str | None, commit: bool,
+) -> dict[str, Any]:
+    if not project_key:
+        raise ValueError("candidate identifiers require an existing project")
+    if seed_type not in {"nsid", "repo_url", "service_url"}:
+        raise ValueError("unsupported candidate identifier type")
+    project = core.resolve_single_project(conn, project_key=project_key)
+    value = project_record.canonical_seed_value(seed_type, seed)
+    if not value:
+        raise ValueError("invalid identifier value")
+    if project_record.identifier_is_blocked(project, seed_type, value) or project_record.identifier_is_deferred(project, seed_type, value):
+        raise ValueError("guarded identifier cannot be added as a candidate")
+    confirmed_field, candidate_field = {
+        "nsid": ("resolved_nsids", "input_nsids"),
+        "repo_url": ("project_repository_urls", "candidate_project_repository_urls"),
+        "service_url": ("service_urls", "service_url_candidates"),
+    }[seed_type]
+    if value in project.get(confirmed_field, []):
+        raise ValueError("identifier is already confirmed")
+    # Explicit candidate input records a lead, never a manual seed or trust root.
+    project[candidate_field] = project_record.add_unique(project.get(candidate_field, []), value)
+    rows = [asdict(item) for item in runtime_view.project_identifiers(project)]
+    for row in rows:
+        if row["kind"] == seed_type and row["value"] == value and row["classification"] == "candidate":
+            row["metadata"] = {**(row.get("metadata") or {}), "source": "operator_candidate"}
+    project[runtime_view.RUNTIME_IDENTIFIER_ROWS] = rows
+    project_record.save_project(
+        conn, project, enriched=bool(project.get("last_enriched_at")),
+        preserve_timestamps=True, commit=commit,
+    )
+    return {
+        "project_key": project["project_key"], "seed_type": seed_type,
+        "seed_value": value, "classification": "candidate", "confirmed_role": "",
         "name": project.get("name", ""),
     }
 

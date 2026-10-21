@@ -292,6 +292,20 @@ class ProjectRegistryJobUnitTest(_ProjectRegistryJobFixtures, ProjectRecordTestC
 
 
 class ProjectRegistryJobTest(_ProjectRegistryJobFixtures, TempRegistryDbTestCase):
+    def test_partial_service_observation_completes_and_preserves_display_outcome(self) -> None:
+        def run_worker(job):
+            job.status = "completed"
+            job.result = {"data": {"summary": {"outcome": "partial"}}}
+
+        with mock.patch.object(self.manager, "_spawn_locked", side_effect=run_worker):
+            self.manager.run_scheduled_preset("service_observation")
+            for _ in range(3):
+                self.manager.run_scheduler_once()
+        schedule = self.manager._load_schedule_state()["schedules"]["service_observation"]
+        self.assertEqual(schedule["last_status"], "completed")
+        self.assertEqual(schedule["pending_steps"], [])
+        self.assertEqual(schedule["last_steps"][0]["outcome"], "partial")
+
     def test_disabled_source_skips_survive_pending_and_queue_restart(self) -> None:
         preset_id = "sync_sources_then_enrich"
         configs = {name: {"enabled": False} for name in (

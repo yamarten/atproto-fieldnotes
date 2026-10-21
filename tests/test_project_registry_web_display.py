@@ -11,6 +11,29 @@ from helpers import ROOT
 
 @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web display checks")
 class WebDisplayTest(unittest.TestCase):
+    def test_partial_completion_and_account_correspondence_are_visible(self):
+        self.run_javascript(r'''
+const job = {job_id:"job:partial", operation:"observe_services", status:"completed",
+ result:{data:{summary:{outcome:"partial"}}}};
+assert.match(renderJobs([job]), /完了（一部失敗）/);
+assert.match(renderSchedules({items:[{last_status:"completed",last_steps:[{outcome:"partial"}]}]}), /完了（一部失敗）/);
+assert.ok(!renderJobs([{...job, status:"failed"}]).includes("完了（一部失敗）"));
+assert.ok(!renderJobs([{...job, result:{}}]).includes("完了（一部失敗）"));
+const account = {family:"identity", kinds:["account","handle","did"], value:"did:plc:one",
+ classification:"candidate", providers:[], role_labels:[], entries:[
+ {kind:"account", role:"developer_account", value:"did:plc:one", classification:"candidate",
+  actions:{identifier_type:"account",confirm:true}},
+ {kind:"handle", role:"developer_handle", value:"dev.example", classification:"candidate"}],
+ account_display:{handles:["dev.example"],dids:["did:plc:one"],correspondence:"saved"}};
+const html=renderIdentifier(account);
+assert.match(html, /@dev.example/);
+assert.match(html, /開発者アカウント/);
+assert.ok(html.includes("at://did:plc:one"));
+assert.ok(!html.split("<details>")[0].includes("developer_handle"));
+assert.match(renderIdentifier({...account,account_display:{...account.account_display,correspondence:"ambiguous"}}), /対応が複数保存/);
+assert.match(renderIdentifier({...account,account_display:{...account.account_display,correspondence:"unrecorded"}}), /対応は保存されていません/);
+''')
+
     def test_disabled_source_skips_are_visible_in_job_and_persisted_schedule(self):
         self.run_javascript(r'''
 const job = {job_id:"job:skip", operation:"sync", status:"completed",
@@ -126,7 +149,7 @@ const preview = {seed_type:"repo_url", seed_value:"https://forge.example/a/b", c
   assert.deepEqual(JSON.parse(writes[0][1].body), {seed:"https://forge.example/a/b", type:"repo_url", project_key:"proj:target", expected_revision:"opened-revision"});
   assert.equal(closed,1);
   assert.equal(loaded[0][0],"proj:target");
-  assert.match(statuses.at(-1)[0], /シードを保存/);
+  assert.match(statuses.at(-1)[0], /識別子を保存/);
 
   bindSeedForm({projectKey:"proj:target", revision:"revision", dialog});
   api = async () => ({...preview, exact_project_key:"proj:other", exact:{name:"<Other>"}});
@@ -135,6 +158,22 @@ const preview = {seed_type:"repo_url", seed_value:"https://forge.example/a/b", c
   assert.match(node("seed-preview").innerHTML, /&lt;Other&gt;/);
   node("open-seed-project").onclick();
   assert.equal(loaded.at(-1)[0],"proj:other");
+
+  // Changing adoption mode revokes a preview, and candidate mode is sent explicitly.
+  api = async (path, options) => { calls.push([path,options]); return options ? {project_key:"proj:target"} : preview; };
+  bindSeedForm({projectKey:"proj:target", revision:"revision", dialog});
+  await submit();
+  node("seed-classification").value = "candidate";
+  node("seed-classification").onchange();
+  assert.equal(node("save-seed").hidden,true);
+  await submit();
+  assert.match(node("seed-preview").innerHTML, /候補として追加/);
+  node("save-seed").onclick();
+  assert.equal(node("seed-classification").disabled,true);
+  await mutationQueue;
+  assert.equal(JSON.parse(calls.at(-1)[1].body).classification,"candidate");
+  assert.equal(node("seed-classification").disabled,false);
+  node("seed-classification").value = "confirmed";
 
   // A failed request retains the input and allows a deliberate retry.
   api = async (path, options) => { if (options) throw new Error("保存失敗"); return preview; };
@@ -458,7 +497,7 @@ assert.ok(!html.includes("<details"));
 assert.ok(!html.includes("実行順:"));
 const sequence = renderSchedules({items:[{preset_id:"multi", label:"複合処理", description:"処理を順番に実行します。",
   steps:[{label:unsafe}, {label:"enrich --all --new-only"}]}]});
-assert.match(sequence, /実行順: &lt;img[^<]* → 新規登録分の調査/);
+assert.match(sequence, /実行順: &lt;img[^<]* → 未調査対象の調査/);
 assert.ok(!sequence.includes(unsafe));
 const attributes = {};
 const button = {dataset:{helpTitle:"Example"}, isConnected:false,
@@ -591,7 +630,7 @@ loadMergeDetail("target", "source").then(() => {
   assert.deepEqual(cards.map(card => card.dataset.projectKey), ["unrelated", "next"]);
   assert.deepEqual(opened, ["next"]);
   assert.equal(meta.textContent, "2");
-  assert.match(document.getElementById("status").textContent, /今回は先送り.*次の項目/);
+  assert.match(document.getElementById("status").textContent, /^次の項目へ進みました。残り/);
   // A visible card, unlike the hidden continuation, does reduce the count.
   skipReviewItem("unrelated");
   assert.equal(meta.textContent, "1");
@@ -613,7 +652,7 @@ assert.equal(json({status:"active", summary:"Keep original <text>"}), '<pre>{\n 
 const unsafe = '<img src=x onerror=alert(1)>';
 assert.ok(!pill(unsafe).includes('<img'));
 assert.ok(!enumOptions([unsafe], unsafe).includes('<img'));
-assert.equal(scheduleMessage("running enrich --all"), "実行中: 通常追跡中の全件調査");
+assert.equal(scheduleMessage("running enrich --all"), "実行中: 通常調査");
 assert.equal(scheduleMessage("scheduled step failed: sync github; resume pending steps manually"), "失敗: GitHubから取り込み。保留中の処理を手動で再開してください。");
 assert.match(apiErrorMessage({code:"stale_project", message:"revision mismatch"}), /再読込/);
 assert.match(apiErrorMessage({code:"validation_error", message:"future diagnostic"}), /入力内容.*future diagnostic/);

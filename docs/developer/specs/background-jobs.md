@@ -100,15 +100,15 @@ cancel・fail-fast・snapshot変更・対象外化等で使えなかった先行
 
 ## Scheduled preset
 
-`service_observation`は`observe_services` workerの中で、既存`monitor_services`によるconfirmed service URLの再確認（前回browser試行から30日以上、最大20件）と、[未採用URLの調査](investigation.md#未採用urlの調査)を順に実行します。別scheduleは作りません。未採用側の初期値は50 URL・15分で、同じ設定の`discovery_limit`（1〜1,000）・`discovery_budget_minutes`（1〜240）を画面から保存でき、次のdispatch時にworkerへ渡します。これらは蓄積件数を踏まえて調整する初期値であり、全対象を短期間で覆える恒久運用値ではありません。
+`service_observation`（画面名「サービス巡回」）は`observe_services` workerの中で、既存`monitor_services`によるconfirmed service URLの再確認（前回browser試行から30日以上、最大20件）と、[未採用URLの調査](investigation.md#未採用urlの調査)を順に実行します。別scheduleは作りません。未採用側の初期値は50 URL・15分で、同じ設定の`discovery_limit`（1〜1,000）・`discovery_budget_minutes`（1〜240）を画面から保存でき、次のdispatch時にworkerへ渡します。これらは蓄積件数を踏まえて調整する初期値であり、全対象を短期間で覆える恒久運用値ではありません。
 
-個別URLの失敗・競合は両段のsummaryへ残して次段を続行します。全体調査の完了と個別取得成功を分け、`outcome=partial`でもURL単位の再試行管理へ任せて定期presetを完了し、次の予定を塞ぎません。共通のbrowser依存不足・DB障害・取消しは処理を止め、従来のpreset保留・再開の対象です。初期設定は無効、毎週土曜03:00 Asia/Tokyoです。既存scheduleの有効状態・日時・保存済み予算を自動変更しません。旧`monitor_services`段階が保留・実行待ちに残る場合は同じpresetの組立てworkerへ読み替え、最新の対象と試行履歴から再選定します。
+個別URLの失敗・競合は両段のsummaryへ残して次段を続行します。全体調査の完了と個別取得成功を分け、`outcome=partial`でもURL単位の再試行管理へ任せて定期presetを完了し（ジョブと定期実行の最終状態の表示は「完了（一部失敗）」）、次の予定を塞ぎません。表示用の`outcome`は`last_steps`にも保持し、再起動後に表示を復元します。共通のbrowser依存不足・DB障害・取消しは処理を止め、従来のpreset保留・再開の対象です。初期設定は無効、毎週土曜03:00 Asia/Tokyoです。既存scheduleの有効状態・日時・保存済み予算を自動変更しません。旧`monitor_services`段階が保留・実行待ちに残る場合は同じpresetの組立てworkerへ読み替え、最新の対象と試行履歴から再選定します。
 
-`Operations`のscheduled preset（定期実行する処理の組合せ）は、通常enrich、追跡範囲を広げたenrich後の`review-stalled`一括反映、introduced sync、introduced以外のsync後の新規登録projectだけのenrichを実行します。presetごとに毎週または第N週の曜日、時刻、time zoneを設定します。Webからexecuteしたsyncは、sourceごとの件数、候補key / URL、成否、所要時間を、保存量を制限して直近4回分保存します。
+`Operations`のscheduled preset（定期実行する処理の組合せ）は、通常enrich、追跡範囲を広げたenrich後の`review-stalled`一括反映、introduced sync、introduced以外のsync後の通常追跡中・未調査projectのenrichを実行します。presetごとに毎週または第N週の曜日、時刻、time zoneを設定します。Webからexecuteしたsyncは、sourceごとの件数、候補key / URL、成否、所要時間を、保存量を制限して直近4回分保存します。
 
 設定の一括保存は、全項目を検証して設定fileの置換に成功した後に稼働中の設定へ反映します。入力不正・file書込み失敗・置換失敗では旧設定とqueueを維持し、その変更によるworkerを開始しません。保存が成立した後の実行障害は設定保存の失敗とは別に、job・presetの結果へ記録します。
 
-`enrich_all_states`（画面名「追跡範囲を広げた調査・見直し」）は、通常調査対象外の変化を拾い直すため、`active / stable / stalled / out_of_scope`を調査します。無視・アーカイブ（`ignore / archived`）は除外し、必要時に個別調査やCLIの明示指定で手動調査します。「今すぐ実行」も同じ範囲です。保存済みの日時・有効設定を維持するためpreset IDは変更しません。旧仕様の全状態enrichが保留・実行待ちに残っている場合は、読込み時に新しい対象範囲での調査と後段の見直しへ置き換えます。旧checkpoint自体は変更せず、明示的に手動再開した場合は元の全状態の対象範囲を引き継ぎます。
+`enrich_all_states`（画面名「拡大調査」）は、通常調査対象外の変化を拾い直すため、`active / stable / stalled / out_of_scope`を調査します。無視・アーカイブ（`ignore / archived`）は除外し、必要時に個別調査やCLIの明示指定で手動調査します。「今すぐ実行」も同じ範囲です。保存済みの日時・有効設定を維持するためpreset IDは変更しません。旧仕様の全状態enrichが保留・実行待ちに残っている場合は、読込み時に新しい対象範囲での調査と後段の見直しへ置き換えます。旧checkpoint自体は変更せず、明示的に手動再開した場合は元の全状態の対象範囲を引き継ぎます。
 
 想定内の競合では、独立した後続stepを続行します。`sync_sources_then_enrich`の各sourceは独立し、最後の`new_only` enrichは保存済みの未調査projectを処理します。`enrich_all_states`の`review-stalled`は先行enrichの完了を必須とし、未完了なら`deferred`として保存します。一般障害（`failed`）、明示中断（`cancelled`）、worker起動失敗では、そのpresetの後続stepを停止します。workerの異常終了もjobが`failed`になれば同じ扱いです。
 

@@ -286,7 +286,7 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
         "project_repository": "repository",
         "source_repository_record": "source", "developer_account": "developer",
         "developer_handle": "handle", "developer_did": "DID",
-        "project_account": "project", "project_handle": "project handle",
+        "project_account": "project_account", "project_handle": "project handle",
         "authority_domain": "authority",
     }
     display_roles = {
@@ -298,11 +298,25 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
         if item["classification"] == "confirmed"
     }
 
+    # Only saved account pairs can connect a bare official handle to a DID.
+    # Ambiguous pairs stay separate; presentation never resolves identities.
+    handle_accounts: dict[str, set[str]] = {}
+    for item in raw:
+        metadata = item.get("metadata") or {}
+        if item["kind"] == "account" and isinstance(metadata, dict):
+            handle, did = metadata.get("handle"), metadata.get("did")
+            if handle and did:
+                handle_accounts.setdefault(str(handle), set()).add(str(did))
+
     def group_value(item: dict[str, Any], family: str) -> str:
         if family == "identity" and isinstance(item.get("metadata"), dict):
             account_value = str(item["metadata"].get("account") or "").strip()
             if account_value:
                 return account_value
+            if item["kind"] in {"handle", "account"}:
+                linked = handle_accounts.get(item["value"], set())
+                if len(linked) == 1:
+                    return next(iter(linked))
         return item["value"]
 
     grouped: dict[tuple[str, str], dict[str, Any]] = {}
@@ -391,6 +405,23 @@ def _identifier_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[st
         group["observed_at"] = max(group["observed_at"], item["observed_at"])
     output = []
     for group in grouped.values():
+        account_entries = [item for item in group["entries"] if item["kind"] == "account"]
+        if account_entries:
+            handles = project_record.unique_list([
+                item["value"] for item in group["entries"] if item["kind"] == "handle"
+            ] + [
+                str(item["metadata"].get("handle") or "")
+                for item in account_entries if isinstance(item["metadata"], dict)
+            ])
+            handles = [value for value in handles if value]
+            dids = project_record.unique_list([
+                item["value"] for item in group["entries"] if item["value"].startswith("did:")
+            ])
+            ambiguous = len(handles) > 1 or any(len(handle_accounts.get(handle, set())) > 1 for handle in handles)
+            group["account_display"] = {
+                "handles": handles, "dids": dids,
+                "correspondence": "ambiguous" if ambiguous else "saved" if handles and dids else "unrecorded",
+            }
         group["classification"] = next(
             (value for value in CLASSIFICATION_ORDER if value in group["classifications"]),
             group["classifications"][0] if group["classifications"] else "candidate",

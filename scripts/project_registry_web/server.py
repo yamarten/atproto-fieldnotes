@@ -553,6 +553,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                     seed=seed,
                     seed_type=str(payload.get("type") or "").strip() or None,
                     project_key=str(payload.get("project_key") or "").strip() or None,
+                    classification=str(payload.get("classification") or "confirmed"),
                 )
             self.send_json(result, status=HTTPStatus.CREATED)
             return

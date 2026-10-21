@@ -634,6 +634,16 @@ def canonical_seed_value(seed_type: str, seed_value: str) -> str:
     return resource_identity.normalize_value(seed_type, seed_value)
 
 
+def identifier_is_manual_candidate(project: dict[str, Any], kind: str, value: str) -> bool:
+    """Explicit leads survive candidate cleanup without becoming trust anchors."""
+    return any(
+        item.get("kind") == kind and item.get("value") == value
+        and item.get("classification") == "candidate"
+        and (item.get("metadata") or {}).get("source") == "operator_candidate"
+        for item in project.get(runtime_view.RUNTIME_IDENTIFIER_ROWS, [])
+    )
+
+
 def lexicon_namespace_for_project(nsid: str) -> str:
     namespace = namespace_from_collection_nsid(nsid)
     if namespace:

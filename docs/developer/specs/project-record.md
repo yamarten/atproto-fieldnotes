@@ -251,7 +251,11 @@ DB列にclassificationのenum制約はなく、runtime codecは既存rowの無�
 
 `source_repository_record`はrepoを調査した観測記録であり、`state_json.evidence.source_repo_records`に保存します。`authority_domain`はconfirmed `owned_nsid`からruntimeで導出し、identifier rowとして保存しません。いずれもproject構成要素、exact attribution、trusted anchorにはしません。
 
-現行の`add-seed` / Web `Add seed`は、NSID、service URL、repo URLをそれぞれconfirmed `owned_nsid` / `service` / `project_repository`へ投影し、`confirm_identifier` decisionを記録します。明示的にservice URLを追加し、Websiteが空の場合だけ、同じURLをWebsiteの初期値にも使います。candidate confirmや自動sourceではWebsiteを設定しません。`seed_type` / `seed_value` scalarは現在の識別子から再選択する代表値・検索用であり、歴史上の登録起点、identifier roleやtrust anchorを保証しません。自動sourceの由来は`discovery_sources`、採用根拠はdecisionまたはsource assignmentとして分離します。
+現行の`add-seed` / Webの新規登録と「採用して追加」は、NSID、service URL、repo URLをそれぞれconfirmed `owned_nsid` / `service` / `project_repository`へ投影し、`confirm_identifier` decisionを記録します。明示的にservice URLを追加し、Websiteが空の場合だけ、同じURLをWebsiteの初期値にも使います。candidate confirmや自動sourceではWebsiteを設定しません。`seed_type` / `seed_value` scalarは現在の識別子から再選択する代表値・検索用であり、歴史上の登録起点、identifier roleやtrust anchorを保証しません。自動sourceの由来は`discovery_sources`、採用根拠はdecisionまたはsource assignmentとして分離します。
+
+Webの「候補として追加」は既存projectに限り、candidateのNSID・service URL・repo URLを保存します。identifierのmetadataに`source=operator_candidate`を記録し、後の候補整理で名前・owner等の一致が弱いことだけでは取り除きません。この来歴は候補の保持にだけ使い、信頼・自動採用の根拠にはしません。manual seed・confirm decision・Websiteは追加せず、採用済み・除外中・保留中の値は変更を拒否します。
+
+Webのaccount表示は保存済みaccount recordのhandle/DIDをまとめます。公式handleは、保存済みpairが一意の場合だけ同じDIDのgroupへ表示上まとめ、公式・開発者のroleと各identifierの採用状態は維持します。未対応・複数対応は明示し、現在の対応を照会・保証しません。DBのrowや操作対象は統合しません。
 
 NSIDには代表値を置きません。runtime上の`resolved_nsids`はconfirmed、`input_nsids`はcandidateの`owned_nsid` viewです。NSIDのname部を含め大小文字を保持します。`project_site_urls`と`project_site_url_candidates`は`site_url` / `project_site`のruntime viewです。人間向けの代表公開URLは引き続き`projects.website_url`を正本とし、Website値だけからidentifier、classification、採用理由を導出しません。同じURLのconfirmed `service`がWebsiteを兼ねる場合は`project_site`を二重登録せず、独立した代表siteが構成要素として必要な場合だけ`project_site`を保存します。既存のproject siteを後からserviceとしても確定する場合は、以前のsite採用を自動撤回しません。
 

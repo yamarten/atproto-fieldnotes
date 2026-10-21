@@ -256,6 +256,7 @@ def unverified_authority_service_guesses(project: dict[str, Any]) -> set[str]:
             candidate_url
             for candidate_url in domain_policy_core.candidate_service_origins_for_authority_domain(authority_domain)
             if identifier_core.normalize_url(candidate_url) not in supported_urls
+            and not project_record.identifier_is_manual_candidate(project, "service_url", candidate_url)
             and not authority_service_candidate_has_record_url(project, candidate_url)
             and not authority_service_candidate_has_saved_probe_support(project, candidate_url)
         )
@@ -346,7 +347,8 @@ def prunable_nsid_authority_service_guesses(project: dict[str, Any]) -> set[str]
         *(url for url in guesses if authority_service_candidate_has_record_url(project, url)),
         *(url for url in guesses if authority_service_candidate_has_saved_probe_support(project, url)),
     }
-    return {url for url in guesses if url and url not in retained}
+    return {url for url in guesses if url and url not in retained
+            and not project_record.identifier_is_manual_candidate(project, "service_url", url)}
 
 
 def prune_nsid_authority_service_url_guesses(project: dict[str, Any]) -> None:
@@ -1651,6 +1653,8 @@ def service_url_allowed_for_project(project: dict[str, Any], url: str, *, confir
     normalized = project_record.normalize_confirmed_service_url(url) if confirmed else project_record.normalize_project_service_candidate_url(project, url)
     if not normalized:
         return False
+    if not confirmed and project_record.identifier_is_manual_candidate(project, "service_url", normalized):
+        return not service_url_is_guarded(project, normalized)
     if not confirmed and (service_discovery.retains_candidate(project, normalized)
                           or service_discovery.supports_candidate(project, normalized)):
         return not service_url_is_guarded(project, normalized)
@@ -1786,6 +1790,9 @@ def repo_candidate_allowed_for_project(project: dict[str, Any], url: str, *, rep
     normalized = repo_url_core.canonical_repo_url(url)
     if not normalized:
         return False
+    if project_record.identifier_is_manual_candidate(project, "repo_url", normalized):
+        return not (project_record.identifier_is_blocked(project, "repo_url", normalized)
+                    or project_record.identifier_is_deferred(project, "repo_url", normalized))
     if repo_candidate_has_confirmed_component_relation(project, normalized):
         return True
     if repository_metadata is not None and tangled_core.repository_match_reason(project, normalized, repository_metadata):

@@ -150,6 +150,7 @@ body.popup-embedded .seed-form .kv { grid-template-columns: 80px minmax(0, 1fr);
 .identifier-kind-header span { font-size: 11px; }
 .identifier { position: relative; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 7px 9px; }
 .identifier-main { min-width: 0; display: grid; gap: 3px; }
+.identifier.account-identifier { grid-template-columns: minmax(0, 1fr); }
 .identifier-entry-list { display: grid; gap: 4px; margin-top: 3px; }
 .identifier-entry { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: 6px; padding-top: 4px; border-top: 1px solid var(--line); font-size: 12px; }
 .identifier-summary { min-width: 0; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
@@ -279,3 +280,4 @@ dialog input, dialog textarea { min-width: 0; max-width: 100%; }
 /* Operator feedback stays next to the existing introduction decisions. */
 .operator-feedback { margin: 1rem 0; padding: 1rem; border: 1px solid var(--line); border-radius: .6rem; }
 .operator-feedback p { overflow-wrap: anywhere; }
+:is(select, option).lexicon-type, .lexicon-type option { font-family: ui-monospace, monospace; }

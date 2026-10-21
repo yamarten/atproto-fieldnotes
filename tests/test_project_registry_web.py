@@ -919,6 +919,32 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         self.assertIn("did", identity["kinds"])
         self.assertFalse(identity["actions"]["confirm"])
         self.assertFalse(any(item["value"] == "dev.example.com" for item in detail["identifiers"]))
+        self.assertEqual(identity["account_display"], {
+            "handles": ["dev.example.com"], "dids": ["did:plc:developer"], "correspondence": "saved",
+        })
+
+    def test_identity_display_only_groups_unambiguous_saved_pairs(self) -> None:
+        conn = registry.open_db()
+        try:
+            project = project_record.fetch_project(conn, "proj:111111111111")
+            project["bluesky_handles"] = ["dev.example.com", "unknown.example.com"]
+            project_record.save_project(conn, project)
+            rows = presentation._identifier_rows(conn, project["project_key"])
+            developer = next(row for row in rows if row["value"] == "did:plc:developer")
+            self.assertIn("project_account", developer["roles"])
+            unknown = next(row for row in rows if row["value"] == "unknown.example.com")
+            self.assertEqual(unknown["account_display"]["correspondence"], "unrecorded")
+            project = project_record.fetch_project(conn, project["project_key"])
+            project["candidate_developer_accounts"].append({
+                "handle": "dev.example.com", "did": "did:plc:changed", "source": "fixture",
+            })
+            project_record.save_project(conn, project)
+            rows = presentation._identifier_rows(conn, project["project_key"])
+            for value in ("did:plc:developer", "did:plc:changed", "dev.example.com"):
+                row = next(row for row in rows if row["value"] == value)
+                self.assertEqual(row["account_display"]["correspondence"], "ambiguous")
+        finally:
+            conn.close()
 
     def test_project_detail_hides_malformed_developer_identifier_rows(self) -> None:
         conn = registry.open_db()
@@ -1755,6 +1781,75 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         self.assertTrue(registry.identifier_has_active_confirm_decision(
             project, "repo_url", "https://github.com/example/second"
         ))
+
+    def test_add_candidates_without_adopting_or_creating_registration_origins(self) -> None:
+        key = "proj:111111111111"
+        for kind, value in (("repo_url", "https://github.com/unrelated/lead"),
+                            ("service_url", "https://independent.test/app"),
+                            ("nsid", "app.lead.post")):
+            with self.subTest(kind=kind):
+                _, before, _ = self.request(f"/api/projects/{key}")
+                with contextlib.closing(registry.open_db()) as conn:
+                    seeds_before = project_record.fetch_project(conn, key)["manual_seeds"]
+                status, result, _ = self.request("/api/seeds", method="POST", payload={
+                    "seed": value, "type": kind, "classification": "candidate",
+                    "project_key": key, "expected_revision": before["revision"],
+                })
+                self.assertEqual(status, 201, result)
+                _, after, _ = self.request(f"/api/projects/{key}")
+                entry = next(entry for group in after["identifiers"] for entry in group["entries"]
+                             if entry["kind"] == kind and entry["value"] == value)
+                self.assertEqual(entry["classification"], "candidate")
+                self.assertEqual(after["decisions"], before["decisions"])
+                with contextlib.closing(registry.open_db()) as conn:
+                    self.assertEqual(project_record.fetch_project(conn, key)["manual_seeds"], seeds_before)
+                # Ordinary cleanup retains an explicit lead even without matching project identity.
+                with contextlib.closing(registry.open_db()) as conn:
+                    project = project_record.fetch_project(conn, key)
+                    project_record.save_project(conn, registry.finalize_project_shape(project), preserve_timestamps=True)
+                _, after, _ = self.request(f"/api/projects/{key}")
+                entry = next(entry for group in after["identifiers"] for entry in group["entries"]
+                             if entry["kind"] == kind and entry["value"] == value)
+                self.assertEqual(entry["classification"], "candidate")
+                self.assertEqual(entry["metadata"]["source"], "operator_candidate")
+                self.assertEqual(after["decisions"], before["decisions"])
+                # The normal adoption action can subsequently accept this lead.
+                status, result, _ = self.request(f"/api/projects/{key}/confirm-candidate", method="POST", payload={
+                    "identifier_type": kind, "value": value, "expected_revision": after["revision"],
+                })
+                self.assertEqual(status, 200, result)
+
+    def test_candidate_addition_rejects_new_project_confirmed_and_guarded_values(self) -> None:
+        status, _, _ = self.request("/api/seeds", method="POST", payload={
+            "seed": "https://new.example.com", "classification": "candidate",
+        })
+        self.assertEqual(status, 400)
+        key = "proj:111111111111"
+        value = "https://github.com/example/app"
+        _, before, _ = self.request(f"/api/projects/{key}")
+        status, _, _ = self.request("/api/seeds", method="POST", payload={
+            "seed": value, "classification": "candidate", "project_key": key,
+            "expected_revision": before["revision"],
+        })
+        self.assertEqual(status, 400)
+        _, after, _ = self.request(f"/api/projects/{key}")
+        self.assertEqual(after["revision"], before["revision"])
+        for action in ("block-identifier", "defer-identifier"):
+            with self.subTest(action=action):
+                value = f"https://{action}.example.com"
+                status, result, _ = self.request(f"/api/projects/{key}/{action}", method="POST", payload={
+                    "identifier_type": "service_url", "value": value, "days": 30,
+                })
+                self.assertEqual(status, 200, result)
+                _, before, _ = self.request(f"/api/projects/{key}")
+                status, _, _ = self.request("/api/seeds", method="POST", payload={
+                    "seed": value, "classification": "candidate", "project_key": key,
+                    "expected_revision": before["revision"],
+                })
+                self.assertEqual(status, 400)
+                _, after, _ = self.request(f"/api/projects/{key}")
+                self.assertEqual(after["revision"], before["revision"])
+                self.assertEqual(after["decisions"], before["decisions"])
 
     def test_description_edit_preview_protection_and_stale_guard(self) -> None:
         status, detail, _ = self.request("/api/projects/proj:111111111111")

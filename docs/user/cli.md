@@ -314,7 +314,7 @@ corpusは保存済みプロフィールを根拠と分けて保持します。`-
 
 `verify-service`の`static`はトップページ、`deep`は同一サイトの追加ページを確認します。`browser`はJavaScript描画後の匿名画面を開きます。メニューを展開した事実、認証ページへのリンクを辿った事実、パスワードまたはhandle/email入力を持つフォーム、OAuthの入口、公開コンテンツと作成操作が併存する画面、描画後のネットワーク・コンソールエラーを別々に記録します。
 
-`monitor-services`は`active / stable / stalled / out_of_scope`の確認済みservice URLを対象にします。失敗も含めた最新のbrowser試行からの経過日数で選び、未確認を先にします。`ignore / archived`や未確認の候補URLは対象外です。結果の`due_count / remaining_due_count`で上限による積み残しを確認できます。`--min-age-days`は1〜365、`--limit`は1〜100です。実行は保存と外部接続を伴いますが、説明の生成・追跡状態変更は行いません。失敗・競合を含む実行は終了コード1を返します。
+`monitor-services`は`active / stable / stalled / out_of_scope`の確認済みservice URLを対象にします。失敗も含めた最新のbrowser試行からの経過日数で選び、未確認を先にします。`ignore / archived`や未確認の候補URLは対象外です。結果の`due_count / remaining_due_count`で上限による調査待ちを確認できます。`--min-age-days`は1〜365、`--limit`は1〜100です。実行は保存と外部接続を伴いますが、説明の生成・追跡状態変更は行いません。失敗・競合を含む実行は終了コード1を返します。
 
 ```bash
 project-registry monitor-services --limit 20
@@ -323,7 +323,7 @@ project-registry investigate-service-urls --limit 50 --budget-seconds 900
 project-registry investigate-service-urls --limit 100 --budget-seconds 1800 --execute
 ```
 
-`investigate-service-urls`は採用前の調査で、URL候補・採用済みrepoの公開先・取得成功済みauthority URLだけを対象にします。一般リンクを網羅巡回せず、除外・保留や帰属衝突を尊重します。上限は1〜1,000 URL・1〜14,400秒です。時間上限は新規URLへの着手を止めるためのもので、開始済み処理の即時終了は保証しません。結果の選定件数・試行件数・観測/失敗/競合件数・積み残し・経過時間・終了理由を確認してください。未採用URLの観測は候補へ渡しますが、表示成功だけでサービスを採用したり、projectを稼働中へ変えたりしません。
+`investigate-service-urls`は採用前の調査で、URL候補・採用済みrepoの公開先・取得成功済みauthority URLだけを対象にします。一般リンクを網羅巡回せず、除外・保留や帰属衝突を尊重します。上限は1〜1,000 URL・1〜14,400秒です。時間上限は新規URLへの着手を止めるためのもので、開始済み処理の即時終了は保証しません。結果の選定件数・試行件数・観測/失敗/競合件数・調査待ち・経過時間・終了理由を確認してください。未採用URLの観測は候補へ渡しますが、表示成功だけでサービスを採用したり、projectを稼働中へ変えたりしません。
 
 最後に確認できた利用面と最新の試行は別に保持します。確認結果は現在の利用を保証するものではなく、HTTPエラーだけで提供終了とは判断しません。単独のservice確認で全体調査の鮮度は更新しません。
 

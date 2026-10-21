@@ -52,7 +52,7 @@ const displayLabels = {
   "reviewed_publisher_delete_or_identity_change": "確認済み発行者の削除・識別情報の変化",
   "non_record_lexicon_usage_request": "レコード以外のLexicon利用の調査依頼",
   "candidate value is required": "候補の値を入力してください",
-  "seed is required": "シードを入力してください",
+  "seed is required": "識別子を入力してください",
   "API token is required": "APIトークンを入力してください",
   "Resource not found": "対象が見つかりません",
   "project not found": "登録プロジェクトが見つかりません",
@@ -69,6 +69,9 @@ const displayLabels = {
   "discovery_budget_minutes must be an integer": "未採用URLの調査時間は整数で指定してください",
   "identifier value could not be normalized": "識別子の値を確認してください。正規化できませんでした",
   "review target is stale or does not belong to this project": "レビュー対象が変更されたか、別プロジェクトに属しています。詳細を再読込してください",
+  "guarded identifier cannot be added as a candidate": "除外・保留中の識別子は候補へ追加できません",
+  "identifier is already confirmed": "採用済みの識別子です",
+  "candidate identifiers require an existing project": "候補の追加には既存のプロジェクトを指定してください",
   "guarded identifier cannot be added as a seed": "除外・保留中の識別子はシードへ追加できません",
   "project and other project resolve to the same project": "同じ登録プロジェクト同士は指定できません",
   "service_url is not saved on the selected project": "このサービスURLは選択したプロジェクトに保存されていません",
@@ -93,11 +96,11 @@ const displayLabels = {
   "defer-review-target": "レビュー対象を30日保留",
   "clear-review-target": "レビュー対象の手動判断を解除",
   "clear-separate": "別プロジェクト指定を解除",
-  "service_observation": "サービス観測",
-  "enrich_all": "通常追跡中の全件調査",
+  "service_observation": "サービス巡回",
+  "enrich_all": "通常調査",
   "sync_introduced": "紹介済み投稿の取り込み",
-  "sync_sources_then_enrich": "外部情報の取り込み・新規分の調査",
-  "enrich_all_states": "追跡範囲を広げた調査・見直し",
+  "sync_sources_then_enrich": "新規取込み",
+  "enrich_all_states": "拡大調査",
   "active": "通常追跡",
   "stable": "安定稼働",
   "stalled": "活動停滞",
@@ -160,6 +163,7 @@ const displayLabels = {
   "owned_nsid": "帰属NSID",
   "project_site": "公式サイト",
   "project_repository": "プロジェクトのリポジトリ",
+  "owns_repository": "リポジトリを所有",
   "source_repository_record": "リポジトリの登録情報",
   "developer_account": "開発者アカウント",
   "developer_handle": "開発者ハンドル",
@@ -232,7 +236,7 @@ const displayLabels = {
   "review": "追跡状態の見直し",
   "verify_service": "匿名ブラウザー確認",
   "monitor_services": "サービス観測",
-  "observe_services": "サービス観測・未採用URL調査",
+  "observe_services": "サービス巡回",
   "observe confirmed then investigate unadopted URLs": "採用済みサービスの再確認 → 未採用URLの調査",
   "Observe due confirmed services, then investigate unadopted service URLs with a separate adjustable budget. No automatic tracking changes.": "採用済みサービスを再確認し、別の処理予算で未採用URLを調査します。追跡状態は自動変更しません。",
   "lexicon_publication_changed": "Lexiconの発行根拠・帰属の確認",
@@ -302,20 +306,20 @@ const displayLabels = {
   "network_error": "通信エラー",
   "parse_error": "解析エラー",
   "http_error": "HTTPエラー",
-  "Service observation": "サービス観測",
-  "Enrich all": "通常追跡中の全件調査",
+  "Service observation": "サービス巡回",
+  "Enrich all": "通常調査",
   "Sync introduced": "紹介済み投稿の取り込み",
-  "Sync sources + enrich": "外部情報の取り込み・新規分の調査",
+  "Sync sources + enrich": "新規取込み",
   "All-state maintenance": "全追跡状態の調査・見直し",
-  "Extended tracking maintenance": "追跡範囲を広げた調査・見直し",
+  "Extended tracking maintenance": "拡大調査",
   "Observe up to 20 confirmed service URLs last checked at least 30 days ago, including stable/stalled/out-of-scope projects. No automatic tracking changes.": "最終確認から30日以上経過した採用済みサービスURLを最大20件観測します。安定稼働・活動停滞・スコープ外も対象です。追跡状態は変更しません。",
   "Run normal enrich --all for active projects.": "通常追跡中のプロジェクトを一括調査します。",
   "Run introduced-post sync with SQLite updates.": "紹介済み投稿を取り込み、SQLiteを更新します。",
-  "Run non-introduced sync sources, then enrich newly created projects only.": "紹介済み投稿以外の外部情報を取り込み、新規登録分だけを調査します。",
+  "Run non-introduced sync sources, then enrich newly created projects only.": "紹介済み投稿以外の外部情報を取り込み、通常追跡中の未調査対象を調べます。",
   "Run enrich --all across every tracking state, then apply stalled review updates.": "すべての追跡状態を対象に一括調査し、活動停滞・安定稼働への見直しを適用します。",
   "Investigate active, stable, stalled and out-of-scope projects, then apply stalled review updates. Ignore and archived projects require explicit manual investigation.": "通常追跡・安定稼働・活動停滞・スコープ外を一括調査し、活動に基づく追跡状態の見直しを適用します。無視・アーカイブは対象外です。再調査が必要な場合は手動で明示的に指定してください。",
   "observe due services": "確認時期を迎えたサービスを観測",
-  "enrich --all": "通常追跡中の全件調査",
+  "enrich --all": "通常調査",
   "enrich --all --all-tracking-states": "全追跡状態の調査",
   "enrich --all --include-stable --include-stalled --include-out-of-scope": "無視・アーカイブ以外の調査",
   "review stalled --execute": "活動停滞・安定稼働への変更を適用",
@@ -324,7 +328,7 @@ const displayLabels = {
   "sync collections": "コレクション一覧から取り込み",
   "sync semble": "Sembleから取り込み",
   "sync tangled": "Tangledから取り込み",
-  "enrich --all --new-only": "新規登録分の調査",
+  "enrich --all --new-only": "未調査対象の調査",
   "observe Lexicon publications": "Lexicon公開状況の観測",
   "queued by scheduler": "定期実行による実行待ち",
   "queued manually": "手動操作による実行待ち",
@@ -855,7 +859,7 @@ function listControls() {
       : "";
     const promotionFilter = state.reviewView === "promotion" ? `<div class="toolbar">
       <label>候補の扱い<select id="promotion-view">${selectOptions([["inbox", "確認対象"], ["technical", "技術候補"], ["waiting", "保留"], ["lowered", "低優先度・特集候補"], ["all", "すべて"]], state.promotionView)}</select></label>
-      <label>理由を検索<input id="promotion-reason" type="search" value="${esc(state.promotionReason)}" placeholder="例: 認証のみ、公開待ち"></label>
+      <label>理由で絞り込む<input id="promotion-reason" type="search" value="${esc(state.promotionReason)}" placeholder="例: 認証のみ、公開待ち"></label>
       <button id="apply-promotion-filter">検索</button><button id="clear-promotion-filter" class="secondary">条件を解除</button>
       </div><div id="promotion-reasons" class="actions"></div>` : "";
     const introducedFilter = state.reviewView === "introduced" ? `<div class="toolbar"><label>表示<select id="introduced-status">${selectOptions([["open", "要確認"], ["all", "判断済みを含むすべて"]], state.introducedStatus)}</select></label></div>` : "";
@@ -871,7 +875,7 @@ function listControls() {
   }
   const relationSources = filterOptionValues("relation_sources");
   return `<div class="controls">
-    <div class="toolbar"><input id="project-query" type="search" placeholder="名前・説明・NSID・アカウント・URLを検索" value="${esc(state.projectSearch.query)}"><button id="search-projects" class="primary">検索</button><button id="new-seed">シードを登録</button><button id="open-browser-entry">サイトURLから探す</button></div>
+    <div class="toolbar"><input id="project-query" type="search" placeholder="名前・説明・NSID・アカウント・URLを検索" value="${esc(state.projectSearch.query)}"><button id="search-projects" class="primary">検索</button><button id="new-seed">調査対象を登録</button><button id="open-browser-entry">サイトURLから探す</button></div>
     <details><summary>絞り込み</summary><p class="muted">複数選択可。未選択ならすべて対象。</p><div class="filter-grid">
       <label>追跡状態<select id="filter-tracking" multiple size="5">${multiEnumOptions(filterOptionValues("tracking_states"), state.projectSearch.tracking)}</select></label>
       <label>サービス状態<select id="filter-service" multiple size="5">${multiEnumOptions(filterOptionValues("service_statuses"), state.projectSearch.service)}</select></label>
@@ -881,7 +885,7 @@ function listControls() {
       <label>候補<select id="filter-candidates">${selectOptions([["any", "すべて"], ["yes", "あり"], ["no", "なし"]], state.projectSearch.candidates)}</select></label>
       <label>エラー<select id="filter-errors">${selectOptions([["any", "すべて"], ["yes", "あり"], ["no", "なし"]], state.projectSearch.errors)}</select></label>
       <label>並び順<select id="filter-sort">${selectOptions([["last_seen_desc", "最終観測が新しい順"], ["first_seen_desc", "登録が新しい順"], ["first_seen_asc", "登録が古い順"], ["last_enriched_asc", "調査が古い順"], ["name_asc", "名前"]], state.projectSearch.sort)}</select></label>
-      <label>Lexicon<select id="filter-lexicon-type">${selectOptions([["", "すべて"], ["space", "spaceあり"], ["record", "recordあり"], ["non_record", "非recordあり"], ["unobserved_declaration", "宣言先の公開活動が未観測"]], state.projectSearch.lexiconType)}</select></label>
+      <label>Lexicon<select id="filter-lexicon-type" class="lexicon-type">${selectOptions([["", "すべて"], ["space", "space型あり"], ["record", "record型あり"], ["non_record", "非record型あり"], ["unobserved_declaration", "宣言先の公開活動が未観測"]], state.projectSearch.lexiconType)}</select></label>
       <label>識別子の種類<select id="filter-identifier-kind">${enumOptions(filterOptionValues("identifier_kinds"), state.projectSearch.identifierKind)}</select></label>
       <label>識別子の値<input id="filter-identifier-value" value="${esc(state.projectSearch.identifierValue)}"></label>
       <label>識別子の判定区分<select id="filter-identifier-classification">${enumOptions(filterOptionValues("identifier_classifications"), state.projectSearch.identifierClassification)}</select></label>
@@ -892,10 +896,10 @@ function listControls() {
       <label>関係先の値<input id="filter-relation-object-value" value="${esc(state.projectSearch.relationObjectValue)}"></label>
       <label>関係の情報源<input id="filter-relation-source" list="filter-relation-sources" value="${esc(state.projectSearch.relationSource)}"></label>
       <datalist id="filter-relation-sources">${relationSources.map((value) => `<option value="${esc(value)}"></option>`).join("")}</datalist>
-      <label>手動判断の種類<select id="filter-decision-kind">${enumOptions(filterOptionValues("decision_kinds"), state.projectSearch.decisionKind, decisionKindOptionLabels)}</select></label>
+      <label>判断の種類<select id="filter-decision-kind">${enumOptions(filterOptionValues("decision_kinds"), state.projectSearch.decisionKind, decisionKindOptionLabels)}</select></label>
       <label>判断対象の種類<select id="filter-decision-target-type">${enumOptions(filterOptionValues("decision_target_types"), state.projectSearch.decisionTargetType, decisionTargetOptionLabels)}</select></label>
       <label>判断対象の値<input id="filter-decision-target-value" value="${esc(state.projectSearch.decisionTargetValue)}"></label>
-      <label>手動判断の状態<select id="filter-decision-status">${selectOptions([["", "すべて"], ["active", "有効"], ["expired", "期限切れ"], ["cleared", "解除済み"]], state.projectSearch.decisionStatus)}</select></label>
+      <label>判断の状態<select id="filter-decision-status">${selectOptions([["", "すべて"], ["active", "有効"], ["expired", "期限切れ"], ["cleared", "解除済み"]], state.projectSearch.decisionStatus)}</select></label>
     </div></details>
   </div>`;
 }
@@ -946,12 +950,12 @@ async function loadList() {
 
 function renderPublicationSchemas(schemas, reviews) {
   const labels = {verified: "発行確認済み", pending: "未検証・再確認待ち", deleted: "公開記録を削除", invalid: "公開記録が不正", observed: "公開活動を観測", not_observed: "公開活動は未観測", unknown: "活動を比較できません"};
-  return `${list(reviews).length ? `<p class="notice">${list(reviews).map(esc).join("<br>")}</p>` : ""}${list(schemas).map(item => `<details><summary>${esc(item.schema_id)} ${pill(item.schema_type)} ${pill(labels[item.status] || item.status)}</summary>
+  return `${list(reviews).length ? `<p class="notice">${list(reviews).map(esc).join("<br>")}</p>` : ""}${list(schemas).map(item => `<details><summary>${esc(item.schema_id)} <code>${esc(item.schema_type)}</code> ${pill(labels[item.status] || item.status)}</summary>
     ${item.description ? `<p>${esc(item.description)}</p>` : ""}
     <p class="muted">${item.schema_type === "record" ? `${esc(labels[item.public_activity] || "")} · ` : ""}一覧取得 ${esc(formatTimestamp(item.inventory_observed_at))}</p>
     ${item.content_conflict ? `<p class="notice">発行元によって内容が異なります。</p>` : ""}
     <p class="muted">発行元: ${list(item.publishers).map(p => esc(p.did)).join(", ")}</p>
-    ${list(item.declarations).length ? `<p>宣言されたcollection（所有・実利用の確認とは別）</p><ul>${list(item.declarations).map(d => `<li>${esc(d.collection)} — ${esc(labels[d.public_activity] || d.public_activity)}</li>`).join("")}</ul>` : ""}
+    ${list(item.declarations).length ? `<p>宣言されたコレクション（所有・実利用の確認とは別）</p><ul>${list(item.declarations).map(d => `<li>${esc(d.collection)} — ${esc(labels[d.public_activity] || d.public_activity)}</li>`).join("")}</ul>` : ""}
   </details>`).join("") || `<p class="muted">保存済みの公開観測はありません。</p>`}`;
 }
 
@@ -1163,7 +1167,7 @@ const promotionVisibilityLabels = {
 const promotionScoreLabels = {
   service_evidence: "サービスの利用画面",
   lexicon_publication: "Lexiconの公開を確認済み",
-  technical_interest: "技術的な学び",
+  technical_interest: "技術的価値",
   service_status: "サービス状態",
   service_confidence: "サービス状態の確信度",
   profile_completeness: "説明の記載",
@@ -1185,7 +1189,7 @@ const promotionSignalLabels = {
   service_surface_confirmed: "利用できるサービス画面を確認済み",
   service_candidate_needs_validation: "サービス画面の追加確認が必要",
   lexicon_publisher_confirmed: "Lexiconの発行者を確認済み",
-  technical_insight_candidate: "技術的な学びのある候補",
+  technical_insight_candidate: "技術的価値のある候補",
 };
 
 const atprotoUsageLabels = {
@@ -1492,7 +1496,7 @@ function openListCard(card) {
   return true;
 }
 
-function advanceReviewList(sourceKey, {targetKey = "", statusPrefix = "今回は先送りしました。"} = {}) {
+function advanceReviewList(sourceKey, {targetKey = "", statusPrefix = ""} = {}) {
   if (state.screen !== "review") return false;
   if (!sourceKey) return false;
   const cards = Array.from(document.querySelectorAll("#list [data-project-key]"));
@@ -1510,7 +1514,7 @@ function advanceReviewList(sourceKey, {targetKey = "", statusPrefix = "今回は
   const meta = $("list")?.querySelector(".meta-row strong");
   if (!isContinuation && meta && Number.isFinite(Number(meta.textContent))) meta.textContent = String(Math.max(0, Number(meta.textContent) - 1));
   if (next || previous) {
-    status(`${statusPrefix} 次の項目へ進みました。残り${remaining}件。再読込で一覧を更新します。`);
+    status(`${statusPrefix ? `${statusPrefix} ` : ""}次の項目へ進みました。残り${remaining}件。再読込で一覧を更新します。`);
     openListCard(next || previous);
   } else {
     clearDetailSelection();
@@ -1519,7 +1523,7 @@ function advanceReviewList(sourceKey, {targetKey = "", statusPrefix = "今回は
     $("detail").innerHTML = `<div class="empty-state"><p>表示中の要レビュー項目はすべて確認しました。</p><div class="actions"><button id="refresh-empty-review-list" class="primary">一覧を再読込</button></div></div>`;
     resetDetailScroll();
     $("refresh-empty-review-list")?.addEventListener("click", () => loadList());
-    status(`${statusPrefix} 表示中の項目をすべて確認しました。再読込で一覧を更新します。`);
+    status(`${statusPrefix ? `${statusPrefix} ` : ""}表示中の項目をすべて確認しました。再読込で一覧を更新します。`);
   }
   return true;
 }
@@ -1599,7 +1603,7 @@ function advanceMergeReviewAfterMerge(response) {
 }
 
 function skipReviewItem(sourceKey = state.selected, targetKey = "") {
-  if (!advanceReviewList(String(sourceKey || ""), {targetKey: String(targetKey || ""), statusPrefix: "今回は先送りしました。"})) {
+  if (!advanceReviewList(String(sourceKey || ""), {targetKey: String(targetKey || "")})) {
     status("先送りする項目がありません。一覧を再読込してください。", true);
   }
 }
@@ -1668,6 +1672,7 @@ function projectTimestampRows(project) {
 function mergeIdentifierLabel(item, classification) {
   const entries = list(item.entries).filter((entry) => entry.classification === classification);
   const roleLabels = uniqueValues(entries.map((entry) => entry.role_label || entry.role));
+  if (item.account_display) return uniqueValues(entries.filter(entry => entry.kind === "account").map(entry => displayLabel(entry.role))).join(" + ");
   if (item.family === "identity" && roleLabels.includes("developer")) {
     const parts = uniqueValues(entries.filter((entry) => entry.role !== "developer_account").map((entry) => entry.role_label || entry.kind));
     return `開発者の識別情報${parts.length ? ` (${parts.map(displayLabel).join(" + ")})` : ""}`;
@@ -1720,14 +1725,14 @@ function renderDetail(data) {
     ${priorityGroup === "lowered"
       ? actionButton("通常の優先度へ戻す", "clear-promotion-priority") + actionButton("理由を編集", "lower-promotion-priority", {"default-note":promotionPolicy.priority_reason || ""})
       : actionButton("優先度を下げる", "lower-promotion-priority")}`;
-  const reviewSkipAction = state.screen === "review" ? `<button id="skip-review-item" class="small secondary">今回は先送り</button>` : "";
+  const reviewSkipAction = state.screen === "review" ? `<button id="skip-review-item" class="small secondary">次へ</button>` : "";
   const promotionActions = `<div class="promotion-actions"><strong>紹介候補の判断</strong>
     <div class="actions">${hasPromotionHold ? actionButton("保留を解除", "clear-promotion-deferral") : promotionDeferAction}${promotionPriorityActions}${reviewSkipAction}</div>
     ${promotionPolicy.priority_reason ? `<p>特集候補・優先度の理由: ${esc(promotionPolicy.priority_reason)}</p>` : ""}
     ${hasPromotionHold ? `<p>保留: ${esc(promotionPolicy.active_deferral.reason || "理由なし")} · ${esc(formatTimestamp(promotionPolicy.active_deferral.expires_at))}まで</p>` : ""}</div>`;
   const tab = (key, label, body) => `<section class="detail-tab-panel" data-detail-panel="${key}" ${state.detailTab === key ? "" : "hidden"}>${body}</section>`;
   const overviewBody = `
-    ${section("紹介情報", `<dl class="kv"><dt>公式サイト</dt><dd>${project.website_url ? link(project.website_url) : "なし"}</dd><dt>サービス</dt><dd>${list(overview.confirmed_services).map(link).join("<br>") || "なし"}</dd><dt>リポジトリ</dt><dd>${list(overview.repositories).map(link).join("<br>") || "なし"}</dd><dt>アカウント</dt><dd>${esc(overview.account || "なし")}</dd><dt>紹介投稿</dt><dd>${project.introduced_url ? link(project.introduced_url) : "なし"}</dd><dt>概要</dt><dd>${esc(profileValue(profile, "tagline")) || "なし"}</dd><dt>説明</dt><dd>${esc(profileValue(profile, "summary")) || "なし"}</dd><dt>メモ</dt><dd>${esc(profileValue(profile, "notes")) || "なし"}</dd><dt>システム履歴</dt><dd>${renderSystemNotes(project)}</dd>${projectTimestampRows(project)}</dl><div class="actions"><button id="edit-profile">編集</button></div>`, detailTabHelp.overview)}
+    ${section("紹介情報", `<dl class="kv"><dt>公式サイト</dt><dd>${project.website_url ? link(project.website_url) : "なし"}</dd><dt>サービス</dt><dd>${list(overview.confirmed_services).map(link).join("<br>") || "なし"}</dd><dt>リポジトリ</dt><dd>${list(overview.repositories).map(link).join("<br>") || "なし"}</dd><dt>アカウント</dt><dd>${overview.account ? identifierValueLink(list(data.identifiers).find(item => item.family === "identity" && item.value === overview.account) || {value:overview.account, kinds:["account"]}) : "なし"}</dd><dt>紹介投稿</dt><dd>${project.introduced_url ? link(project.introduced_url) : "なし"}</dd><dt>概要</dt><dd>${esc(profileValue(profile, "tagline")) || "なし"}</dd><dt>説明</dt><dd>${esc(profileValue(profile, "summary")) || "なし"}</dd><dt>メモ</dt><dd>${esc(profileValue(profile, "notes")) || "なし"}</dd><dt>システム履歴</dt><dd>${renderSystemNotes(project)}</dd>${projectTimestampRows(project)}</dl><div class="actions"><button id="edit-profile">編集</button></div>`, detailTabHelp.overview)}
     ${project.features?.length ? section("特徴", `<ul>${project.features.map((value) => `<li>${esc(value)}</li>`).join("")}</ul>`) : ""}
     ${project.editorial?.proposal ? `<p class="notice">根拠付きの説明更新案があります。紹介情報の「編集」から確認できます。</p>` : ""}
     ${section("Lexicon公開情報", renderPublicationSchemas(project.publication_schemas, project.publication_review))}
@@ -1735,8 +1740,8 @@ function renderDetail(data) {
     ${list(project.service_url_investigations).length ? section("未採用URLの調査", `<p class="muted">リンク先の観測です。プロジェクトへの帰属は未確定です。</p>${list(project.service_url_investigations).map(item => `<details><summary>${esc(item.url)} · ${esc(displayLabel(item.status))}</summary><p>${link(item.url)} · ${esc(formatTimestamp(item.attempted_at))}</p><p>${item.assessment?.positive_surface ? "利用画面を観測" : "利用画面は未確認"}${item.retry_at ? ` · 再試行対象: ${esc(formatTimestamp(item.retry_at))}以降` : ""}</p><p>${esc(item.assessment?.excerpt || "本文なし")}</p></details>`).join("")}`) : ""}
     ${section("主機能でのatproto利用", renderAtprotoUsage(promotionPolicy.atproto_usage))}
     ${section("リンク・資料", renderProjectLinks(overview))}
-    ${section("評価", `<dl class="kv"><dt>atproto寄与度</dt><dd>${pill(evaluation.atproto_contribution_level)} 点数 ${esc(evaluation.atproto_contribution_score)}</dd><dt>技術的な学び</dt><dd>${pill(evaluation.technical_interest_level)} 点数 ${esc(evaluation.technical_interest_score)}</dd><dt>サービス状態の確信度</dt><dd>${esc(displayLabel(evaluation.service_status_confidence))}</dd><dt>説明の未記入項目</dt><dd>${descriptionMissingText(evaluation.description_missing)}</dd><dt>紹介候補一覧での扱い</dt><dd>${pill(promotionLabel(promotionVisibilityLabels, promotionPolicy.candidate_visibility?.group || "excluded"))}</dd><dt>サービスの利用画面</dt><dd>${pill(promotionLabel(promotionServiceLabels, promotionPolicy.service_evidence_group || "not_applicable"))}</dd><dt>紹介候補の優先度</dt><dd>${pill(promotionLabel(promotionPriorityLabels, priorityGroup))} ${esc(promotionPolicy.priority_reason || "")}</dd><dt>紹介スコア</dt><dd>${esc(promotionPolicy.score_breakdown?.total ?? 0)}</dd><dt>技術評価の説明</dt><dd>${esc(evaluation.technical_interest_summary || "なし")}</dd></dl>${renderPromotionScore(promotionPolicy.score_breakdown)}`, "<p>説明に未記入の項目があっても、技術やサービスの手掛かりがあれば候補になります。</p><p>atproto寄与度は確認できた利用の強さ、技術的な学びは独自性や学習価値、紹介スコアは一覧の並び順です。紹介可否の最終判断は利用者が行います。</p>")}
-    ${section("有効な手動判断", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">有効な手動判断はありません。</p>`)}
+    ${section("評価", `<dl class="kv"><dt>atproto寄与度</dt><dd>${pill(evaluation.atproto_contribution_level)} 点数 ${esc(evaluation.atproto_contribution_score)}</dd><dt>技術的価値</dt><dd>${pill(evaluation.technical_interest_level)} 点数 ${esc(evaluation.technical_interest_score)}</dd><dt>サービス状態の確信度</dt><dd>${esc(displayLabel(evaluation.service_status_confidence))}</dd><dt>説明の未記入項目</dt><dd>${descriptionMissingText(evaluation.description_missing)}</dd><dt>紹介候補一覧での扱い</dt><dd>${pill(promotionLabel(promotionVisibilityLabels, promotionPolicy.candidate_visibility?.group || "excluded"))}</dd><dt>サービスの利用画面</dt><dd>${pill(promotionLabel(promotionServiceLabels, promotionPolicy.service_evidence_group || "not_applicable"))}</dd><dt>紹介候補の優先度</dt><dd>${pill(promotionLabel(promotionPriorityLabels, priorityGroup))} ${esc(promotionPolicy.priority_reason || "")}</dd><dt>紹介スコア</dt><dd>${esc(promotionPolicy.score_breakdown?.total ?? 0)}</dd><dt>評価理由</dt><dd>${esc(evaluation.technical_interest_summary || "なし")}</dd></dl>${renderPromotionScore(promotionPolicy.score_breakdown)}`, "<p>説明に未記入の項目があっても、技術やサービスの手掛かりがあれば候補になります。</p><p>atproto寄与度は確認できた利用の強さ、技術的価値は独自性や学習価値、紹介スコアは一覧の並び順です。紹介可否の最終判断は利用者が行います。</p>")}
+    ${section("有効な判断", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">有効な判断はありません。</p>`)}
     ${section("サービス・帰属", renderServiceOwnership(serviceOwnership, browserServiceUrls))}
     ${section("マージ候補", `${renderExplicitMergePairForm({source: project.project_key, sourceFixed: true})}<div id="merge-analysis-content"><p class="muted">マージ候補を計算中…</p></div>`)}
     ${section("判定理由", `<div id="explain-content">${renderExplanations(explanations)}</div>`)}
@@ -1748,7 +1753,7 @@ function renderDetail(data) {
       <p class="eyebrow project-key">${esc(project.project_key)}</p>
       <h2>${esc(project.name || project.project_key)}</h2>
       <div class="meta-row">${pill(project.tracking_state)}${pill(project.service_status)}${project.introduced_url ? pill("introduced", "confirmed") : ""}</div>
-      <div class="actions"><select id="tracking-state" aria-label="追跡状態">${(state.server?.tracking_states || []).map((value) => `<option value="${esc(value)}" ${value === project.tracking_state ? "selected" : ""}>${esc(displayLabel(value))}</option>`).join("")}</select><button id="save-tracking">追跡状態を変更</button><button id="add-project-seed">シードを追加</button><button id="enrich-project" class="primary">調査</button><span id="merge-analysis-action"></span></div>
+      <div class="actions"><select id="tracking-state" aria-label="追跡状態">${(state.server?.tracking_states || []).map((value) => `<option value="${esc(value)}" ${value === project.tracking_state ? "selected" : ""}>${esc(displayLabel(value))}</option>`).join("")}</select><button id="save-tracking">追跡状態を変更</button><button id="add-project-seed">識別子を追加</button><button id="enrich-project" class="primary">調査</button><span id="merge-analysis-action"></span></div>
       ${promotionActions}
       <div class="operator-feedback">
         <div class="actions"><button id="plan-introduction" class="primary">${plan ? "紹介予定の理由を編集" : "紹介予定に入れる"}</button>${plan ? `<button id="clear-introduction-plan">紹介予定から外す</button>` : ""}<button id="feedback-ownership" class="tab-feedback">帰属を確認</button><button id="record-service-usage" class="tab-feedback" ${!browserServiceUrls.length ? "disabled" : ""}>Lexicon利用を記録</button></div>
@@ -1759,13 +1764,13 @@ function renderDetail(data) {
       </div>
     </div>
     <nav class="detail-tabs" aria-label="プロジェクト詳細">
-      ${[["overview","概要"],["identifiers","識別子"],["relations","関係"],["investigation","調査履歴"],["decisions","手動判断"],["raw","JSON"]].map(([key,label]) => `<button class="secondary ${state.detailTab === key ? "active" : ""}" data-detail-tab="${key}">${label}</button>`).join("")}
+      ${[["overview","概要"],["identifiers","識別子"],["relations","関係"],["investigation","調査履歴"],["decisions","判断記録"],["raw","JSON"]].map(([key,label]) => `<button class="secondary ${state.detailTab === key ? "active" : ""}" data-detail-tab="${key}">${label}</button>`).join("")}
     </nav>
     ${tab("overview", "概要", overviewBody)}
     ${tab("identifiers", "識別子", section("識別子", identifiers.length ? renderIdentifiers(identifiers) : `<p class="muted">識別子はありません。</p>`, detailTabHelp.identifiers))}
     ${tab("relations", "関係", section("関係", renderReviewTargets(relations, renderRelation, "確認対象の関係はありません。"), detailTabHelp.relations))}
     ${tab("investigation", "調査履歴", section("最新の調査実行記録", `${renderInvestigation(investigation)}<div class="actions"><button id="load-investigation-history">調査履歴を読み込む</button></div><div id="investigation-history"></div>`, detailTabHelp.investigation))}
-    ${tab("decisions", "手動判断", section("手動判断", renderDecisions(decisions), detailTabHelp.decisions))}
+    ${tab("decisions", "判断記録", section("判断記録", renderDecisions(decisions), detailTabHelp.decisions))}
     ${tab("raw", "元データ", section("元データ（JSON）", `<details open><summary>プロジェクトのJSON</summary>${json(data)}</details>`, detailTabHelp.raw))}
     <div class="detail-footer">${backToListButton()}${contextualBackButton()}</div>
   `;
@@ -1796,7 +1801,7 @@ function renderDetail(data) {
   $("feedback-ownership").onclick = () => {
     document.querySelector('[data-detail-tab="identifiers"]').click();
     document.querySelector('[data-detail-panel="identifiers"]').scrollIntoView({block:"start"});
-    status("サービス・リポジトリ・NSIDの候補から採用する値を選んでください。未登録の値は「シードを追加」から登録できます。");
+    status("サービス・リポジトリ・NSIDの候補から採用する値を選んでください。未登録の値は「識別子を追加」から登録できます。");
   };
   $("record-service-usage").onclick = () => openServiceUsageDialog(project, browserServiceUrls, data);
   document.querySelectorAll("[data-clear-usage]").forEach((button) => button.onclick = () => {
@@ -1859,7 +1864,9 @@ function identifierValueLink(item) {
   if (kinds.some((kind) => ["site_url", "service_url", "repo_url"].includes(kind))) return link(value);
   if (kinds.some((kind) => ["account", "did", "handle"].includes(kind))) {
     const href = pdslsIdentityUrl(value);
-    return href ? externalLink(href, value) : esc(value);
+    const handles = list(item.account_display?.handles);
+    const label = handles.length === 1 ? `@${handles[0]}` : value;
+    return href ? externalLink(href, label) : esc(label);
   }
   if (value && kinds.includes("nsid")) {
     const target = new URL("https://ufos.microcosm.blue/collection/");
@@ -1911,13 +1918,14 @@ function renderIdentifiers(items) {
 }
 
 function renderIdentifier(item) {
+  if (item.account_display) return renderAccountIdentifier(item);
   const classifications = item.classifications || [item.classification];
   const effectiveClassification = item.classification || classifications[0] || "";
   const actionKind = item.actions?.identifier_type || "";
   const actions = `${item.actions?.block ? actionButton("識別子を除外", "block-identifier", {type:actionKind, value:item.value}, "small danger") : ""}${item.actions?.defer ? actionButton("識別子を30日保留", "defer-identifier", {type:actionKind, value:item.value}) : ""}${item.actions?.split ? actionButton("識別子を別プロジェクトへ分割", "split-project", {type:actionKind, value:item.value}) : ""}`;
   const showKinds = item.family === "identity" || item.family.startsWith("other:");
   const entries = list(item.entries);
-  const detail = uniqueValues([showKinds ? item.kinds.map(displayLabel).join(" + ") : "", item.is_primary ? "primary" : "", ...item.providers]).join(" · ");
+  const detail = uniqueValues([showKinds ? item.kinds.map(displayLabel).join(" + ") : "", item.is_primary ? "代表" : "", ...item.providers]).join(" · ");
   return `<div class="identifier ${esc(effectiveClassification)}">
     <div class="identifier-main">
       <div class="identifier-value">${identifierValueLink(item)}</div>
@@ -1932,6 +1940,24 @@ function renderIdentifier(item) {
     </div>
     ${actions ? `<details class="identifier-actions"><summary>識別子全体への操作</summary><div class="actions">${actions}</div></details>` : ""}
   </div>`;
+}
+
+function renderAccountIdentifier(item) {
+  const account = item.account_display;
+  const handles = list(account.handles);
+  // Link through the stored DID so a reassigned handle cannot redirect the account.
+  const value = list(account.dids)[0] || handles[0] || item.value;
+  const label = handles.length === 1 ? `@${handles[0]}` : value;
+  const href = pdslsIdentityUrl(value);
+  const accounts = list(item.entries).filter((entry) => entry.kind === "account");
+  const roles = accounts.map((entry) => {
+    const role = entry.role === "developer_account" ? "開発者アカウント" : entry.role === "project_account" ? "公式アカウント" : displayLabel(entry.role_label || entry.role);
+    return `<span>${pill(entry.classification, entry.classification)} <strong>${esc(role)}</strong></span>`;
+  }).join("");
+  const warning = account.correspondence === "ambiguous"
+    ? "ハンドルとDIDの対応が複数保存されています。詳細で確認してください。"
+    : account.correspondence === "unrecorded" ? "ハンドルとDIDの対応は保存されていません。" : "";
+  return `<div class="identifier account-identifier ${esc(item.classification)}"><div class="identifier-value">${href ? externalLink(href, label) : esc(label)}</div><div class="identifier-summary">${roles}</div>${warning ? `<p class="notice">${esc(warning)}</p>` : ""}<details><summary>アカウントの詳細・識別子の操作</summary><p class="muted">保存済みの対応関係です。現在の対応を再照会した結果ではありません。</p>${renderIdentifier({...item, account_display:null})}</details></div>`;
 }
 
 function decisionNote(item) {
@@ -1963,8 +1989,8 @@ function renderDecisions(decisions) {
       ? `${pill("紹介候補の優先度", "candidate")} 低い優先度`
       : `${pill(item.kind, "candidate")} ${esc(displayLabel(item.target_type))} ${esc(item.target_value)}`;
     return `<div class="decision"><div>${summary}</div><div class="muted">${esc(decisionNote(item))} ${item.expires_at ? `· 期限 ${esc(formatTimestamp(item.expires_at))}` : ""}</div><div class="actions">${item.kind === "block_identifier" ? actionButton("除外を解除", "clear-block-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_identifier" ? actionButton("保留を解除", "clear-defer-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_promotion" ? actionButton("保留を解除", "clear-promotion-deferral") : ""}${item.kind === "lower_promotion_priority" ? actionButton("通常の優先度へ戻す", "clear-promotion-priority") : ""}${item.kind === "separate_project" ? actionButton("別プロジェクト指定を解除", "clear-separate", {other:item.target_value}) : ""}${["dismiss_review_target", "defer_review_target"].includes(item.kind) ? actionButton("解除", "clear-review-target", {"target-type":item.target_type, "target-value":item.target_value, "review-action":item.kind.startsWith("defer") ? "defer" : "dismiss"}) : ""}</div></div>`;
-  }).join("") : `<p class="muted">有効な手動判断はありません。</p>`;
-  return current + (history.length ? `<details><summary>手動判断の履歴（JSON） (${history.length})</summary>${json(history)}</details>` : "");
+  }).join("") : `<p class="muted">有効な判断はありません。</p>`;
+  return current + (history.length ? `<details><summary>判断履歴（JSON） (${history.length})</summary>${json(history)}</details>` : "");
 }
 
 function renderInvestigation(run) {
@@ -2144,7 +2170,7 @@ function reviewTargetActions(target) {
 function renderMultiTenantSuffixSuggestions(suggestions) {
   const items = list(suggestions);
   if (!items.length) return "";
-  return section("共用ホスティングの接尾辞候補", items.map((item) => `
+  return section("共用ホストの候補", items.map((item) => `
     <div class="suffix-suggestion">
       <div class="suffix-suggestion-main">
         <div>${pill("suggested", "candidate")} <strong>${esc(item.suffix)}</strong></div>
@@ -2152,7 +2178,7 @@ function renderMultiTenantSuffixSuggestions(suggestions) {
         <div class="muted">マージ先の利用者: ${esc(list(item.target_tenants).join(", ") || "none")}</div>
         <div class="muted">ホスト: ${esc(list(item.source_hosts).join(", ") || "none")} → ${esc(list(item.target_hosts).join(", ") || "none")}</div>
       </div>
-      <div class="actions"><button class="small" data-add-multi-tenant-suffix="${esc(item.suffix)}">接尾辞を追加</button></div>
+      <div class="actions"><button class="small" data-add-multi-tenant-suffix="${esc(item.suffix)}">共用ホストとして登録</button></div>
     </div>
   `).join(""));
 }
@@ -2181,7 +2207,7 @@ function editProfile(project, profile) {
   $("profile-features").value = list(project.features).join("\n");
   $("profile-automatic").checked = Boolean(project.editorial?.automatic);
   const proposal = project.editorial?.proposal;
-  $("profile-proposal").innerHTML = proposal ? section("説明の更新案", `<p>${esc(proposal.reason)}</p><p class="muted">${esc(formatTimestamp(proposal.generated_at))} · ${esc(({correction:"誤記の訂正", changed_facts:"事実の変化", expansion:"説明の補充"})[proposal.kind] || "説明の更新")}</p>${renderProfileFields(proposal.profile)}${list(proposal.sources).map((source) => `<details><summary>${esc(source.locator)}</summary><p>${esc(source.content)}</p></details>`).join("")}<button id="profile-use-proposal" type="button">更新案を編集欄へ読み込む</button><button id="profile-dismiss-proposal" type="button">この更新案を見送る</button>`) : "";
+  $("profile-proposal").innerHTML = proposal ? section("説明の更新案があります", `<p>${esc(proposal.reason)}</p><p class="muted">${esc(formatTimestamp(proposal.generated_at))} · ${esc(({correction:"誤記の訂正", changed_facts:"事実の変化", expansion:"説明の補充"})[proposal.kind] || "説明の更新")}</p>${renderProfileFields(proposal.profile)}${list(proposal.sources).map((source) => `<details><summary>${esc(source.locator)}</summary><p>${esc(source.content)}</p></details>`).join("")}<button id="profile-use-proposal" type="button">編集欄に読み込む</button><button id="profile-dismiss-proposal" type="button">見送る</button>`) : "";
   $("profile-dismiss-proposal")?.addEventListener("click", async () => {
     try {
       const response = await api(`/api/projects/${encodeURIComponent(project.project_key)}/dismiss-description-proposal`, {method:"POST", body:JSON.stringify({expected_revision:expectedRevision})});
@@ -2254,11 +2280,12 @@ function parseSeedInput(value) {
   return {seed: match[2].trim(), type: match[1].toLowerCase()};
 }
 
-function seedForm({pageUrl = ""} = {}) {
+function seedForm({pageUrl = "", existingProject = false} = {}) {
   return `<form id="seed-form" class="seed-form">
     <label>NSID・リポジトリURL・サービスURL<input id="seed-value" type="text" required autocomplete="off" placeholder="https://example.com"></label>
     ${pageUrl ? `<div class="actions"><button id="use-page-seed" type="button" title="${esc(pageUrl)}">見ていたURLを使う</button></div>` : ""}
     <p class="muted">種類を指定する場合は repo_url: https://... のように入力します。</p>
+    ${existingProject ? `<label>追加方法<select id="seed-classification"><option value="confirmed">採用して追加</option><option value="candidate">候補として追加</option></select></label>` : ""}
     <div class="actions"><button id="preview-seed" type="submit" class="primary">プレビュー</button></div>
     <div id="seed-preview"></div><p id="seed-message" class="notice" role="status" hidden></p>
     <div class="actions"><button id="save-seed" type="button" class="primary" hidden>この内容で登録</button></div>
@@ -2269,10 +2296,12 @@ function bindSeedForm({projectKey = "", projectName = "", revision = "", initial
   const form = $("seed-form"), input = $("seed-value"), preview = $("seed-preview");
   const save = $("save-seed"), message = $("seed-message"), previewButton = $("preview-seed");
   const usePage = pageUrl ? $("use-page-seed") : null;
+  const classification = projectKey ? $("seed-classification") : null;
   let request = 0, payload = null, saving = false;
   const showError = (error) => { message.textContent = error.message; message.hidden = false; };
   const invalidate = () => { request++; payload = null; save.hidden = true; preview.innerHTML = ""; message.hidden = true; };
   input.oninput = invalidate;
+  if (classification) classification.onchange = () => { invalidate(); previewButton.disabled = false; };
   if (usePage) usePage.onclick = () => {
     if (saving) return;
     input.value = pageUrl;
@@ -2285,7 +2314,8 @@ function bindSeedForm({projectKey = "", projectName = "", revision = "", initial
     if (saving) return;
     invalidate();
     const current = request, parsed = parseSeedInput(input.value);
-    if (!parsed.seed) { showError(new Error("シードを入力してください。")); return; }
+    const asCandidate = classification?.value === "candidate";
+    if (!parsed.seed) { showError(new Error("識別子を入力してください。")); return; }
     previewButton.disabled = true;
     try {
       const data = await api(`/api/seeds/preview?${new URLSearchParams({seed:parsed.seed, type:parsed.type})}`);
@@ -2298,10 +2328,11 @@ function bindSeedForm({projectKey = "", projectName = "", revision = "", initial
       }
       const candidates = list(data.candidates).filter((item) => item.project_key !== projectKey);
       if (candidates.length) preview.innerHTML += `<p class="muted">関連する既存プロジェクトも確認してください。</p><ul>${candidates.map((item) => `<li><button type="button" data-seed-project="${esc(item.project_key)}">${esc(item.name || item.project_key)}</button></li>`).join("")}</ul>`;
-      preview.innerHTML += `<p>${projectKey ? "この登録プロジェクトの識別子として採用します。" : "新しいプロジェクトを登録します。登録後に紹介予定へ追加できます。"}</p>`;
+      preview.innerHTML += `<p>${projectKey ? (asCandidate ? "候補として追加します。採用済みにはせず、調査・判断の対象にします。採用済み・除外中・保留中の値は追加できません。" : "この登録プロジェクトの識別子として採用します。") : "入力した識別子を採用し、新しいプロジェクトを登録します。登録後に紹介予定へ追加できます。"}</p>`;
       preview.querySelectorAll("[data-seed-project]").forEach((button) => button.onclick = () => { dialog?.close(); loadDetail(button.dataset.seedProject); });
       payload = {seed:parsed.seed, type:parsed.type};
       if (projectKey) Object.assign(payload, {project_key:projectKey, expected_revision:revision});
+      if (asCandidate) payload.classification = "candidate";
       save.textContent = projectKey ? (data.exact_project_key === projectKey ? "この内容で再適用" : "この内容で追加") : "この内容で登録";
       save.hidden = false;
     } catch (error) { if (request === current && form.isConnected) showError(error); }
@@ -2315,6 +2346,7 @@ function bindSeedForm({projectKey = "", projectName = "", revision = "", initial
     saving = true;
     input.disabled = previewButton.disabled = save.disabled = true;
     if (usePage) usePage.disabled = true;
+    if (classification) classification.disabled = true;
     message.textContent = "保存中…"; message.hidden = false;
     mutationQueue = mutationQueue.then(async () => {
       try {
@@ -2322,7 +2354,7 @@ function bindSeedForm({projectKey = "", projectName = "", revision = "", initial
         dialog?.close();
         await loadDetail(response.project_key);
         await loadList();
-        status(projectKey ? "シードを保存しました。" : "プロジェクトを登録しました。紹介予定に入れる場合は「紹介予定に入れる」を押してください。");
+        status(projectKey ? "識別子を保存しました。" : "プロジェクトを登録しました。紹介予定に入れる場合は「紹介予定に入れる」を押してください。");
       } catch (error) {
         if (error.code === "stale_project" && projectKey) {
           dialog?.close();
@@ -2333,6 +2365,7 @@ function bindSeedForm({projectKey = "", projectName = "", revision = "", initial
         saving = false;
         input.disabled = previewButton.disabled = save.disabled = false;
         if (usePage) usePage.disabled = false;
+        if (classification) classification.disabled = false;
       }
     }).catch((error) => status(error.message, true));
   };
@@ -2346,7 +2379,7 @@ function addProjectSeed(projectKey, projectName = projectKey) {
   if (state.screen === "browser" && state.pageUrl) {
     try { pageUrl = browserPageUrl(state.pageUrl); } catch { /* No usable source page. */ }
   }
-  $("seed-dialog-content").innerHTML = `<p>追加先: ${esc(projectName)}</p>${seedForm({pageUrl})}`;
+  $("seed-dialog-content").innerHTML = `<p>追加先: ${esc(projectName)}</p>${seedForm({pageUrl, existingProject:true})}`;
   bindSeedForm({projectKey, projectName, revision:state.detailRevision, pageUrl, dialog});
   $("cancel-seed").onclick = () => dialog.close();
   dialog.onclose = () => { if (!dialog.open) $("seed-dialog-content").replaceChildren(); };
@@ -2377,7 +2410,7 @@ function bindDetailActions(projectKey) {
       : action === "lower-promotion-priority"
       ? "普段の確認対象から外し、「低優先度・特集候補」に残します。見慣れた候補を繰り返し確認せず、後で理由から探すための操作です。自動では通常の優先度へ戻りません。"
       : ["dismiss-review-target", "defer-review-target"].includes(action)
-      ? `この項目を${action === "defer-review-target" ? "30日間" : "解除するまで"}折りたたみます。観測内容や採用状態、プロジェクト全体の要レビュー判定は変わりません。「保留・除外した項目」または「手動判断」から解除できます。`
+      ? `この項目を${action === "defer-review-target" ? "30日間" : "解除するまで"}折りたたみます。観測内容や採用状態、プロジェクト全体の要レビュー判定は変わりません。「保留・除外した項目」または「判断記録」から解除できます。`
       : `${payload.value || payload.other_project_key || projectKey}: ${title}。よろしいですか？`;
     confirmMutation(
       title,
@@ -2454,7 +2487,7 @@ function renderMergeDidComparison(data) {
     const rows = dids.map(did => `<tr><td>${esc(did)}</td><td>${nsidsForDid("source", sourceRole, did)}</td><td>${nsidsForDid("target", targetRole, did)}</td></tr>`).join("");
     return `<td><button type="button" class="did-match-count" popovertarget="${id}" aria-label="マージ元の${sourceRole.label}とマージ先の${targetRole.label}: ${dids.length}件の内訳">${dids.length}</button><div id="${id}" class="did-match-popover" popover role="dialog" aria-label="${title}の一致内訳"><div class="card-title"><strong>${title}</strong><button type="button" class="small" popovertarget="${id}" popovertargetaction="hide" aria-label="内訳を閉じる">閉じる</button></div>${dids.length ? `<table class="did-match-breakdown"><thead><tr><th scope="col">一致DID</th><th scope="col">元のNSID</th><th scope="col">先のNSID</th></tr></thead><tbody>${rows}</tbody></table>` : "<p>一致するDIDはありません。</p>"}</div></td>`;
   };
-  const diagnostics = (side, label) => `<h4>${label}</h4><dl class="kv"><dt>Lexicon発行元DID</dt><dd>${json(data[`${side}_lexicon_publisher_dids`] || {})}</dd><dt>record発行者DID</dt><dd>${data.first_creator_details_included ? json(data[`${side}_collection_first_creator_dids`] || {}) : "未照会"}</dd><dt>発行元の出典・検証状態</dt><dd>${json(data[`${side}_lexicon_publisher_details`] || {})}</dd><dt>record照会結果</dt><dd>${data.first_creator_details_included ? json(data[`${side}_collection_first_creator_details`] || {}) : "未照会"}</dd><dt>照会対象外（非record）</dt><dd>${list(data[`${side}_non_record_nsids`]).map(esc).join("<br>") || "なし"}</dd></dl>`;
+  const diagnostics = (side, label) => `<h4>${label}</h4><dl class="kv"><dt>Lexicon発行元DID</dt><dd>${json(data[`${side}_lexicon_publisher_dids`] || {})}</dd><dt>レコード発行者DID</dt><dd>${data.first_creator_details_included ? json(data[`${side}_collection_first_creator_dids`] || {}) : "未照会"}</dd><dt>発行元の出典・検証状態</dt><dd>${json(data[`${side}_lexicon_publisher_details`] || {})}</dd><dt>レコード照会結果</dt><dd>${data.first_creator_details_included ? json(data[`${side}_collection_first_creator_details`] || {}) : "未照会"}</dd><dt>照会対象外（非<code>record</code>型）</dt><dd>${list(data[`${side}_non_record_nsids`]).map(esc).join("<br>") || "なし"}</dd></dl>`;
   const fetchButton = data.first_creator_details_included ? "" : '<div class="actions"><button id="load-first-creator-heuristic" class="secondary">recordの発行者を照会（外部通信）</button></div>';
   return `<table class="did-match-matrix" aria-label="マージ元とマージ先の一致DID数"><thead><tr><th scope="col">元 ↓ ／ 先 →</th>${roles.map(role => `<th scope="col">${role.label}</th>`).join("")}</tr></thead><tbody>${roles.map(sourceRole => `<tr><th scope="row">${sourceRole.label}</th>${roles.map(targetRole => cell(sourceRole, targetRole)).join("")}</tr>`).join("")}</tbody></table>${fetchButton}<details class="did-match-diagnostics"><summary>参照したDIDと診断</summary>${diagnostics("source", "マージ元")}${diagnostics("target", "マージ先")}</details>`;
 }
@@ -2484,7 +2517,7 @@ async function loadMergeDetail(source, target, options = {}) {
       const identifiers = list(project.identifiers);
       return `<article class="merge-project"><div class="card-title"><strong>${esc(project.name || project.project_key)}</strong>${pill(project.tracking_state)}</div><div class="muted">${esc(project.project_key)}</div><dl class="kv"><dt>公式サイト</dt><dd>${project.website_url ? link(project.website_url) : "なし"}</dd><dt>状態</dt><dd>${pill(project.service_status)} ${pill(project.atproto_contribution_level)}</dd>${projectTimestampRows(project)}</dl><div class="merge-identifiers"><strong>採用済み識別子</strong>${mergeIdentifierRows(identifiers, "confirmed", matchedValues)}<strong>候補</strong>${mergeIdentifierRows(identifiers, "candidate", matchedValues)}</div><button class="small" data-merge-view="${esc(side)}">詳細を開く</button></article>`;
     };
-    const mergeActions = `<div class="actions"><button id="skip-review-item" class="secondary">今回は先送り</button><button id="mark-separate">別プロジェクトとして保持</button><button id="execute-merge" class="danger">プロジェクトをマージ</button></div>`;
+    const mergeActions = `<div class="actions"><button id="skip-review-item" class="secondary">次へ</button><button id="mark-separate">別プロジェクトとして保持</button><button id="execute-merge" class="danger">プロジェクトをマージ</button></div>`;
     $("detail").innerHTML = `${backToListButton()}${contextualBackButton()}<p class="eyebrow">マージ候補の比較</p><h2>${esc(data.source?.name || source)} → ${esc(data.target?.name || target)}</h2><div class="actions"><button id="reverse-merge-direction" class="secondary">マージ元とマージ先を入れ替える</button></div><details><summary>マージの向きと残す情報</summary><p>マージ先のIDを残し、元のIDはその別名になります。両方に紹介URLや低優先度の判断がある場合はマージ先を優先します。</p><p>名前・概要・説明・公式サイトは、確認済みサービスなど編集情報の充実度で選び、同点ならマージ先を優先します。Lexiconの断片情報でサービス本体の説明を上書きしないためです。向きを入れ替えたら、下のプレビューで結果を確認してください。</p></details><div class="merge-comparison">${snapshot(data.source, "source")}${snapshot(data.target, "target")}</div>${renderMergeIdentifierMatches(data.source_pair_candidate?.identifier_matches, "マージ元", "マージ先")}${data.merge_blocked ? `<p class="notice">別プロジェクト指定によりマージが制限されています。</p>` : ""}<details class="detail-section"><summary>候補と判断された理由</summary><dl class="kv"><dt>マージの制限</dt><dd>${data.merge_blocked ? pill("blocked", "failed") : "別プロジェクト指定なし"}</dd><dt>厳密な一致</dt><dd>${json(data.strict_overlap || {})}</dd><dt>標準条件での一致</dt><dd>${json(data.moderate_overlap || {})}</dd><dt>マージ元の判定材料</dt><dd>${json(data.source_pair_candidate || {})}</dd><dt>マージ先の判定材料</dt><dd>${json(data.target_pair_candidate || {})}</dd></dl></details>${renderMultiTenantSuffixSuggestions(data.suggested_multi_tenant_suffixes)}${section("発行者DIDの一致", renderMergeDidComparison(data), `<p>Lexiconの発行者と、観測順の先頭に返るrecord発行者を比較します。このrecord発行者がLexicon開発者であることを期待し、一致を同一プロジェクトの手掛かりにします。</p><p>観測順は${externalLink("https://github.com/bluesky-social/indigo/blob/3beb6e491b793834f6c66aed9963a255f56f1b6b/cmd/collectiondir/pebble.go#L330-L364", "collectiondirの公開実装")}に基づきます。「—」は未照会です。</p>`)}${section("マージ結果のプレビュー", `<dl class="kv"><dt>残すID</dt><dd>${esc(data.merged_preview?.target_project_key || "")}</dd><dt>名前</dt><dd>${esc(data.merged_preview?.merged_name || "")}</dd><dt>概要</dt><dd>${esc(data.merged_preview?.merged_tagline || "なし")}</dd><dt>説明</dt><dd>${esc(data.merged_preview?.merged_summary || "なし")}</dd><dt>紹介投稿</dt><dd>${link(data.merged_preview?.introduced_url || "") || "なし"}</dd><dt>紹介候補の優先度</dt><dd>${data.merged_preview?.merged_promotion_priority ? `低い優先度：${esc(data.merged_preview.merged_promotion_priority.reason)}` : "通常"}</dd><dt>公式サイト</dt><dd>${link(data.merged_preview?.merged_website_url || "")}</dd><dt>サービス状態</dt><dd>${pill(data.merged_preview?.merged_service_status || "unknown")}</dd><dt>リポジトリ</dt><dd>${list(data.merged_preview?.merged_project_repository_urls).map(link).join("<br>") || "なし"}</dd><dt>サービス</dt><dd>${list(data.merged_preview?.merged_service_urls).map(link).join("<br>") || "なし"}</dd></dl>`)}${mergeActions}<div class="detail-footer">${backToListButton()}${contextualBackButton()}</div>`;
     bindBackToListButtons();
     document.querySelectorAll("[data-merge-view]").forEach((button) => button.onclick = () => loadDetail(button.dataset.mergeView === "source" ? source : target, {backTarget: {type: "merge", source, target, previous: state.detailBackTarget}}));
@@ -2503,9 +2536,9 @@ async function loadMergeDetail(source, target, options = {}) {
 }
 
 function addMultiTenantSuffix(suffix, source, target) {
-  confirmOperation("共用ホスティングの接尾辞を追加", `共用ホスティングの接尾辞として${suffix}を追加しますか？ 今後のマージ候補計算で、ドメインの一致判定が変わります。`, async () => {
+  confirmOperation("共用ホストとして登録", `${suffix}を共用ホストとして登録しますか？ 配下のサブドメインを独立した境界として扱い、共通の親ドメインだけを理由に同じプロジェクトの候補としてまとめないようにします。今後のマージ候補の判定に使われます。`, async () => {
     const response = await api("/api/domain-overrides/multi-tenant-suffixes", {method:"POST", body:JSON.stringify({suffix})});
-    const prefix = response.added ? `共用ホスティングの接尾辞${response.suffix}を追加しました。` : `共用ホスティングの接尾辞${response.suffix}は登録済みです。`;
+    const prefix = response.added ? `共用ホスト${response.suffix}を追加しました。` : `共用ホスト${response.suffix}は登録済みです。`;
     if (advanceReviewList(source, {targetKey: target, statusPrefix: prefix})) return;
     status(`${prefix} 一覧を再読込します。`);
     await loadList();
@@ -2525,7 +2558,7 @@ function confirmMerge(title, action, source, target) {
 function renderNewSeed(initialSeed = "") {
   status("");
   clearDetailSelection();
-  $("detail").innerHTML = `${backToListButton()}<p class="eyebrow">登録プロジェクト</p><h2>シードを登録</h2>${seedForm()}<div class="detail-footer">${backToListButton()}</div>`;
+  $("detail").innerHTML = `${backToListButton()}<p class="eyebrow">登録プロジェクト</p><h2>調査対象を登録</h2>${seedForm()}<div class="detail-footer">${backToListButton()}</div>`;
   document.body.classList.add("detail-open");
   bindBackToListButtons();
   bindSeedForm({initialSeed});
@@ -2710,11 +2743,11 @@ function renderJobs(items) {
     const target = job.request?.parameters?.project_key || (job.request?.parameters?.all_projects ? "bulk" : job.request?.parameters?.source || job.request?.parameters?.kind || "operation");
     const plan = job.operation === "review" && job.status === "completed" && !job.request?.execute ? job.result?.data?.summary : null;
     const discovery = job.result?.data?.summary?.unadopted;
-    return `<article class="job-card ${esc(job.status)}"><div class="card-title"><strong>${esc(displayLabel(job.operation))} · ${esc(displayLabel(target))}</strong>${pill(job.status, job.status)}</div>
+    return `<article class="job-card ${esc(job.status)}"><div class="card-title"><strong>${esc(displayLabel(job.operation))} · ${esc(displayLabel(target))}</strong>${pill(job.status === "completed" && job.result?.data?.summary?.outcome === "partial" ? "完了（一部失敗）" : job.status, job.status)}</div>
       <div class="meta-row"><span>${esc(job.job_id)}</span><span>${esc(count)}</span><span>${job.elapsed_seconds === null || job.elapsed_seconds === undefined ? "" : `経過 ${esc(formatDuration(job.elapsed_seconds))}`}</span><span>${job.eta_seconds === null || job.eta_seconds === undefined ? "" : `残り時間（推定） ${esc(formatDuration(job.eta_seconds))}`}</span></div>
       ${job.last_item ? `<p class="muted">直近: ${esc(job.last_item.project_key)} ${esc(job.last_item.name || "")}</p>` : ""}
       ${job.result?.data?.summary?.reason === "source_disabled" ? `<p class="muted">情報源が無効のためスキップしました。</p>` : ""}
-      ${discovery ? `<p>未採用URL調査: ${esc(discovery.processed_count)}件試行（観測 ${esc(discovery.observed_count)}・取得失敗 ${esc(discovery.failed_count)}・競合 ${esc(discovery.conflicted_count)}） · 積み残し ${esc(discovery.remaining_due_count)}件 · ${esc(formatDuration(discovery.elapsed_seconds))} · ${esc(({url_budget:"URL件数上限", time_budget:"調査時間上限", cancelled:"停止要求", selection_exhausted:"今回の選定分を終了"})[discovery.stop_reason] || discovery.stop_reason)}</p>${job.result?.data?.summary?.outcome === "partial" ? `<p class="notice">一部のURLを確認できませんでした。採用済みサービスの結果も詳細から確認できます。</p>` : ""}` : ""}
+      ${discovery ? `<p>未採用URL調査: ${esc(discovery.processed_count)}件試行（観測 ${esc(discovery.observed_count)}・取得失敗 ${esc(discovery.failed_count)}・競合 ${esc(discovery.conflicted_count)}） · 調査待ち ${esc(discovery.remaining_due_count)}件 · ${esc(formatDuration(discovery.elapsed_seconds))} · ${esc(({url_budget:"URL件数上限", time_budget:"調査時間上限", cancelled:"停止要求", selection_exhausted:"今回の選定分を終了"})[discovery.stop_reason] || discovery.stop_reason)}</p>${job.result?.data?.summary?.outcome === "partial" ? `<p class="notice">一部のURLを確認できませんでした。採用済みサービスの結果も詳細から確認できます。</p>` : ""}` : ""}
       ${job.error ? `<p class="job-error">${esc(apiErrorMessage(job.error))}</p>` : ""}
       <div class="actions">
         ${job.can_cancel ? `<button class="danger small" data-job-cancel="${esc(job.job_id)}">停止を要求</button>` : ""}
@@ -2760,7 +2793,8 @@ function renderSchedules(data) {
     const schedule = item.schedule || {};
     const steps = list(item.steps);
     const stepHelp = steps.length > 1 ? `<p>実行順: ${steps.map((step) => esc(displayLabel(step.label || step.operation))).join(" → ")}</p>` : "";
-    const statusLine = [displayLabel(item.last_status), scheduleMessage(item.last_message), item.last_started_at ? `開始 ${formatTimestamp(item.last_started_at)}` : "", item.last_completed_at ? `完了 ${formatTimestamp(item.last_completed_at)}` : ""].filter(Boolean).join(" · ");
+    const lastStatus = item.last_status === "completed" && list(item.last_steps).some(step => step.outcome === "partial") ? "完了（一部失敗）" : displayLabel(item.last_status);
+    const statusLine = [lastStatus, scheduleMessage(item.last_message), item.last_started_at ? `開始 ${formatTimestamp(item.last_started_at)}` : "", item.last_completed_at ? `完了 ${formatTimestamp(item.last_completed_at)}` : ""].filter(Boolean).join(" · ");
     return `<article class="operation-card schedule-card" data-schedule-card="${esc(item.preset_id)}">
       <div class="card-title"><span class="title-with-help"><strong>${esc(displayLabel(item.label))}</strong>${helpButton(`${displayLabel(item.label)}の処理内容`, `<p>${esc(displayLabel(item.description))}</p>${stepHelp}`)}</span>${schedule.enabled ? pill("enabled", "confirmed") : pill("disabled")}</div>
       <div class="controls">
