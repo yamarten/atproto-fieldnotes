@@ -146,17 +146,17 @@ project-registry --db-path /absolute/path/survey.db enrich --all \
 | --- | --- |
 | `service_surface_confirmed` | 通常は`category=project / infra_tool`で、サービス状態が`live / beta / invite_only`かつログイン入口または公開閲覧画面を観測。認証後の利用成功と紹介可否は未判定。 |
 | `service_candidate_needs_validation` | サービスURLはあるが入口・公開閲覧は未確認。HTTP 200、app shell、案内だけでは確認済みにせず、候補として残す。 |
-| `lexicon_publisher_confirmed` | 採用済みの所有NSIDのうち、DNS委譲先からの解決を保存済みの有効な検証記録で確認できるものがある。 |
+| `lexicon_publisher_confirmed` | 採用済みの所有NSIDのうち、DNS委譲先からの解決を保存済みの有効な検証記録で確認できるものがある。画面では「Lexicon解決済み」と表示。 |
 | `lexicon_definition_confirmed` | 採用済みの所有NSIDがあり、解決の有効な検証記録はない。候補NSIDや利用・参照NSIDは含めない。 |
-| `technical_insight_candidate` | 設計・相互運用・参照実装を学ぶうえで特に見る価値がある。 |
+| `technical_insight_candidate` | 設計・相互運用・参照実装の見どころについて、具体的な説明を伴う技術評価が`high / exceptional`。暫定評価であり、通常の紹介スコアとは別。 |
 
-`category=personal_tool`は既定ではサービスとLexiconの紹介候補から除外し、`--include-personal-tools`で含めます。Lexiconは採用1件1点と、うち解決確認済みの追加1点で最大40点です。サービスは公開画面20点・ログイン入口16点・入口確認済みの招待制12点・要確認8点、最近の活動は最大30点、説明と採用済み公式repoは各3点です。手動の優先度の後はこの合計とproject keyで並べます。紹介保留は期限後または保存した判断材料の変化で一覧へ戻り、履歴は残ります。`defer-promotion`の理由は任意、日数省略時は履歴や登録時期によらず30日です。`--days`で期間を指定し、`--clear`で解除できます。旧「確認済み」も保留へ統合し、CLI・Webとも通常候補から一時的に外します。`--view`は`queue`（既定）、`inbox`、`technical`、`waiting`（保留）、`lowered`、`all`を選べます。理由検索はWebの紹介候補一覧を使います。
+`category=personal_tool`は既定ではサービスとLexiconの紹介候補から除外し、`--include-personal-tools`で含めます。Lexiconは所有NSIDの採用1件1点と、うち解決確認済みの追加1点で最大40点です。サービスは公開閲覧画面20点・ログイン入口16点・入口確認済みの招待・申込み制12点・要確認8点、最近の活動は最大30点、説明と採用済み公式リポジトリは各3点です。手動の優先度の後はこの合計とproject keyで並べます。紹介保留は期限後または保存した判断材料の変化で一覧へ戻り、履歴は残ります。`defer-promotion`の理由は任意、日数省略時は履歴や登録時期によらず30日です。`--days`で期間を指定し、`--clear`で解除できます。旧「確認済み」も保留へ統合し、CLI・Webとも通常候補から一時的に外します。`--view`は`queue`（既定）、`inbox`、`technical`、`waiting`（保留）、`lowered`、`all`を選べます。理由検索はWebの紹介候補一覧を使います。
 
 通常の`promotion-queue`は追跡状態`active / stable`を対象にし、`stalled`は含めません。`--tracking-states`で明示した時は指定した状態だけを対象にします。紹介済みや保留中などの候補は、追跡状態が対象でも通常一覧には戻りません。
 
 CLI既定の`--view queue`では低優先度も通常候補の後ろに含めます。Web既定の「確認対象」と同じく低優先度を外して確認するには`--view inbox`、低優先度だけを探すには`--view lowered`を指定します。
 
-技術面から選ぶ場合は`promotion-queue --view technical`を使います。具体的な技術的価値が`high / exceptional`と評価された候補を、サービスの確認度と独立して並べます。通常候補へ載るには別にサービスか採用済みLexiconの根拠が必要で、技術評価による通常候補の優先・加点は行いません。
+技術面から選ぶ場合は`promotion-queue --view technical`を使います。具体的な設計・実装上の見どころを持ち、技術評価が`high / exceptional`の候補を、サービスの確認状況と独立して並べます。通常候補へ載るには別にサービスか採用済みLexiconの根拠が必要で、技術評価による通常候補の優先・加点は行いません。
 
 主機能でのatproto利用を判断するときは、根拠を添えて保存します。再調査は手動判断を上書きせず、解除すると未評価へ戻ります。LLMによる利用範囲の自動確定は行いません。Lower priorityは個別の編集判断として別に維持されます。
 

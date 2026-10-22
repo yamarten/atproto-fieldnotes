@@ -116,8 +116,8 @@ const displayLabels = {
   "invite_only": "招待制",
   "unknown": "不明",
   "none": "なし",
-  "core": "schema定義の根拠あり",
-  "substantial": "record・利用関係の根拠あり",
+  "core": "Lexiconの所有・定義の材料あり",
+  "substantial": "レコード・利用関係の材料あり",
   "optional": "宣言・参照の手掛かり",
   "auth_only": "認証のみ",
   "high": "高い",
@@ -246,14 +246,14 @@ const displayLabels = {
   "sync lexicons": "Lexicon公開情報の取得",
   "service_status": "サービス状態",
   "ownership": "帰属",
-  "contribution": "atproto観測根拠",
+  "contribution": "atprotoの調査材料",
   "merge_candidate": "マージ候補",
   "trust": "信頼の根拠",
   "no_confirmed_owned_nsid": "採用済みの帰属NSIDなし",
   "unsupported_confirmed": "現在の根拠で支持されない採用済み識別子",
   "saved service verification state": "保存済みのサービス確認状態",
   "confirmed identifiers plus saved ownership relations": "採用済み識別子と保存済みの帰属関係",
-  "rule-based atproto contribution evaluation": "規則によるatproto観測根拠の分類",
+  "rule-based atproto contribution evaluation": "調査材料の種類による分類",
   "current duplicate candidate and merge recommendation evaluation": "現在の重複候補とマージ推奨の評価",
   "trust-graph-v1 mutual directed trust paths for URL, collection, DID, handle, and domain identifiers": "URL・コレクション・DID・ハンドル・ドメインの相互信頼経路",
   "no confirmed service/repository/lexicon": "採用済みのサービス・リポジトリ・Lexiconがない",
@@ -880,7 +880,7 @@ function listControls() {
     <details><summary>絞り込み</summary><p class="muted">複数選択可。未選択ならすべて対象。</p><div class="filter-grid">
       <label>追跡状態<select id="filter-tracking" multiple size="5">${multiEnumOptions(filterOptionValues("tracking_states"), state.projectSearch.tracking)}</select></label>
       <label>サービス状態<select id="filter-service" multiple size="5">${multiEnumOptions(filterOptionValues("service_statuses"), state.projectSearch.service, serviceStatusLabels)}</select></label>
-      <label>代表するatproto観測根拠<select id="filter-contribution" multiple size="5">${multiEnumOptions(filterOptionValues("contribution_levels"), state.projectSearch.contribution)}</select></label>
+      <label>代表するatprotoの調査材料<select id="filter-contribution" multiple size="5">${multiEnumOptions(filterOptionValues("contribution_levels"), state.projectSearch.contribution)}</select></label>
       <label>メモ<select id="filter-notes">${selectOptions([["any", "すべて"], ["yes", "あり"], ["no", "なし"]], state.projectSearch.notes)}</select></label>
       <label>紹介済み<select id="filter-introduced">${selectOptions([["any", "すべて"], ["yes", "あり"], ["no", "なし"]], state.projectSearch.introduced)}</select></label>
       <label>候補<select id="filter-candidates">${selectOptions([["any", "すべて"], ["yes", "あり"], ["no", "なし"]], state.projectSearch.candidates)}</select></label>
@@ -1149,9 +1149,8 @@ function normalizeQueueItem(item) {
 }
 
 const promotionServiceLabels = {
-  confirmed: "ログイン入口・公開閲覧を確認",
-  needs_validation: "ログイン入口・公開閲覧は要確認",
-  not_applicable: "サービスの候補判定なし",
+  confirmed: "入口確認済み",
+  needs_validation: "入口未確認",
 };
 
 const promotionPriorityLabels = {
@@ -1160,30 +1159,30 @@ const promotionPriorityLabels = {
 };
 
 const promotionVisibilityLabels = {
-  eligible: "表示上の除外・保留なし",
+  eligible: "除外・保留なし",
   deferred: "紹介候補一覧で一時保留",
   excluded: "紹介候補一覧の対象外",
 };
 
 const promotionScoreLabels = {
-  lexicon: "Lexicon定義・解決（最大40）",
-  service_evidence: "サービスの確認範囲・アクセス条件（最大20）",
-  recent_activity: "活動の新しさ（最大30）",
-  description: "説明あり（最大3）",
-  repository: "採用済みの公式リポジトリ（最大3）",
+  lexicon: "Lexicon（最大40点）",
+  service_evidence: "サービス（最大20点）",
+  recent_activity: "活動の新しさ（最大30点）",
+  description: "説明（最大3点）",
+  repository: "公式リポジトリ（最大3点）",
 };
 
 const promotionValidationLabels = {
   low_service_status_confidence: "サービス状態の確信度が低い",
-  usable_surface_unconfirmed: "ログイン入口・公開閲覧は未確認",
+  usable_surface_unconfirmed: "入口未確認",
 };
 
 const promotionSignalLabels = {
-  service_surface_confirmed: "サービスの入口・公開閲覧を確認",
-  service_candidate_needs_validation: "サービスの入口は要確認",
-  lexicon_publisher_confirmed: "Lexiconの発行者を確認済み",
-  lexicon_definition_confirmed: "採用済みのLexicon定義あり",
-  technical_insight_candidate: "技術的価値のある候補",
+  service_surface_confirmed: "入口確認済み",
+  service_candidate_needs_validation: "入口未確認",
+  lexicon_publisher_confirmed: "Lexicon解決済み",
+  lexicon_definition_confirmed: "NSID採用済み",
+  technical_insight_candidate: "技術候補",
 };
 
 const atprotoUsageLabels = {
@@ -1200,7 +1199,7 @@ function serviceStatusPill(value) { return pill(serviceStatusLabels[value] || "�
 function renderEvaluation(evaluation, policy) {
   const facts = evaluation.protocol_evidence || {};
   const assessment = policy.service_assessment || {};
-  return `<dl class="kv"><dt>atprotoの観測事実</dt><dd>${pill(`採用済みNSID ${facts.owned_nsids || 0}`)} ${pill(`schema標本 ${facts.schemas || 0}`)} ${pill(`record標本 ${facts.record_samples || 0}`)} ${pill(`collection観測 ${facts.collections || 0}`)}</dd><dt>技術的価値</dt><dd>${pill(evaluation.technical_interest_level)} 点数 ${esc(evaluation.technical_interest_score)}</dd><dt>公開条件の手掛かり</dt><dd>${serviceStatusPill(assessment.publication)}</dd><dt>サービスの確認範囲</dt><dd>${esc(serviceSurfaceLabels[assessment.surface] || "観測記録なし")}（認証後の利用成功は未判定）</dd><dt>説明の未記入項目</dt><dd>${descriptionMissingText(evaluation.description_missing)}</dd><dt>紹介候補一覧での扱い</dt><dd>${pill(promotionLabel(promotionVisibilityLabels, policy.candidate_visibility?.group || "excluded"))}</dd><dt>紹介候補の優先度</dt><dd>${pill(promotionLabel(promotionPriorityLabels, policy.priority_group || "normal"))} ${esc(policy.priority_reason || "")}</dd><dt>紹介スコア</dt><dd>${esc(policy.score_breakdown?.total ?? 0)}</dd><dt>技術評価の理由</dt><dd>${esc(evaluation.technical_interest_summary || "なし")}</dd></dl>${list(assessment.observations).map(o => `<p>${o.url ? link(o.url) : "URLは未記録"} · ${esc(serviceSurfaceLabels[o.surface])} · ${esc(displayLabel(o.method))} · ${esc(formatTimestamp(o.observed_at) || "確認時刻は未記録")}</p>`).join("")}${renderPromotionScore(policy.score_breakdown)}`;
+  return `<dl class="kv"><dt>atprotoの調査材料</dt><dd>${pill(`採用済みの所有NSID ${facts.owned_nsids || 0}`)} ${pill(`定義サンプル ${facts.schemas || 0}`)} ${pill(`レコードサンプル ${facts.record_samples || 0}`)} ${pill(`コレクション観測 ${facts.collections || 0}`)}</dd><dt>技術評価</dt><dd>${pill(evaluation.technical_interest_level)} ${esc(evaluation.technical_interest_score)}点（暫定評価）</dd><dt>公開条件の手掛かり</dt><dd>${serviceStatusPill(assessment.publication)}</dd><dt>サービスの確認範囲</dt><dd>${esc(serviceSurfaceLabels[assessment.surface] || "観測記録なし")}</dd><dt>説明の未記入項目</dt><dd>${descriptionMissingText(evaluation.description_missing)}</dd><dt>紹介候補の表示制限</dt><dd>${pill(promotionLabel(promotionVisibilityLabels, policy.candidate_visibility?.group || "excluded"))}</dd><dt>手動の優先度</dt><dd>${pill(promotionLabel(promotionPriorityLabels, policy.priority_group || "normal"))} ${esc(policy.priority_reason || "")}</dd><dt>紹介スコア</dt><dd>${esc(policy.score_breakdown?.total ?? 0)}</dd><dt>技術評価の理由</dt><dd>${esc(evaluation.technical_interest_summary || "なし")}</dd></dl>${list(assessment.observations).map(o => `<p>${o.url ? link(o.url) : "URLは未記録"} · ${esc(serviceSurfaceLabels[o.surface])} · ${esc(displayLabel(o.method))} · ${esc(formatTimestamp(o.observed_at) || "確認時刻は未記録")}</p>`).join("")}${renderPromotionScore(policy.score_breakdown)}`;
 }
 
 function descriptionMissingText(fields) {
@@ -1212,7 +1211,7 @@ function renderAtprotoUsage(usage = {}) {
   return `<p>${usage.legacy_role ? "旧Bluesky用途の判断を引継ぎ（利用範囲は未判断） · " : ""}${usage.source === "operator" ? `${pill(promotionLabel(atprotoUsageLabels, usage.role || "unknown"))} · 手動判断` : "未評価"}</p>
     ${usage.source === "operator" && usage.reason ? `<p>${esc(usage.reason)}</p>` : ""}
     ${list(usage.sources).length ? `<ul>${usage.sources.map((s) => `<li>${esc(displayLabel(s.type))}: ${esc(s.locator)}</li>`).join("")}</ul>` : ""}
-    <details><summary>利用範囲の判断を記録</summary><p class="muted">補足の注記です。紹介スコアや並び順は変更せず、自動調査で上書きされません。</p>
+    <details><summary>利用範囲の判断を記録</summary><p class="muted">主機能・補助部分・認証のどこでatprotoを使うかを、理由付きの手動注記として残します。紹介スコアには反映せず、自動調査で上書きしません。</p>
     <label>主機能での利用<select id="atproto-usage-role">${selectOptions(Object.entries(atprotoUsageLabels), usage.role || "unknown")}</select></label>
     <label>判断根拠<input id="atproto-usage-reason" value="${esc(usage.source === "operator" ? usage.reason : "")}" placeholder="主機能とatprotoが担う部分を記入"></label>
     <div class="actions"><button id="save-atproto-usage">判断を保存</button>${usage.source === "operator" ? `<button id="clear-atproto-usage" class="secondary">手動判断を解除</button>` : ""}</div></details>`;
@@ -1225,9 +1224,15 @@ function promotionLabel(labels, value) {
 function renderPromotionScore(breakdown = {}) {
   const components = Object.entries(breakdown.components || {});
   if (!components.length) return "";
+  const order = Object.keys(promotionScoreLabels);
+  components.sort(([left], [right]) => {
+    const position = (key) => order.includes(key) ? order.indexOf(key) : order.length;
+    return position(left) - position(right);
+  });
   const counts = breakdown.lexicon_counts || {};
-  const activity = breakdown.activity_age_days == null ? "活動日時は未観測" : `最新活動は${breakdown.activity_age_days}日前`;
-  return `<details class="score-breakdown"><summary>紹介スコアの内訳（最大${esc(breakdown.maximum ?? 96)}点）</summary><p>Lexicon採用${esc(counts.owned_count ?? 0)}件・うち解決の有効な検証記録${esc(counts.resolved_count ?? 0)}件。${esc(activity)}。</p><dl class="kv">${components.map(([key, value]) => `<dt>${esc(promotionLabel(promotionScoreLabels, key))}</dt><dd>+${esc(value)}</dd>`).join("")}</dl><p class="muted">Lexiconは採用1件1点、解決確認で追加1点。活動は3／7／14／30／60日以内で30／24／18／12／6点です。</p><p class="muted">サービスは公開画面20点、ログイン入口16点、入口確認済みの招待制12点、要確認8点。認証後の利用成功は未判定です。説明は概要・本文のどちらかがあれば一度だけ3点、採用済みの公式repoがあれば件数によらず3点です。</p></details>`;
+  const activity = breakdown.activity_age_days == null ? "活動：記録なし" : `活動：${breakdown.activity_age_days}日前`;
+  const help = `<p>確認順の参考点です。手動の優先度を先に適用し、技術評価は別枠で扱います。</p><p>Lexicon：所有NSIDの採用1件1点、解決済みなら追加1点。発行元から定義を取得し、NSIDなどの整合性を確認した有効な記録を数えます。</p><p>サービス：公開閲覧20点、ログイン入口16点、入口確認済みの招待・申込み制12点、入口未確認8点。認証後の操作は未確認です。</p><p>活動：保存済みの最新活動が3／7／14／30／60日以内なら30／24／18／12／6点。</p><p>説明：概要か説明があれば3点。公式リポジトリ：採用済みなら件数によらず3点。</p>`;
+  return `<details class="score-breakdown"><summary>紹介スコアの内訳（最大${esc(breakdown.maximum ?? 96)}点）</summary><div class="meta-row"><span>所有NSID：採用${esc(counts.owned_count ?? 0)}件・解決${esc(counts.resolved_count ?? 0)}件</span><span>${esc(activity)}</span>${helpButton("紹介スコアの配点", help)}</div><dl class="kv">${components.map(([key, value]) => `<dt>${esc(promotionLabel(promotionScoreLabels, key))}</dt><dd>+${esc(value)}</dd>`).join("")}</dl></details>`;
 }
 
 function promotionCardDetails(item) {
@@ -1235,13 +1240,15 @@ function promotionCardDetails(item) {
   const breakdown = item.score_breakdown || {};
   const validationReasons = uniqueValues(
     list(item.signals).flatMap((signal) => list(signal.details?.validation_reasons))
-  ).map((reason) => promotionLabel(promotionValidationLabels, reason));
+  ).filter((reason) => reason !== "usable_surface_unconfirmed" || item.service_evidence_group !== "needs_validation")
+    .map((reason) => promotionLabel(promotionValidationLabels, reason));
   const serviceGroup = item.service_evidence_group || "not_applicable";
+  const serviceMeta = serviceGroup === "not_applicable" ? "" : `${serviceStatusPill(item.project?.service_status || item.service_status || "")}${pill(promotionLabel(promotionServiceLabels, serviceGroup), serviceGroup === "needs_validation" ? "candidate" : "")}`;
   const priorityGroup = item.priority_group || "normal";
   const visibility = item.candidate_visibility?.group || "eligible";
   const attention = item.attention?.group || "unreviewed";
   const technicalView = state.promotionView === "technical";
-  return `<span class="meta-row">${serviceStatusPill(item.project?.service_status || item.service_status || "")}${pill(promotionLabel(promotionServiceLabels, serviceGroup), serviceGroup === "needs_validation" ? "candidate" : "")}${priorityGroup === "normal" ? "" : pill(promotionLabel(promotionPriorityLabels, priorityGroup), "candidate")}${pill(technicalView ? `技術評価 ${displayLabel(item.technical_interest_level)} · ${item.technical_interest_score}` : `スコア ${breakdown.total ?? item.sort_score ?? 0}`)}${item.atproto_usage?.source === "operator" ? pill(promotionLabel(atprotoUsageLabels, item.atproto_usage.role)) : ""}${attention === "unreviewed" ? "" : pill(promotionLabel({recorded:"判断記録あり", held:"保留中", changed:"根拠変化・再確認", due:"再確認時期"}, attention), ["changed", "due"].includes(attention) ? "candidate" : "")}${visibility === "eligible" ? "" : pill(promotionLabel(promotionVisibilityLabels, visibility), "candidate")}</span>
+  return `<span class="meta-row">${serviceMeta}${priorityGroup === "normal" ? "" : pill(promotionLabel(promotionPriorityLabels, priorityGroup), "candidate")}${pill(technicalView ? `技術評価 ${displayLabel(item.technical_interest_level)} · ${item.technical_interest_score}` : `紹介スコア ${breakdown.total ?? item.sort_score ?? 0}`)}${item.atproto_usage?.source === "operator" ? pill(promotionLabel(atprotoUsageLabels, item.atproto_usage.role)) : ""}${attention === "unreviewed" ? "" : pill(promotionLabel({recorded:"判断記録あり", held:"保留中", changed:"根拠変化・再確認", due:"再確認時期"}, attention), ["changed", "due"].includes(attention) ? "candidate" : "")}${visibility === "eligible" ? "" : pill(promotionLabel(promotionVisibilityLabels, visibility), "candidate")}</span>
     ${item.atproto_usage?.source === "operator" && item.atproto_usage.reason ? `<span class="muted">${esc(item.atproto_usage.reason)}</span>` : ""}
     ${list(item.signals).some((s) => s.kind === "technical_insight_candidate") ? `<span>${esc(list(item.signals).find((s) => s.kind === "technical_insight_candidate").details.technical_interest_summary)}</span>` : ""}
     ${item.active_deferral ? `<span class="muted">保留: ${esc(item.active_deferral.reason || "理由なし")} · ${esc(formatTimestamp(item.active_deferral.expires_at))}まで</span>` : ""}
@@ -1749,7 +1756,7 @@ function renderDetail(data) {
     ${list(project.service_url_investigations).length ? section("未採用URLの調査", `<p class="muted">リンク先の観測です。プロジェクトへの帰属は未確定です。</p>${list(project.service_url_investigations).map(item => `<details><summary>${esc(item.url)} · ${esc(displayLabel(item.status))}</summary><p>${link(item.url)} · ${esc(formatTimestamp(item.attempted_at))}</p><p>${item.assessment?.positive_surface ? "利用画面を観測" : "利用画面は未確認"}${item.retry_at ? ` · 再試行対象: ${esc(formatTimestamp(item.retry_at))}以降` : ""}</p><p>${esc(item.assessment?.excerpt || "本文なし")}</p></details>`).join("")}`) : ""}
     ${section("atproto利用の注記", renderAtprotoUsage(promotionPolicy.atproto_usage))}
     ${section("リンク・資料", renderProjectLinks(overview))}
-    ${section("評価と確認範囲", renderEvaluation(evaluation, promotionPolicy), "<p>schemaやrecordの存在は、主機能での利用・独立性・紹介価値を保証しません。サービスの入口確認も、認証後の利用成功とは別です。</p>")}
+    ${section("調査材料と評価", renderEvaluation(evaluation, promotionPolicy), "<p>採用した識別子、保存したサンプル、サービスの観測、技術評価と紹介スコアを確認します。入口の観測は認証後の操作確認を含みません。サンプル件数は定義やレコードの総数ではありません。技術評価は設計・実装上の見どころを探すための暫定評価で、通常の紹介スコアには加えません。主機能での利用範囲は「atproto利用の注記」に記録します。</p>")}
     ${section("有効な判断", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">有効な判断はありません。</p>`)}
     ${section("サービス・帰属", renderServiceOwnership(serviceOwnership, browserServiceUrls))}
     ${section("マージ候補", `${renderExplicitMergePairForm({source: project.project_key, sourceFixed: true})}<div id="merge-analysis-content"><p class="muted">マージ候補を計算中…</p></div>`)}

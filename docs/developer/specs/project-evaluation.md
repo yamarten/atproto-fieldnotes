@@ -5,8 +5,9 @@
 | 判断 | 答える問い | 主な結果 |
 | --- | --- | --- |
 | 説明・分類 | 何をするprojectか | 名前、紹介文、category |
-| 公開・観測・利用 | 公開条件、確認できた範囲、atprotoが担う役割 | service status、観測事実、利用範囲と用途 |
-| 紹介候補 | 紹介の前提が揃っているか、どれを先に確認するか | 紹介候補一覧、順位・保留 |
+| 公開・観測・利用 | 公開条件、保存した調査材料、確認範囲、atprotoが担う役割 | service status、観測記録、理由付き利用範囲注記 |
+| 技術評価 | 設計・実装上、何を深掘りしたいか | 暫定評価と理由、技術候補 |
+| 紹介候補 | どれを先に確認するか、個別にどう扱うか | 紹介スコア、手動優先度・保留 |
 | 追跡 | 今後も調査を続けるか、どの頻度で扱うか | tracking state、再調査対象 |
 
 通常候補はserviceまたは採用済みLexiconの根拠から選び、技術面から探す入口は別に設けます。説明が未記入でも候補になり、serviceがliveであることや情報が揃っていることだけで紹介可否を確定しません。LLMは説明・分類の補助に使い、観測に基づく稼働判定とoperatorの判断を優先します。resourceの採用は別の[帰属・採用規則](project-boundaries.md)です。
@@ -128,7 +129,7 @@ category値の意味は[Category](project-record.md#category)を正本としま�
 
 サービスの公開条件と確認範囲を分けます。`category=project / infra_tool`でサービスURLを持ち、`live / beta / invite_only`かつログイン入口または公開閲覧画面の根拠がある候補は`service_surface_confirmed`です。名前のconfirmedは入口の観測を意味し、認証後の利用成功は保証しません。`library`はdocs URLをserviceと誤認しないよう対象外です。
 
-`unverified / none`、HTTP 200だけ、app shell、authority hostのtitle、beta・招待の案内だけの候補も除外せず、`service_candidate_needs_validation`として残します。入口確認とのscore差は10点で、自動priorityを通常順位に使いません。抽象的なconfidenceでは区別せず、匿名調査で確認した範囲を使います。全件のログインや機能試験は必須にしません。backend障害とlanding-onlyは静的probeだけでは安定して分けられません。
+`unverified / none`、HTTP 200だけ、app shell、authority hostのtitle、beta・招待の案内だけの候補も除外せず、`service_candidate_needs_validation`として残します。配点は[紹介候補の表示・順位・保留](#紹介候補の表示順位保留)のサービス成分に従い、自動priorityを通常順位に使いません。抽象的なconfidenceでは区別せず、匿名調査で確認した範囲を使います。全件のログインや機能試験は必須にしません。backend障害とlanding-onlyは静的probeだけでは安定して分けられません。
 
 `service_assessment`は保存材料から読む投影で、`publication`（従来の公開状態）、`surface`（`login / public / app_shell / announcement / documentation / unconfirmed / failed / not_observed`）、URL・方法・日時別の`observations`を返します。確認済みサービスURLごとに最新のbase/browser観測を使い、取得失敗を古い入口確認で隠しません。対象観測がない旧データは保存済み評価の根拠を使い、方法を`saved_evaluation`、時刻を未記録と明示します。`usage_tested=false`は利用試験を判定していない意味です。confidenceはcollector・既存レビューの診断材料として保持しますが、利用者向けの確信度表示と紹介scoreの加点には使いません。
 
@@ -229,21 +230,21 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 
 ### Atprotoの観測根拠
 
-NSID・schema・record・利用relationの有無を観測事実として扱います。詳細は件数、検索は代表する観測根拠の種類を表示し、「寄与度」「中核的な利用」の総合評価と点数は表示しません。内部の`atproto_contribution_level / score / evidence`は既存codec・監査で使う派生表現で、`ensure_project_shape()`と`save_project()`で再計算します。scoreは紹介・要レビューの順位に使いません。
+NSIDの採用状態とschema・record・利用relationの観測を、画面では「atprotoの調査材料」として扱います。採用済みの所有NSIDは外部解決の成功を意味せず、保存したサンプル件数は総数ではありません。詳細は件数、検索は代表する調査材料の種類を表示し、「寄与度」「中核的な利用」の総合評価と点数は表示しません。内部の`atproto_contribution_level / score / evidence`は既存codec・監査で使う派生表現で、`ensure_project_shape()`と`save_project()`で再計算します。scoreは紹介・要レビューの順位に使いません。
 
 - `core` / `90`
-  - resolved NSID または lexicon schema sample がある
+  - 採用済みの所有NSID、lexicon schema sample、`defines_schema` relationのいずれかがある
 - `substantial` / `70`
-  - recent record sample または record count を持つ collection observation がある
+  - recent record sample、collection observation、`uses_collection` relationのいずれかがある
 - `optional` / `40`
-  - input NSID または external lexicon hint だけがある
+  - input NSID、external lexicon hint、`requests_permission / mentions_collection` relationのいずれかがあり、上位の材料や認証のみの判定がない
 - `auth_only` / `20`
   - `atproto_auth_only=true`で、上記の強いprotocol surfaceが無い
   - 旧`category=auth_only`は正本DBで個別移行済みであり、読み取り互換を持たない
 - `unknown` / `0`
   - rule-based evidence が無い
 
-`incidental`は未接続です。この分類は実際の主機能利用、独立性、紹介価値を表しません。schema定義やrecord数だけを理由に、高い紹介価値や要レビュー優先度を与えません。
+`incidental`は未接続です。この分類は実際の主機能利用、独立性、紹介価値を表しません。この派生scoreを紹介・要レビューの点数へ転用しません。所有NSIDの件数を使う紹介スコアは、後述の独立した配点です。
 
 ### 主機能でのatproto利用
 
@@ -288,7 +289,7 @@ CLIとWebの通常候補は既定で`active`と`stable`を含み、`stalled`を�
 
 採用済みの`owned_nsid:confirmed`があれば`lexicon_definition_confirmed`、うちDNS委譲先からのschema解決を有効な検証記録で確認できるものがあれば代わりに`lexicon_publisher_confirmed`を返します。`reject / name_only`を除きcategory横断で適用し、`personal_tool`は`--include-personal-tools`指定時だけ対象にします。候補NSID、利用・参照NSID、保留・除外中のNSIDは数えません。採用は帰属判断であり、新規登録起点の採用を含め、それ自体を外部解決の証明とは扱いません。
 
-通常の紹介スコアは次の5成分の合計で、最大96点です。配点枠は軸間の重みを表し、品質合格率ではありません。説明と公式repoの補助点は合わせても6点で、解決済みLexicon3件分、または活動の隣接する期間区分の差に相当します。
+通常の紹介スコアは次の5成分の合計で、最大96点です。配点枠は軸間の重みを表し、品質合格率ではありません。説明と公式repoの補助点は合わせても6点で、解決済みLexicon3件分、または活動の隣接する期間区分の差に相当します。画面では「Lexicon」「サービス」「活動の新しさ」「説明」「公式リポジトリ」と点数を表示し、配点ルールはⓘから開きます。技術評価・手動の優先度は別項目として扱います。
 
 | 成分 | 配点 |
 | --- | --- |
@@ -321,7 +322,7 @@ Webの`Promotion`は既定の「確認対象」でeligible・通常優先度の�
 
 `lowered`と`waiting`一覧は完全なproject復元の前に、それぞれ`lower_promotion_priority`と`defer_promotion`の判断履歴を持つprojectへ読込み対象を絞ります。保留へ読込み変換する旧確認期限も`waiting`の対象に含めます。解除済み・期限切れ履歴も選び、有効な判断・metadata・根拠変化の解釈は復元とpolicyへ委ねます。全viewでproject本体・子行・更新番号を同じread snapshot内で復元し、正規化済みの完全runtime viewから推薦を計算します。同じrequest内で本体を再読込みせず、shape正規化と保存用baseline作成は各projectで1回です。全tracking stateからの回収、全体の順位、理由検索前の`reasons`集計、検索後の`total`、最後のoffset/limit適用を維持します。応答や評価済みprojectをrequest間でcacheせず、再取得ごとに現在のDBと期限を評価します。
 
-cardは主機能での利用範囲と理由・技術的価値の説明・service確認度、手動優先度、確認記録、追加確認理由、score成分を表示します。詳細上部の同じ場所で保留・Lower priority・Skipを操作します。保存後は表示中のcardを外し、Refreshで先頭から再計算します。単なる画面取得・Refresh・SkipはDBを更新しません。
+cardは主機能での利用範囲と理由・技術評価の理由・サービスの入口確認、手動優先度、確認記録、追加確認理由、紹介スコアを表示します。詳細の「調査材料と評価」で確認範囲と点数内訳を読み、詳細上部の同じ場所で保留・Lower priority・Skipを操作します。保存後は表示中のcardを外し、Refreshで先頭から再計算します。単なる画面取得・Refresh・SkipはDBを更新しません。
 
 Lower priorityは単体で先に扱わない判断であり、同じ理由をまとめて特集する候補にも使います。理由の編集は旧decisionを解除済みとして残し、新decisionを追加します。通常優先度へ戻す操作も履歴を消しません。明示したloweringは根拠が変わっても自動解除せず、専用一覧で再評価できます。
 
