@@ -685,6 +685,7 @@ def hydrate(
         elif kind == "assess_atproto_usage":
             project["atproto_usage_decisions"].append({
                 "role": str(row["target_value"]), "reason": str(row["note"]),
+                "focus": str(metadata.get("focus") or "auto"),
                 "assessed_at": str(row["created_at"]), "cleared_at": str(row["cleared_at"]),
             })
         elif kind == "block_identifier":

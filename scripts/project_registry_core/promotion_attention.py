@@ -24,7 +24,8 @@ def snapshot(project: dict[str, Any]) -> dict[str, Any]:
     )
     result = {key: str(project.get(key) or "") for key in scalars}
     if project.get("atproto_usage_decisions"):
-        result["atproto_usage"] = atproto_usage.projection(project)["role"]
+        usage = atproto_usage.projection(project)
+        result["atproto_usage"] = usage["role"] if usage["focus"] == "auto" else {"role": usage["role"], "focus": usage["focus"]}
     result.update({key: sorted(set(str(x) for x in project.get(key, []) if x)) for key in lists})
     # Presence of material fills a gap; wording-only changes must not rotate it.
     result["profile_available"] = {

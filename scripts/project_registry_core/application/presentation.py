@@ -713,6 +713,7 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
     raw_project = {
         "project_key": resolved,
         "name": str(row["name"]),
+        "category": str(prepared.get("category") or ""),
         "website_url": str(row["website_url"]),
         "service_status": str(row["service_status"]),
         "tracking_state": str(row["tracking_state"]),
@@ -739,6 +740,12 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "atproto_contribution_level": str(prepared.get("atproto_contribution_level") or "unknown"),
         "atproto_contribution_score": int(prepared.get("atproto_contribution_score") or 0),
         "atproto_contribution_evidence": list(prepared.get("atproto_contribution_evidence") or []),
+        "protocol_evidence": {
+            "schemas": len(prepared.get("lexicon_schema_samples") or []),
+            "owned_nsids": len(prepared.get("resolved_nsids") or []),
+            "record_samples": len(prepared.get("recent_record_samples") or []),
+            "collections": len(prepared.get("collection_observations") or []),
+        },
         "technical_interest_level": str(prepared.get("technical_interest_level") or "unknown"),
         "technical_interest_score": int(prepared.get("technical_interest_score") or 0),
         "technical_interest_reasons": list(prepared.get("technical_interest_reasons") or []),

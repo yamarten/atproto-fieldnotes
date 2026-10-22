@@ -26,9 +26,10 @@ const part = (start, end) => source.slice(source.indexOf(start), source.indexOf(
 const nodes = new Map();
 const state = {detailRequest:0, mergeAnalysisRequest:0, selected:'', detailRevision:'r'};
 const pending = [], rendered = [], errors = [];
+const classes = new Set();
 const context = vm.createContext({state, AbortController, token:'test',
   $: id => { if (!nodes.has(id)) nodes.set(id,{innerHTML:''}); return nodes.get(id); },
-  document: {body:{classList:{add(){}}}}, syncUrl(){}, resetDetailScroll(){}, esc:x=>x,
+  document: {body:{classList:{add(value){classes.add(value)}, remove(value){classes.delete(value)}}}}, syncUrl(){}, resetDetailScroll(){}, esc:x=>x,
   status: error=>errors.push(error), renderDetail:data=>rendered.push(data),
   apiErrorMessage: error=>error.message,
   fetch: (path, options) => new Promise((resolve,reject)=>pending.push({path,options,resolve,reject})),
@@ -44,7 +45,9 @@ vm.runInContext(part('async function api(', 'function restoreStateFromUrl(') +
   pending[0].resolve({ok:true,json:async()=>({key:'a'})}); await a;
   assert.deepEqual(rendered,[{key:'b'}]);
   const merge=context.loadMergeAnalysis('b','r',{});
+  assert.equal(classes.has('detail-open'),true);
   context.clearDetailSelection();
+  assert.equal(classes.has('detail-open'),false);
   assert.equal(pending[2].options.signal.aborted,true);
   pending[2].resolve({ok:true,json:async()=>({revision:'r'})}); await merge;
   assert.equal(nodes.has('merge-analysis-content'),false);

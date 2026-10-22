@@ -108,17 +108,17 @@ const displayLabels = {
   "archived": "アーカイブ",
   "ignore": "無視",
   "beta": "ベータ公開",
-  "live": "利用可能",
+  "live": "通常公開の手掛かり",
   "dead": "提供終了",
   "private": "非公開",
   "unreleased": "未公開",
-  "unverified": "未確認",
+  "unverified": "公開状態は未確定",
   "invite_only": "招待制",
   "unknown": "不明",
   "none": "なし",
-  "core": "中核的な利用",
-  "substantial": "実質的な利用",
-  "optional": "任意の利用",
+  "core": "schema定義の根拠あり",
+  "substantial": "record・利用関係の根拠あり",
+  "optional": "宣言・参照の手掛かり",
   "auth_only": "認証のみ",
   "high": "高い",
   "medium": "中程度",
@@ -181,6 +181,7 @@ const displayLabels = {
   "identity": "アカウント・ドメイン",
   "schema": "スキーマ",
   "assess_atproto_usage": "atproto利用範囲の判断",
+  "conflicting operator atproto usage roles; resolve before merging": "atprotoの利用範囲または用途の判断が異なります。統合前に判断を揃えてください。",
   "atproto_usage": "atproto利用範囲",
   "confirm_identifier": "識別子の採用",
   "block_identifier": "識別子の除外",
@@ -245,14 +246,14 @@ const displayLabels = {
   "sync lexicons": "Lexicon公開情報の取得",
   "service_status": "サービス状態",
   "ownership": "帰属",
-  "contribution": "atproto寄与度",
+  "contribution": "atproto観測根拠",
   "merge_candidate": "マージ候補",
   "trust": "信頼の根拠",
   "no_confirmed_owned_nsid": "採用済みの帰属NSIDなし",
   "unsupported_confirmed": "現在の根拠で支持されない採用済み識別子",
   "saved service verification state": "保存済みのサービス確認状態",
   "confirmed identifiers plus saved ownership relations": "採用済み識別子と保存済みの帰属関係",
-  "rule-based atproto contribution evaluation": "規則に基づくatproto寄与度の評価",
+  "rule-based atproto contribution evaluation": "規則によるatproto観測根拠の分類",
   "current duplicate candidate and merge recommendation evaluation": "現在の重複候補とマージ推奨の評価",
   "trust-graph-v1 mutual directed trust paths for URL, collection, DID, handle, and domain identifiers": "URL・コレクション・DID・ハンドル・ドメインの相互信頼経路",
   "no confirmed service/repository/lexicon": "採用済みのサービス・リポジトリ・Lexiconがない",
@@ -878,8 +879,8 @@ function listControls() {
     <div class="toolbar"><input id="project-query" type="search" placeholder="名前・説明・NSID・アカウント・URLを検索" value="${esc(state.projectSearch.query)}"><button id="search-projects" class="primary">検索</button><button id="new-seed">調査対象を登録</button><button id="open-browser-entry">サイトURLから探す</button></div>
     <details><summary>絞り込み</summary><p class="muted">複数選択可。未選択ならすべて対象。</p><div class="filter-grid">
       <label>追跡状態<select id="filter-tracking" multiple size="5">${multiEnumOptions(filterOptionValues("tracking_states"), state.projectSearch.tracking)}</select></label>
-      <label>サービス状態<select id="filter-service" multiple size="5">${multiEnumOptions(filterOptionValues("service_statuses"), state.projectSearch.service)}</select></label>
-      <label>atproto寄与度<select id="filter-contribution" multiple size="5">${multiEnumOptions(filterOptionValues("contribution_levels"), state.projectSearch.contribution)}</select></label>
+      <label>サービス状態<select id="filter-service" multiple size="5">${multiEnumOptions(filterOptionValues("service_statuses"), state.projectSearch.service, serviceStatusLabels)}</select></label>
+      <label>代表するatproto観測根拠<select id="filter-contribution" multiple size="5">${multiEnumOptions(filterOptionValues("contribution_levels"), state.projectSearch.contribution)}</select></label>
       <label>メモ<select id="filter-notes">${selectOptions([["any", "すべて"], ["yes", "あり"], ["no", "なし"]], state.projectSearch.notes)}</select></label>
       <label>紹介済み<select id="filter-introduced">${selectOptions([["any", "すべて"], ["yes", "あり"], ["no", "なし"]], state.projectSearch.introduced)}</select></label>
       <label>候補<select id="filter-candidates">${selectOptions([["any", "すべて"], ["yes", "あり"], ["no", "なし"]], state.projectSearch.candidates)}</select></label>
@@ -1004,11 +1005,11 @@ function enumOptions(values, selected, labels = {}) {
   return selectOptions([["", "すべて"], ...options.map((value) => [value, labels[value] || displayLabel(value)])], selected);
 }
 
-function multiEnumOptions(values, selected) {
+function multiEnumOptions(values, selected, labels = {}) {
   const selectedValues = new Set(splitSelections(selected));
   const options = [...values];
   selectedValues.forEach((value) => { if (!options.includes(value)) options.push(value); });
-  return options.map((value) => `<option value="${esc(value)}" ${selectedValues.has(value) ? "selected" : ""}>${esc(displayLabel(value))}</option>`).join("");
+  return options.map((value) => `<option value="${esc(value)}" ${selectedValues.has(value) ? "selected" : ""}>${esc(labels[value] || displayLabel(value))}</option>`).join("");
 }
 
 function selectedValues(id) {
@@ -1148,9 +1149,9 @@ function normalizeQueueItem(item) {
 }
 
 const promotionServiceLabels = {
-  confirmed: "利用画面を確認済み",
-  needs_validation: "利用画面の確認が必要",
-  not_applicable: "利用画面の評価なし",
+  confirmed: "ログイン入口・公開閲覧を確認",
+  needs_validation: "ログイン入口・公開閲覧は要確認",
+  not_applicable: "サービスの候補判定なし",
 };
 
 const promotionPriorityLabels = {
@@ -1159,43 +1160,48 @@ const promotionPriorityLabels = {
 };
 
 const promotionVisibilityLabels = {
-  eligible: "紹介候補一覧の対象",
+  eligible: "表示上の除外・保留なし",
   deferred: "紹介候補一覧で一時保留",
   excluded: "紹介候補一覧の対象外",
 };
 
 const promotionScoreLabels = {
-  service_evidence: "サービスの利用画面",
-  lexicon_publication: "Lexiconの公開を確認済み",
-  technical_interest: "技術的価値",
-  service_status: "サービス状態",
-  service_confidence: "サービス状態の確信度",
-  profile_completeness: "説明の記載",
-  repository_evidence: "リポジトリを発見",
-  lexicon_evidence: "Lexiconを発見",
-  review_readiness: "要レビュー項目なし",
-  atproto_usage: "主機能でのatproto利用",
-  recent_activity: "最近の活動",
-  recent_collection_activity: "最近のレコード活動",
-  recent_repository_activity: "最近のリポジトリ活動",
+  lexicon: "Lexicon定義・解決（最大40）",
+  service_evidence: "サービスの確認範囲・アクセス条件（最大20）",
+  recent_activity: "活動の新しさ（最大30）",
+  description: "説明あり（最大3）",
+  repository: "採用済みの公式リポジトリ（最大3）",
 };
 
 const promotionValidationLabels = {
   low_service_status_confidence: "サービス状態の確信度が低い",
-  usable_surface_unconfirmed: "利用できるサービス画面が未確認",
+  usable_surface_unconfirmed: "ログイン入口・公開閲覧は未確認",
 };
 
 const promotionSignalLabels = {
-  service_surface_confirmed: "利用できるサービス画面を確認済み",
-  service_candidate_needs_validation: "サービス画面の追加確認が必要",
+  service_surface_confirmed: "サービスの入口・公開閲覧を確認",
+  service_candidate_needs_validation: "サービスの入口は要確認",
   lexicon_publisher_confirmed: "Lexiconの発行者を確認済み",
+  lexicon_definition_confirmed: "採用済みのLexicon定義あり",
   technical_insight_candidate: "技術的価値のある候補",
 };
 
 const atprotoUsageLabels = {
   main_data: "主機能のデータ・基盤", supporting: "補助的な利用",
-  bluesky_client: "Bluesky専用操作", auth_only: "認証のみ", unknown: "利用範囲は不明",
+  auth_only: "認証のみ", unknown: "利用範囲は不明",
 };
+
+const atprotoFocusLabels = {auto: "用途未指定", bluesky: "Bluesky向け操作・フィード", independent: "独立した用途のサービス", infrastructure: "基盤・監視", unknown: "用途不明"};
+const serviceStatusLabels = {live: "通常公開の手掛かり", beta: "ベータ公開", invite_only: "招待・申込み制", unreleased: "公開予定", unverified: "公開状態は未確定", none: "利用画面未検出", unknown: "公開状態の材料なし", private: "アクセス制限の記録", dead: "終了・消滅の記録"};
+const serviceSurfaceLabels = {login: "ログイン入口を確認", public: "公開閲覧画面を確認", app_shell: "アプリ画面の構成のみ", announcement: "公開条件の案内のみ", documentation: "ドキュメントのみ", unconfirmed: "利用画面は未検出", failed: "取得・接続に失敗", not_observed: "観測記録なし"};
+displayLabels.saved_evaluation = "保存済み評価";
+function serviceStatusPill(value) { return pill(serviceStatusLabels[value] || "公開状態の材料なし"); }
+
+function renderEvaluation(evaluation, policy) {
+  const facts = evaluation.protocol_evidence || {};
+  const assessment = policy.service_assessment || {};
+  return `<dl class="kv"><dt>atprotoの観測事実</dt><dd>${pill(`採用済みNSID ${facts.owned_nsids || 0}`)} ${pill(`schema標本 ${facts.schemas || 0}`)} ${pill(`record標本 ${facts.record_samples || 0}`)} ${pill(`collection観測 ${facts.collections || 0}`)}</dd><dt>技術的価値</dt><dd>${pill(evaluation.technical_interest_level)} 点数 ${esc(evaluation.technical_interest_score)}</dd><dt>公開条件の手掛かり</dt><dd>${serviceStatusPill(assessment.publication)}</dd><dt>サービスの確認範囲</dt><dd>${esc(serviceSurfaceLabels[assessment.surface] || "観測記録なし")}（認証後の利用成功は未判定）</dd><dt>説明の未記入項目</dt><dd>${descriptionMissingText(evaluation.description_missing)}</dd><dt>紹介候補一覧での扱い</dt><dd>${pill(promotionLabel(promotionVisibilityLabels, policy.candidate_visibility?.group || "excluded"))}</dd><dt>紹介候補の優先度</dt><dd>${pill(promotionLabel(promotionPriorityLabels, policy.priority_group || "normal"))} ${esc(policy.priority_reason || "")}</dd><dt>紹介スコア</dt><dd>${esc(policy.score_breakdown?.total ?? 0)}</dd><dt>技術評価の理由</dt><dd>${esc(evaluation.technical_interest_summary || "なし")}</dd></dl>${list(assessment.observations).map(o => `<p>${o.url ? link(o.url) : "URLは未記録"} · ${esc(serviceSurfaceLabels[o.surface])} · ${esc(displayLabel(o.method))} · ${esc(formatTimestamp(o.observed_at) || "確認時刻は未記録")}</p>`).join("")}${renderPromotionScore(policy.score_breakdown)}`;
+}
 
 function descriptionMissingText(fields) {
   const labels = {summary: "説明", tagline: "概要"};
@@ -1203,10 +1209,10 @@ function descriptionMissingText(fields) {
 }
 
 function renderAtprotoUsage(usage = {}) {
-  return `<p>${usage.source === "operator" ? `${pill(promotionLabel(atprotoUsageLabels, usage.role || "unknown"))} · 手動判断` : "未評価"}</p>
+  return `<p>${usage.legacy_role ? "旧Bluesky用途の判断を引継ぎ（利用範囲は未判断） · " : ""}${usage.source === "operator" ? `${pill(promotionLabel(atprotoUsageLabels, usage.role || "unknown"))} · 手動判断` : "未評価"}</p>
     ${usage.source === "operator" && usage.reason ? `<p>${esc(usage.reason)}</p>` : ""}
     ${list(usage.sources).length ? `<ul>${usage.sources.map((s) => `<li>${esc(displayLabel(s.type))}: ${esc(s.locator)}</li>`).join("")}</ul>` : ""}
-    <details><summary>利用範囲の判断を記録</summary><p class="muted">手動判断は自動調査で上書きされません。</p>
+    <details><summary>利用範囲の判断を記録</summary><p class="muted">補足の注記です。紹介スコアや並び順は変更せず、自動調査で上書きされません。</p>
     <label>主機能での利用<select id="atproto-usage-role">${selectOptions(Object.entries(atprotoUsageLabels), usage.role || "unknown")}</select></label>
     <label>判断根拠<input id="atproto-usage-reason" value="${esc(usage.source === "operator" ? usage.reason : "")}" placeholder="主機能とatprotoが担う部分を記入"></label>
     <div class="actions"><button id="save-atproto-usage">判断を保存</button>${usage.source === "operator" ? `<button id="clear-atproto-usage" class="secondary">手動判断を解除</button>` : ""}</div></details>`;
@@ -1217,9 +1223,11 @@ function promotionLabel(labels, value) {
 }
 
 function renderPromotionScore(breakdown = {}) {
-  const components = Object.entries(breakdown.components || {}).filter(([, value]) => Number(value) !== 0);
+  const components = Object.entries(breakdown.components || {});
   if (!components.length) return "";
-  return `<details class="score-breakdown"><summary>紹介スコアの内訳</summary><dl class="kv">${components.map(([key, value]) => `<dt>${esc(promotionLabel(promotionScoreLabels, key))}</dt><dd>${Number(value) > 0 ? "+" : ""}${esc(value)}</dd>`).join("")}</dl></details>`;
+  const counts = breakdown.lexicon_counts || {};
+  const activity = breakdown.activity_age_days == null ? "活動日時は未観測" : `最新活動は${breakdown.activity_age_days}日前`;
+  return `<details class="score-breakdown"><summary>紹介スコアの内訳（最大${esc(breakdown.maximum ?? 96)}点）</summary><p>Lexicon採用${esc(counts.owned_count ?? 0)}件・うち解決の有効な検証記録${esc(counts.resolved_count ?? 0)}件。${esc(activity)}。</p><dl class="kv">${components.map(([key, value]) => `<dt>${esc(promotionLabel(promotionScoreLabels, key))}</dt><dd>+${esc(value)}</dd>`).join("")}</dl><p class="muted">Lexiconは採用1件1点、解決確認で追加1点。活動は3／7／14／30／60日以内で30／24／18／12／6点です。</p><p class="muted">サービスは公開画面20点、ログイン入口16点、入口確認済みの招待制12点、要確認8点。認証後の利用成功は未判定です。説明は概要・本文のどちらかがあれば一度だけ3点、採用済みの公式repoがあれば件数によらず3点です。</p></details>`;
 }
 
 function promotionCardDetails(item) {
@@ -1233,7 +1241,7 @@ function promotionCardDetails(item) {
   const visibility = item.candidate_visibility?.group || "eligible";
   const attention = item.attention?.group || "unreviewed";
   const technicalView = state.promotionView === "technical";
-  return `<span class="meta-row">${pill(item.project?.service_status || item.service_status || "")}${pill(promotionLabel(promotionServiceLabels, serviceGroup), serviceGroup === "needs_validation" ? "candidate" : "")}${priorityGroup === "normal" ? "" : pill(promotionLabel(promotionPriorityLabels, priorityGroup), "candidate")}${pill(technicalView ? `技術評価 ${displayLabel(item.technical_interest_level)} · ${item.technical_interest_score}` : `スコア ${breakdown.total ?? item.sort_score ?? 0}`)}${item.atproto_usage?.source === "operator" ? pill(promotionLabel(atprotoUsageLabels, item.atproto_usage.role)) : ""}${attention === "unreviewed" ? "" : pill(promotionLabel({recorded:"判断記録あり", held:"保留中", changed:"根拠変化・再確認", due:"再確認時期"}, attention), ["changed", "due"].includes(attention) ? "candidate" : "")}${visibility === "eligible" ? "" : pill(promotionLabel(promotionVisibilityLabels, visibility), "candidate")}</span>
+  return `<span class="meta-row">${serviceStatusPill(item.project?.service_status || item.service_status || "")}${pill(promotionLabel(promotionServiceLabels, serviceGroup), serviceGroup === "needs_validation" ? "candidate" : "")}${priorityGroup === "normal" ? "" : pill(promotionLabel(promotionPriorityLabels, priorityGroup), "candidate")}${pill(technicalView ? `技術評価 ${displayLabel(item.technical_interest_level)} · ${item.technical_interest_score}` : `スコア ${breakdown.total ?? item.sort_score ?? 0}`)}${item.atproto_usage?.source === "operator" ? pill(promotionLabel(atprotoUsageLabels, item.atproto_usage.role)) : ""}${attention === "unreviewed" ? "" : pill(promotionLabel({recorded:"判断記録あり", held:"保留中", changed:"根拠変化・再確認", due:"再確認時期"}, attention), ["changed", "due"].includes(attention) ? "candidate" : "")}${visibility === "eligible" ? "" : pill(promotionLabel(promotionVisibilityLabels, visibility), "candidate")}</span>
     ${item.atproto_usage?.source === "operator" && item.atproto_usage.reason ? `<span class="muted">${esc(item.atproto_usage.reason)}</span>` : ""}
     ${list(item.signals).some((s) => s.kind === "technical_insight_candidate") ? `<span>${esc(list(item.signals).find((s) => s.kind === "technical_insight_candidate").details.technical_interest_summary)}</span>` : ""}
     ${item.active_deferral ? `<span class="muted">保留: ${esc(item.active_deferral.reason || "理由なし")} · ${esc(formatTimestamp(item.active_deferral.expires_at))}まで</span>` : ""}
@@ -1456,7 +1464,7 @@ function renderList(data) {
     }).filter(Boolean).join(" ");
     return `<button class="card ${isPromotion ? "promotion-card" : ""} ${state.selected === key ? "selected" : ""}" data-project-key="${esc(key)}" ${mergeTarget ? `data-merge-target="${esc(mergeTarget)}"` : ""}>
       <span class="card-title"><strong>${esc(name)}</strong>${isPromotion && project.tracking_state === "active" ? "" : pill(project.tracking_state || item.recommendation?.confidence || "")}</span>
-      ${isPromotion ? "" : `<span class="meta-row">${pill(project.service_status || "")}${pill(project.atproto_contribution_level || "")}${project.introduced_url ? pill("introduced", "confirmed") : ""}${project.has_candidates ? pill("candidates", "candidate") : ""}</span>`}
+      ${isPromotion ? "" : `<span class="meta-row">${serviceStatusPill(project.service_status || "")}${project.introduced_url ? pill("introduced", "confirmed") : ""}${project.has_candidates ? pill("candidates", "candidate") : ""}</span>`}
       ${project.tagline ? `<span>${esc(project.tagline)}</span>` : ""}${signals ? `<span class="meta-row">${signals}</span>` : ""}
       ${promotionCardDetails(item)}
       ${item.plan ? `<span>紹介予定: ${esc(item.plan.reason || "理由なし")}</span><span class="muted">${esc(formatTimestamp(item.plan.added_at))}</span>` : ""}
@@ -1611,6 +1619,7 @@ function skipReviewItem(sourceKey = state.selected, targetKey = "") {
 function clearDetailSelection() {
   cancelDetailRequests();
   state.selected = "";
+  document.body.classList.remove("detail-open");
   $("detail").innerHTML = `<div class="empty-state"><h2>登録プロジェクトを選択</h2></div>`;
 }
 
@@ -1732,15 +1741,15 @@ function renderDetail(data) {
     ${hasPromotionHold ? `<p>保留: ${esc(promotionPolicy.active_deferral.reason || "理由なし")} · ${esc(formatTimestamp(promotionPolicy.active_deferral.expires_at))}まで</p>` : ""}</div>`;
   const tab = (key, label, body) => `<section class="detail-tab-panel" data-detail-panel="${key}" ${state.detailTab === key ? "" : "hidden"}>${body}</section>`;
   const overviewBody = `
-    ${section("紹介情報", `<dl class="kv"><dt>公式サイト</dt><dd>${project.website_url ? link(project.website_url) : "なし"}</dd><dt>サービス</dt><dd>${list(overview.confirmed_services).map(link).join("<br>") || "なし"}</dd><dt>リポジトリ</dt><dd>${list(overview.repositories).map(link).join("<br>") || "なし"}</dd><dt>アカウント</dt><dd>${overview.account ? identifierValueLink(list(data.identifiers).find(item => item.family === "identity" && item.value === overview.account) || {value:overview.account, kinds:["account"]}) : "なし"}</dd><dt>紹介投稿</dt><dd>${project.introduced_url ? link(project.introduced_url) : "なし"}</dd><dt>概要</dt><dd>${esc(profileValue(profile, "tagline")) || "なし"}</dd><dt>説明</dt><dd>${esc(profileValue(profile, "summary")) || "なし"}</dd><dt>メモ</dt><dd>${esc(profileValue(profile, "notes")) || "なし"}</dd><dt>システム履歴</dt><dd>${renderSystemNotes(project)}</dd>${projectTimestampRows(project)}</dl><div class="actions"><button id="edit-profile">編集</button></div>`, detailTabHelp.overview)}
+    ${section("紹介情報", `<dl class="kv"><dt>公式サイト</dt><dd>${project.website_url ? link(project.website_url) : "なし"}</dd><dt>サービス</dt><dd>${list(overview.confirmed_services).map(link).join("<br>") || "なし"}</dd><dt>リポジトリ</dt><dd>${list(overview.repositories).map(link).join("<br>") || "なし"}</dd><dt>アカウント</dt><dd>${overview.account ? identifierValueLink(list(data.identifiers).find(item => item.family === "identity" && item.value === overview.account) || {value:overview.account, kinds:["account"]}) : "なし"}</dd><dt>紹介投稿</dt><dd>${project.introduced_url ? link(project.introduced_url) : "なし"}</dd><dt>分類</dt><dd>${esc(displayLabel(project.category || "unknown"))}</dd><dt>概要</dt><dd>${esc(profileValue(profile, "tagline")) || "なし"}</dd><dt>説明</dt><dd>${esc(profileValue(profile, "summary")) || "なし"}</dd><dt>メモ</dt><dd>${esc(profileValue(profile, "notes")) || "なし"}</dd><dt>システム履歴</dt><dd>${renderSystemNotes(project)}</dd>${projectTimestampRows(project)}</dl><div class="actions"><button id="edit-profile">編集</button></div>`, detailTabHelp.overview)}
     ${project.features?.length ? section("特徴", `<ul>${project.features.map((value) => `<li>${esc(value)}</li>`).join("")}</ul>`) : ""}
     ${project.editorial?.proposal ? `<p class="notice">根拠付きの説明更新案があります。紹介情報の「編集」から確認できます。</p>` : ""}
     ${section("Lexicon公開情報", renderPublicationSchemas(project.publication_schemas, project.publication_review))}
     ${section("確認時点", renderServiceObservations(project.service_observations))}
     ${list(project.service_url_investigations).length ? section("未採用URLの調査", `<p class="muted">リンク先の観測です。プロジェクトへの帰属は未確定です。</p>${list(project.service_url_investigations).map(item => `<details><summary>${esc(item.url)} · ${esc(displayLabel(item.status))}</summary><p>${link(item.url)} · ${esc(formatTimestamp(item.attempted_at))}</p><p>${item.assessment?.positive_surface ? "利用画面を観測" : "利用画面は未確認"}${item.retry_at ? ` · 再試行対象: ${esc(formatTimestamp(item.retry_at))}以降` : ""}</p><p>${esc(item.assessment?.excerpt || "本文なし")}</p></details>`).join("")}`) : ""}
-    ${section("主機能でのatproto利用", renderAtprotoUsage(promotionPolicy.atproto_usage))}
+    ${section("atproto利用の注記", renderAtprotoUsage(promotionPolicy.atproto_usage))}
     ${section("リンク・資料", renderProjectLinks(overview))}
-    ${section("評価", `<dl class="kv"><dt>atproto寄与度</dt><dd>${pill(evaluation.atproto_contribution_level)} 点数 ${esc(evaluation.atproto_contribution_score)}</dd><dt>技術的価値</dt><dd>${pill(evaluation.technical_interest_level)} 点数 ${esc(evaluation.technical_interest_score)}</dd><dt>サービス状態の確信度</dt><dd>${esc(displayLabel(evaluation.service_status_confidence))}</dd><dt>説明の未記入項目</dt><dd>${descriptionMissingText(evaluation.description_missing)}</dd><dt>紹介候補一覧での扱い</dt><dd>${pill(promotionLabel(promotionVisibilityLabels, promotionPolicy.candidate_visibility?.group || "excluded"))}</dd><dt>サービスの利用画面</dt><dd>${pill(promotionLabel(promotionServiceLabels, promotionPolicy.service_evidence_group || "not_applicable"))}</dd><dt>紹介候補の優先度</dt><dd>${pill(promotionLabel(promotionPriorityLabels, priorityGroup))} ${esc(promotionPolicy.priority_reason || "")}</dd><dt>紹介スコア</dt><dd>${esc(promotionPolicy.score_breakdown?.total ?? 0)}</dd><dt>評価理由</dt><dd>${esc(evaluation.technical_interest_summary || "なし")}</dd></dl>${renderPromotionScore(promotionPolicy.score_breakdown)}`, "<p>説明に未記入の項目があっても、技術やサービスの手掛かりがあれば候補になります。</p><p>atproto寄与度は確認できた利用の強さ、技術的価値は独自性や学習価値、紹介スコアは一覧の並び順です。紹介可否の最終判断は利用者が行います。</p>")}
+    ${section("評価と確認範囲", renderEvaluation(evaluation, promotionPolicy), "<p>schemaやrecordの存在は、主機能での利用・独立性・紹介価値を保証しません。サービスの入口確認も、認証後の利用成功とは別です。</p>")}
     ${section("有効な判断", list(overview.active_guards).length ? renderDecisions({active: overview.active_guards, history: []}) : `<p class="muted">有効な判断はありません。</p>`)}
     ${section("サービス・帰属", renderServiceOwnership(serviceOwnership, browserServiceUrls))}
     ${section("マージ候補", `${renderExplicitMergePairForm({source: project.project_key, sourceFixed: true})}<div id="merge-analysis-content"><p class="muted">マージ候補を計算中…</p></div>`)}
@@ -1752,7 +1761,7 @@ function renderDetail(data) {
       ${contextualBackButton()}
       <p class="eyebrow project-key">${esc(project.project_key)}</p>
       <h2>${esc(project.name || project.project_key)}</h2>
-      <div class="meta-row">${pill(project.tracking_state)}${pill(project.service_status)}${project.introduced_url ? pill("introduced", "confirmed") : ""}</div>
+      <div class="meta-row">${pill(project.tracking_state)}${serviceStatusPill(project.service_status)}${project.introduced_url ? pill("introduced", "confirmed") : ""}</div>
       <div class="actions"><select id="tracking-state" aria-label="追跡状態">${(state.server?.tracking_states || []).map((value) => `<option value="${esc(value)}" ${value === project.tracking_state ? "selected" : ""}>${esc(displayLabel(value))}</option>`).join("")}</select><button id="save-tracking">追跡状態を変更</button><button id="add-project-seed">識別子を追加</button><button id="enrich-project" class="primary">調査</button><span id="merge-analysis-action"></span></div>
       ${promotionActions}
       <div class="operator-feedback">
@@ -1987,6 +1996,8 @@ function renderDecisions(decisions) {
   const current = active.length ? active.map((item) => {
     const summary = item.kind === "lower_promotion_priority"
       ? `${pill("紹介候補の優先度", "candidate")} 低い優先度`
+      : item.kind === "assess_atproto_usage"
+      ? `${pill("atproto利用と用途の判断", "candidate")} ${esc(item.target_value === "bluesky_client" ? "旧Bluesky向け用途（利用範囲は未判断）" : `${atprotoUsageLabels[item.target_value] || item.target_value} / ${atprotoFocusLabels[item.metadata?.focus || "auto"] || "用途は不明"}`)}`
       : `${pill(item.kind, "candidate")} ${esc(displayLabel(item.target_type))} ${esc(item.target_value)}`;
     return `<div class="decision"><div>${summary}</div><div class="muted">${esc(decisionNote(item))} ${item.expires_at ? `· 期限 ${esc(formatTimestamp(item.expires_at))}` : ""}</div><div class="actions">${item.kind === "block_identifier" ? actionButton("除外を解除", "clear-block-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_identifier" ? actionButton("保留を解除", "clear-defer-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_promotion" ? actionButton("保留を解除", "clear-promotion-deferral") : ""}${item.kind === "lower_promotion_priority" ? actionButton("通常の優先度へ戻す", "clear-promotion-priority") : ""}${item.kind === "separate_project" ? actionButton("別プロジェクト指定を解除", "clear-separate", {other:item.target_value}) : ""}${["dismiss_review_target", "defer_review_target"].includes(item.kind) ? actionButton("解除", "clear-review-target", {"target-type":item.target_type, "target-value":item.target_value, "review-action":item.kind.startsWith("defer") ? "defer" : "dismiss"}) : ""}</div></div>`;
   }).join("") : `<p class="muted">有効な判断はありません。</p>`;
@@ -2069,7 +2080,7 @@ function renderServiceOwnership(data, serviceUrls = []) {
   const browserControls = targets.length
     ? `<div class="controls"><label>匿名ブラウザーでの確認対象<select id="browser-service-url">${targets.map((url) => `<option value="${esc(url)}">${esc(url)}</option>`).join("")}</select></label><button id="verify-service-browser" class="primary">匿名ブラウザーで確認</button></div>`
     : `<p class="muted">ブラウザー確認の対象URLなし</p>`;
-  return `<dl class="kv"><dt>保存済みサービス観測</dt><dd>${pill(data.current_service_status)} ${esc(displayLabel(data.current_service_status_confidence || "none"))}</dd><dt>確認履歴</dt><dd>${esc(displayLabel(data.service_verification_status || "not_observed"))}</dd><dt>帰属の根拠</dt><dd>${esc(displayLabel(data.ownership_signal || "unknown"))}</dd><dt>OAuthメタデータ</dt><dd>${esc(displayLabel(data.oauth_status || "not_observed"))}</dd><dt>URLの別名</dt><dd>${esc(displayLabel(data.url_alias_status || "not_observed"))}</dd></dl>${browserControls}
+  return `<dl class="kv"><dt>帰属の根拠</dt><dd>${esc(displayLabel(data.ownership_signal || "unknown"))}</dd><dt>OAuthメタデータ</dt><dd>${esc(displayLabel(data.oauth_status || "not_observed"))}</dd><dt>URLの別名</dt><dd>${esc(displayLabel(data.url_alias_status || "not_observed"))}</dd></dl>${browserControls}
     ${service.length ? `<details><summary>サービス確認の比較 (${service.length})</summary>${service.map((item) => `<div class="collector">${pill(item.status, item.status)} ${item.application_status === "unapplied" ? pill("未反映（競合）", "candidate") : ""} ${esc(formatTimestamp(item.completed_at))} · ${esc(displayLabel(item.source))}</div>`).join("")}</details>` : ""}
     ${ownership.length ? `<details><summary>NSIDの帰属 (${ownership.length})</summary>${ownership.map((item) => `<div class="relation ${esc(item.classification)}"><strong>${esc(item.nsid)}</strong> ${pill(item.classification, item.classification)}<div class="muted">${esc(displayLabel(item.evidence_status))} · ${esc(item.evidence.map((entry) => `${displayLabel(entry.predicate)}: ${displayLabel(entry.source)}`).join(", ") || "保存済みの帰属関係なし")}</div></div>`).join("")}</details>` : ""}
     ${clients.length ? `<details><summary>OAuth scope の宣言 (${clients.length})</summary><p class="muted">要求権限（許可・実利用・所有は未確認）</p>${clients.map(renderOAuthClient).join("")}</details>` : ""}
@@ -2079,7 +2090,7 @@ function renderServiceOwnership(data, serviceUrls = []) {
 }
 
 function renderExplanation(topic, item) {
-  return `<div data-explain-topic="${esc(topic)}"><details><summary>${esc(displayLabel(topic))}: ${esc(displayLabel(item.conclusion))}</summary><dl class="kv"><dt>判定規則</dt><dd>${esc(displayLabel(item.rule))}</dd><dt>支持する根拠</dt><dd>${list(item.supporting_signals).map((value) => pill(value, "confirmed")).join(" ") || "観測なし"}</dd><dt>反する根拠</dt><dd>${list(item.counter_signals).map((value) => pill(value, "candidate")).join(" ") || "観測なし"}</dd></dl>${item.sources?.length ? json(item.sources) : ""}</details></div>`;
+  return `<div data-explain-topic="${esc(topic)}"><details><summary>${esc(displayLabel(topic))}: ${esc(topic === "service_status" ? (serviceStatusLabels[item.conclusion] || displayLabel(item.conclusion)) : displayLabel(item.conclusion))}</summary><dl class="kv"><dt>判定規則</dt><dd>${esc(displayLabel(item.rule))}</dd><dt>支持する根拠</dt><dd>${list(item.supporting_signals).map((value) => pill(value, "confirmed")).join(" ") || "観測なし"}</dd><dt>反する根拠</dt><dd>${list(item.counter_signals).map((value) => pill(value, "candidate")).join(" ") || "観測なし"}</dd></dl>${item.sources?.length ? json(item.sources) : ""}</details></div>`;
 }
 
 function renderExplanations(topics) {
@@ -2390,11 +2401,11 @@ function bindDetailActions(projectKey) {
   $("save-atproto-usage")?.addEventListener("click", () => {
     const reason = $("atproto-usage-reason").value.trim();
     if (!reason) { status("判断根拠を入力してください。", true); return; }
-    confirmMutation("利用範囲の判断を保存", "この判断を推薦に反映します。サービスの稼働状態、技術的価値、候補の優先度は変えません。",
+    confirmMutation("利用範囲の判断を保存", "利用範囲と根拠を補足の注記として保存します。紹介候補の順位は変更しません。",
       `/api/projects/${encodeURIComponent(projectKey)}/atproto-usage`, {role:$("atproto-usage-role").value, reason}, false);
   });
   $("clear-atproto-usage")?.addEventListener("click", () => confirmMutation(
-    "手動判断を解除", "利用範囲を未評価へ戻します。解除した判断は履歴に残ります。",
+    "手動判断を解除", "利用範囲の注記を未評価へ戻します。解除した判断は履歴に残ります。",
     `/api/projects/${encodeURIComponent(projectKey)}/atproto-usage`, {clear:true}, false));
   document.querySelectorAll("[data-action]").forEach((button) => button.onclick = () => {
     const action = button.dataset.action;
@@ -2515,10 +2526,10 @@ async function loadMergeDetail(source, target, options = {}) {
     ]);
     const snapshot = (project, side) => {
       const identifiers = list(project.identifiers);
-      return `<article class="merge-project"><div class="card-title"><strong>${esc(project.name || project.project_key)}</strong>${pill(project.tracking_state)}</div><div class="muted">${esc(project.project_key)}</div><dl class="kv"><dt>公式サイト</dt><dd>${project.website_url ? link(project.website_url) : "なし"}</dd><dt>状態</dt><dd>${pill(project.service_status)} ${pill(project.atproto_contribution_level)}</dd>${projectTimestampRows(project)}</dl><div class="merge-identifiers"><strong>採用済み識別子</strong>${mergeIdentifierRows(identifiers, "confirmed", matchedValues)}<strong>候補</strong>${mergeIdentifierRows(identifiers, "candidate", matchedValues)}</div><button class="small" data-merge-view="${esc(side)}">詳細を開く</button></article>`;
+      return `<article class="merge-project"><div class="card-title"><strong>${esc(project.name || project.project_key)}</strong>${pill(project.tracking_state)}</div><div class="muted">${esc(project.project_key)}</div><dl class="kv"><dt>公式サイト</dt><dd>${project.website_url ? link(project.website_url) : "なし"}</dd><dt>状態</dt><dd>${serviceStatusPill(project.service_status)}</dd>${projectTimestampRows(project)}</dl><div class="merge-identifiers"><strong>採用済み識別子</strong>${mergeIdentifierRows(identifiers, "confirmed", matchedValues)}<strong>候補</strong>${mergeIdentifierRows(identifiers, "candidate", matchedValues)}</div><button class="small" data-merge-view="${esc(side)}">詳細を開く</button></article>`;
     };
     const mergeActions = `<div class="actions"><button id="skip-review-item" class="secondary">次へ</button><button id="mark-separate">別プロジェクトとして保持</button><button id="execute-merge" class="danger">プロジェクトをマージ</button></div>`;
-    $("detail").innerHTML = `${backToListButton()}${contextualBackButton()}<p class="eyebrow">マージ候補の比較</p><h2>${esc(data.source?.name || source)} → ${esc(data.target?.name || target)}</h2><div class="actions"><button id="reverse-merge-direction" class="secondary">マージ元とマージ先を入れ替える</button></div><details><summary>マージの向きと残す情報</summary><p>マージ先のIDを残し、元のIDはその別名になります。両方に紹介URLや低優先度の判断がある場合はマージ先を優先します。</p><p>名前・概要・説明・公式サイトは、確認済みサービスなど編集情報の充実度で選び、同点ならマージ先を優先します。Lexiconの断片情報でサービス本体の説明を上書きしないためです。向きを入れ替えたら、下のプレビューで結果を確認してください。</p></details><div class="merge-comparison">${snapshot(data.source, "source")}${snapshot(data.target, "target")}</div>${renderMergeIdentifierMatches(data.source_pair_candidate?.identifier_matches, "マージ元", "マージ先")}${data.merge_blocked ? `<p class="notice">別プロジェクト指定によりマージが制限されています。</p>` : ""}<details class="detail-section"><summary>候補と判断された理由</summary><dl class="kv"><dt>マージの制限</dt><dd>${data.merge_blocked ? pill("blocked", "failed") : "別プロジェクト指定なし"}</dd><dt>厳密な一致</dt><dd>${json(data.strict_overlap || {})}</dd><dt>標準条件での一致</dt><dd>${json(data.moderate_overlap || {})}</dd><dt>マージ元の判定材料</dt><dd>${json(data.source_pair_candidate || {})}</dd><dt>マージ先の判定材料</dt><dd>${json(data.target_pair_candidate || {})}</dd></dl></details>${renderMultiTenantSuffixSuggestions(data.suggested_multi_tenant_suffixes)}${section("発行者DIDの一致", renderMergeDidComparison(data), `<p>Lexiconの発行者と、観測順の先頭に返るrecord発行者を比較します。このrecord発行者がLexicon開発者であることを期待し、一致を同一プロジェクトの手掛かりにします。</p><p>観測順は${externalLink("https://github.com/bluesky-social/indigo/blob/3beb6e491b793834f6c66aed9963a255f56f1b6b/cmd/collectiondir/pebble.go#L330-L364", "collectiondirの公開実装")}に基づきます。「—」は未照会です。</p>`)}${section("マージ結果のプレビュー", `<dl class="kv"><dt>残すID</dt><dd>${esc(data.merged_preview?.target_project_key || "")}</dd><dt>名前</dt><dd>${esc(data.merged_preview?.merged_name || "")}</dd><dt>概要</dt><dd>${esc(data.merged_preview?.merged_tagline || "なし")}</dd><dt>説明</dt><dd>${esc(data.merged_preview?.merged_summary || "なし")}</dd><dt>紹介投稿</dt><dd>${link(data.merged_preview?.introduced_url || "") || "なし"}</dd><dt>紹介候補の優先度</dt><dd>${data.merged_preview?.merged_promotion_priority ? `低い優先度：${esc(data.merged_preview.merged_promotion_priority.reason)}` : "通常"}</dd><dt>公式サイト</dt><dd>${link(data.merged_preview?.merged_website_url || "")}</dd><dt>サービス状態</dt><dd>${pill(data.merged_preview?.merged_service_status || "unknown")}</dd><dt>リポジトリ</dt><dd>${list(data.merged_preview?.merged_project_repository_urls).map(link).join("<br>") || "なし"}</dd><dt>サービス</dt><dd>${list(data.merged_preview?.merged_service_urls).map(link).join("<br>") || "なし"}</dd></dl>`)}${mergeActions}<div class="detail-footer">${backToListButton()}${contextualBackButton()}</div>`;
+    $("detail").innerHTML = `${backToListButton()}${contextualBackButton()}<p class="eyebrow">マージ候補の比較</p><h2>${esc(data.source?.name || source)} → ${esc(data.target?.name || target)}</h2><div class="actions"><button id="reverse-merge-direction" class="secondary">マージ元とマージ先を入れ替える</button></div><details><summary>マージの向きと残す情報</summary><p>マージ先のIDを残し、元のIDはその別名になります。両方に紹介URLや低優先度の判断がある場合はマージ先を優先します。</p><p>名前・概要・説明・公式サイトは、確認済みサービスなど編集情報の充実度で選び、同点ならマージ先を優先します。Lexiconの断片情報でサービス本体の説明を上書きしないためです。向きを入れ替えたら、下のプレビューで結果を確認してください。</p></details><div class="merge-comparison">${snapshot(data.source, "source")}${snapshot(data.target, "target")}</div>${renderMergeIdentifierMatches(data.source_pair_candidate?.identifier_matches, "マージ元", "マージ先")}${data.merge_blocked ? `<p class="notice">別プロジェクト指定によりマージが制限されています。</p>` : ""}<details class="detail-section"><summary>候補と判断された理由</summary><dl class="kv"><dt>マージの制限</dt><dd>${data.merge_blocked ? pill("blocked", "failed") : "別プロジェクト指定なし"}</dd><dt>厳密な一致</dt><dd>${json(data.strict_overlap || {})}</dd><dt>標準条件での一致</dt><dd>${json(data.moderate_overlap || {})}</dd><dt>マージ元の判定材料</dt><dd>${json(data.source_pair_candidate || {})}</dd><dt>マージ先の判定材料</dt><dd>${json(data.target_pair_candidate || {})}</dd></dl></details>${renderMultiTenantSuffixSuggestions(data.suggested_multi_tenant_suffixes)}${section("発行者DIDの一致", renderMergeDidComparison(data), `<p>Lexiconの発行者と、観測順の先頭に返るrecord発行者を比較します。このrecord発行者がLexicon開発者であることを期待し、一致を同一プロジェクトの手掛かりにします。</p><p>観測順は${externalLink("https://github.com/bluesky-social/indigo/blob/3beb6e491b793834f6c66aed9963a255f56f1b6b/cmd/collectiondir/pebble.go#L330-L364", "collectiondirの公開実装")}に基づきます。「—」は未照会です。</p>`)}${section("マージ結果のプレビュー", `<dl class="kv"><dt>残すID</dt><dd>${esc(data.merged_preview?.target_project_key || "")}</dd><dt>名前</dt><dd>${esc(data.merged_preview?.merged_name || "")}</dd><dt>概要</dt><dd>${esc(data.merged_preview?.merged_tagline || "なし")}</dd><dt>説明</dt><dd>${esc(data.merged_preview?.merged_summary || "なし")}</dd><dt>紹介投稿</dt><dd>${link(data.merged_preview?.introduced_url || "") || "なし"}</dd><dt>紹介候補の優先度</dt><dd>${data.merged_preview?.merged_promotion_priority ? `低い優先度：${esc(data.merged_preview.merged_promotion_priority.reason)}` : "通常"}</dd><dt>公式サイト</dt><dd>${link(data.merged_preview?.merged_website_url || "")}</dd><dt>サービス状態</dt><dd>${serviceStatusPill(data.merged_preview?.merged_service_status || "unknown")}</dd><dt>リポジトリ</dt><dd>${list(data.merged_preview?.merged_project_repository_urls).map(link).join("<br>") || "なし"}</dd><dt>サービス</dt><dd>${list(data.merged_preview?.merged_service_urls).map(link).join("<br>") || "なし"}</dd></dl>`)}${mergeActions}<div class="detail-footer">${backToListButton()}${contextualBackButton()}</div>`;
     bindBackToListButtons();
     document.querySelectorAll("[data-merge-view]").forEach((button) => button.onclick = () => loadDetail(button.dataset.mergeView === "source" ? source : target, {backTarget: {type: "merge", source, target, previous: state.detailBackTarget}}));
     document.querySelectorAll("[data-add-multi-tenant-suffix]").forEach((button) => button.onclick = () => addMultiTenantSuffix(button.dataset.addMultiTenantSuffix, source, target));

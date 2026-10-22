@@ -735,6 +735,7 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
         if action == "atproto-usage":
             return decisions.set_atproto_usage(
                 conn, project_key=project_key, role=str(payload.get("role") or "unknown"),
+                focus=str(payload.get("focus") or "auto"),
                 reason=str(payload.get("reason") or ""), clear=bool(payload.get("clear")),
             )
         if action == "dismiss-description-proposal":

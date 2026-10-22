@@ -63,7 +63,7 @@ def _print_project(project: dict[str, object]) -> None:
     print(f"  website={project.get('website_url') or '-'}")
     print(f"  website_candidates={', '.join(project.get('service_url_candidates', [])) or '-'}")
     print(f"  service_status={project.get('service_status') or '-'}")
-    print(f"  atproto_contribution={project.get('atproto_contribution_level') or 'unknown'} score={int(project.get('atproto_contribution_score', 0) or 0)}")
+    print(f"  atproto_evidence={project.get('atproto_contribution_level') or 'unknown'} (observation group, not usage depth)")
     print(f"  introduced={bool(project.get('introduced_url'))} introduced_url={project.get('introduced_url') or '-'}")
     print(f"  github={', '.join(project_record.provider_repo_url_values(project, 'github')) or '-'}")
     print(f"  source_code={', '.join(project.get('project_repository_urls', [])) or '-'}")

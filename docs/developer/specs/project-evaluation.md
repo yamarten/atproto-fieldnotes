@@ -5,13 +5,13 @@
 | 判断 | 答える問い | 主な結果 |
 | --- | --- | --- |
 | 説明・分類 | 何をするprojectか | 名前、紹介文、category |
-| 稼働・寄与度 | 利用できる状態か、atprotoに何を提供するか | service status、atproto寄与度 |
+| 公開・観測・利用 | 公開条件、確認できた範囲、atprotoが担う役割 | service status、観測事実、利用範囲と用途 |
 | 紹介候補 | 紹介の前提が揃っているか、どれを先に確認するか | 紹介候補一覧、順位・保留 |
 | 追跡 | 今後も調査を続けるか、どの頻度で扱うか | tracking state、再調査対象 |
 
-説明等に不足があってもservice・Lexicon公開・技術面のsignalから候補に載せ、次に確認する対象として提示します。serviceがliveであることや情報が揃っていることだけで、紹介可否を確定しません。LLMは説明・分類の補助に使い、観測に基づく稼働判定とoperatorの判断を優先します。resourceをそのprojectに属するものとして採用する判断は、これらの評価と別の[帰属・採用規則](project-boundaries.md)です。
+通常候補はserviceまたは採用済みLexiconの根拠から選び、技術面から探す入口は別に設けます。説明が未記入でも候補になり、serviceがliveであることや情報が揃っていることだけで紹介可否を確定しません。LLMは説明・分類の補助に使い、観測に基づく稼働判定とoperatorの判断を優先します。resourceの採用は別の[帰属・採用規則](project-boundaries.md)です。
 
-以下では説明の更新、稼働・寄与度、紹介候補、追跡の順に、各判断の細則を示します。
+以下では説明の更新、公開・観測・利用、紹介候補、追跡の順に、各判断の細則を示します。
 
 ## 説明と分類
 
@@ -126,9 +126,11 @@ category値の意味は[Category](project-record.md#category)を正本としま�
 
 技術的な学習価値は、実用性や紹介準備とは別軸で `technical_interest_*` に保持します。LLM は evidence に基づいて `none / notable / high / exceptional` を暫定評価し、理由を enum と短い説明で残します。`promotion-queue` の `technical_insight_candidate` は `high` / `exceptional` だけを対象にします。`notable` は将来の再評価材料として保存しますが、推薦 signal にはしません。
 
-serviceの利用可否も独立軸として扱います。`category=project / infra_tool`かつ`service_status=live / beta / invite_only`でURLを持つもののうち、confidenceがmedium以上でlogin、app shell、browser到達、検証済みauthority surfaceなどを確認した候補は`service_surface_confirmed`とします。これはservice軸のevidenceであり、中核機能や編集上の紹介可否まで保証しません。`library`はdocs URL等をserviceと誤認しないよう、このsignalの対象に含めません。
+サービスの公開条件と確認範囲を分けます。`category=project / infra_tool`でサービスURLを持ち、`live / beta / invite_only`かつログイン入口または公開閲覧画面の根拠がある候補は`service_surface_confirmed`です。名前のconfirmedは入口の観測を意味し、認証後の利用成功は保証しません。`library`はdocs URLをserviceと誤認しないよう対象外です。
 
-`unverified`、HTTP 200だけ、docs / landing pageだけ、またはevidenceに矛盾がある候補も自動除外せず、`service_candidate_needs_validation`として約100点下の優先度で残します。backend障害とlanding-onlyは静的probeだけで安定して分けられないため、候補提示後のoperator reviewで扱います。これらのservice signalはatproto寄与度や`technical_insight_candidate`と独立です。
+`unverified / none`、HTTP 200だけ、app shell、authority hostのtitle、beta・招待の案内だけの候補も除外せず、`service_candidate_needs_validation`として残します。入口確認とのscore差は10点で、自動priorityを通常順位に使いません。抽象的なconfidenceでは区別せず、匿名調査で確認した範囲を使います。全件のログインや機能試験は必須にしません。backend障害とlanding-onlyは静的probeだけでは安定して分けられません。
+
+`service_assessment`は保存材料から読む投影で、`publication`（従来の公開状態）、`surface`（`login / public / app_shell / announcement / documentation / unconfirmed / failed / not_observed`）、URL・方法・日時別の`observations`を返します。確認済みサービスURLごとに最新のbase/browser観測を使い、取得失敗を古い入口確認で隠しません。対象観測がない旧データは保存済み評価の根拠を使い、方法を`saved_evaluation`、時刻を未記録と明示します。`usage_tested=false`は利用試験を判定していない意味です。confidenceはcollector・既存レビューの診断材料として保持しますが、利用者向けの確信度表示と紹介scoreの加点には使いません。
 
 理由 enum:
 
@@ -138,7 +140,7 @@ serviceの利用可否も独立軸として扱います。`category=project / in
 - `unusual_architecture`
 - `implementation_reference`
 
-## 稼働状態とatproto寄与度
+## 公開状態とatproto利用
 
 ### Service statusの評価
 
@@ -225,9 +227,9 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 
 要レビュー一覧へ載せた理由はsignalの`details.action_basis`に残します。この絞り込みは`service_status_manual_check`に適用し、`identity_resolution`など他の`manual_review_kind`には適用しません。
 
-### Atproto寄与度
+### Atprotoの観測根拠
 
-`atproto_contribution_level` / `atproto_contribution_score` / `atproto_contribution_evidence` はcategory と独立した derived field です。`ensure_project_shape()` と `save_project()` でrule-based に再計算します。
+NSID・schema・record・利用relationの有無を観測事実として扱います。詳細は件数、検索は代表する観測根拠の種類を表示し、「寄与度」「中核的な利用」の総合評価と点数は表示しません。内部の`atproto_contribution_level / score / evidence`は既存codec・監査で使う派生表現で、`ensure_project_shape()`と`save_project()`で再計算します。scoreは紹介・要レビューの順位に使いません。
 
 - `core` / `90`
   - resolved NSID または lexicon schema sample がある
@@ -241,17 +243,16 @@ LLM の `manual_review_recommended=true` は保存しますが、`manual_review_
 - `unknown` / `0`
   - rule-based evidence が無い
 
-`incidental` は level として予約済みですが、現時点で rule-based に確定する source は未接続です。review queueはこのscoreを使います。紹介候補ではNSID等の観測量を利用範囲の代用にせず、次の独立した評価を使います。
+`incidental`は未接続です。この分類は実際の主機能利用、独立性、紹介価値を表しません。schema定義やrecord数だけを理由に、高い紹介価値や要レビュー優先度を与えません。
 
 ### 主機能でのatproto利用
 
-`atproto_usage`はサービスの利用可能性・確認強度・技術的価値とは別の、理由付き手動判断の投影です。CLI/Webで記録した判断だけを紹介順位へ使い、未記録なら`unknown`です。通常triageに利用範囲の総括を要求せず、LLM出力や以前の自動評価が存在しても順位へ反映しません。
+`atproto_usage`はサービスの利用可能性・確認強度・技術的価値とは別の、理由付き手動注記です。未記録なら`unknown`です。手動・自動の利用範囲判断を紹介順位へ加減点しません。通常triageに利用範囲の総括を要求しません。
 
 | role | 意味 |
 | --- | --- |
 | `main_data` | 主機能のデータ、またはprotocol基盤をatprotoで実装している |
 | `supporting` | 主機能は別にあり、プロフィール等の補助部分だけに利用している根拠がある |
-| `bluesky_client` | 既存Blueskyデータの閲覧・操作・管理を主機能とする |
 | `auth_only` | sign-inだけに利用している |
 | `unknown` | 手動判断が未記録、または根拠不足という手動判断 |
 
@@ -259,7 +260,11 @@ OAuth宣言と関連記述は判断材料です。NSID、DNS確認、login画面
 
 機能説明とcollection定義の意味の近さも、対象アプリが実際にそのcollectionを使う根拠にはしません。限定的な意味対応の実験でも、購読と注釈、表示設定と文書本体を同一視する誤りが残りました。引用の存在・連続一致は意味の正しさを保証せず、意味対応の自動出力を通常調査・順位へ追加していません。同じ話題や保存形式で表現できることを、機能の依存関係や主データの一致と扱いません。
 
-現行のroleは紹介時の手動注記であり、読取り・書込み・削除やBluesky向け用途を個別に表す観測schemaではありません。今後の利用の深さと用途の分離、既存寄与度との統合は未実装です。repo宣言がないことから公開読取りの不存在を推定せず、読取り中心を一段下げる新しい採点規則も導入していません。
+roleは読取り・書込み・削除の操作別観測ではなく、repo宣言がないことから公開読取りの不存在を推定しません。旧`bluesky_client`の履歴は書き換えず、表示時に`role=unknown / focus=bluesky`へ投影し、理由を引き継ぎます。旧形式の`focus`は保存互換の注記で、`auto`を含め自動判別や順位変更を行いません。旧用途判断から利用の深さを補完しません。
+
+### 紹介上の用途の扱い
+
+他サービスへの依存と独立した用途の区別は選定上の関心ですが、Bluesky等の名称や説明文の用途表現から自動の低優先区分へ分類しません。通常候補は以下の配点で相対評価します。依存性そのものを自動判定した結果ではなく、手動の低優先・保留は別の明示操作として維持します。
 
 技術評価は独立し、具体的なprotocol設計・相互運用・再利用できる実装上の学びを`high`以上の対象にします。通常のrecord保存・login・CRUD・言語の珍しさだけでは`notable`を超えません。補助的利用やBlueskyクライアントでも独立した学びがあれば技術候補になります。
 
@@ -269,33 +274,48 @@ OAuth宣言と関連記述は判断材料です。NSID、DNS確認、login画面
 
 ### 説明の未記入項目
 
-説明（`summary`）と概要（`tagline`）の空欄は、詳細・紹介候補一覧に`description_missing`として表示します。表示時の項目確認に留め、情報充足の総合判定・派生status・昇格履歴は保持しません。空欄だけを理由とする高優先度の編集レビュー要求や追加減点も行いません。説明がある場合の既存加点は維持します。
+説明（`summary`）と概要（`tagline`）の空欄は、詳細・紹介候補一覧に`description_missing`として表示します。情報充足の総合判定・派生status・昇格履歴は保持しません。どちらかに空白以外の文字があれば紹介スコアに一度だけ3点を加え、空欄だけで高優先度の編集レビュー要求を出しません。文章の質・正しさを採点するものではありません。
 
-候補の表示可否はservice・Lexicon公開・技術面のsignalと、追跡状態・紹介済み・保留等から判定します。説明が未記入でも候補になれます。識別子の帰属確認、稼働状態の判定、operatorの保留判断はそれぞれの規則を使います。app record出力の適格性は別の[export検査](app-record-export.md)です。
+候補の表示可否は各入口のservice・Lexicon・技術signalと、追跡状態・紹介済み・保留等から判定します。識別子の帰属確認、稼働状態、operatorの保留判断はそれぞれの規則を使います。app record出力の適格性は別の[export検査](app-record-export.md)です。
 
 選定の目的は、現在の内容の価値と、速報性・今後の発展への期待を含む「今紹介する価値」を拾うことです。以下は現行の選出・配点であり、この目的への適合を確認済みとはしません。新規登録順を人が見て補う負担の軽減、実際の登場時期とDB登録時期の区別は[選定の残件](../todo.md#atproto寄与度と紹介候補の順位)です。
 
 ### 紹介候補の表示・順位・保留
 
-`promotion-queue`は通常表示と対話操作（interactive）の両方で、対象project全件からsignalと`promotion_queue_sort_score()`を計算し、`priority_group`、確認済みかどうか、`top_priority`、`sort_score`、`project_key`の順で全体を並べてから`--limit`を適用します。`priority_group=lowered`は通常候補の後ろへ送り、同じgroup内では未確認・再確認対象を確認済みより先にします。品質score自体は確認履歴で増減しません。
+`promotion-queue`の通常候補はserviceまたは採用済みLexiconのsignalを持つ対象です。手動の`priority_group`、`sort_score`降順、`project_key`の順で全体を並べてから`--limit`を適用します。自動signalのpriorityや用途による別区分を並び順に使いません。技術だけを根拠に通常候補へ入れず、技術候補viewでは技術score順を使います。確認履歴は品質scoreを増減しません。
 
 CLIとWebの通常候補は既定で`active`と`stable`を含み、`stalled`を含めません。紹介済み、明示した対象外、保留、低優先度の扱いは追跡状態とは別に評価します。CLIの`--tracking-states`とWeb APIの`tracking_states`で明示した場合は、その指定を使います。
 
-`lexicon_publisher_confirmed`はcategory横断の紹介候補signalです。confirmed `owned_nsid`、`_lexicon.<authority>` DNS委譲を経て取得した`lexicon_resolution_entries`、同じNSIDの`lexicon_schema_samples`が一致した場合だけ成立します。repository内schema、NSID hint、record利用実績だけでは成立しません。priorityは通常7、利用範囲が`supporting / bluesky_client / auth_only`なら5です。scoreの`lexicon_publication`は160です。`reject` / `name_only`は除外し、`personal_tool`は`--include-personal-tools`指定時だけ対象にします。
+採用済みの`owned_nsid:confirmed`があれば`lexicon_definition_confirmed`、うちDNS委譲先からのschema解決を有効な検証記録で確認できるものがあれば代わりに`lexicon_publisher_confirmed`を返します。`reject / name_only`を除きcategory横断で適用し、`personal_tool`は`--include-personal-tools`指定時だけ対象にします。候補NSID、利用・参照NSID、保留・除外中のNSIDは数えません。採用は帰属判断であり、新規登録起点の採用を含め、それ自体を外部解決の証明とは扱いません。
 
-service signalのpriorityは、利用範囲が`main_data`なら画面確認済みlive=9・その他確認済み=8・未確認=6、`unknown`なら確認済み=7・未確認=4、補助的利用・Bluesky操作・認証のみなら確認済み=5・未確認=3です。serviceまたはLexicon公開signalを持つ候補のscoreは`main_data`で+60、限定的な3種類で-120、unknownで0です。旧寄与度による加点は行いません。限定的な利用を理由とする自動Lower priorityや非表示は行いません。説明文のキーワードから派生Blueskyツールを除外していた紹介候補の規則も使いません。
+通常の紹介スコアは次の5成分の合計で、最大96点です。配点枠は軸間の重みを表し、品質合格率ではありません。説明と公式repoの補助点は合わせても6点で、解決済みLexicon3件分、または活動の隣接する期間区分の差に相当します。
 
-`--view technical` / Webの「技術候補」は、eligible・通常優先度・未確認のうち`technical_insight_candidate`を持つ候補を全件から抽出し、技術scoreとproject keyで並べてからlimitを適用します。serviceの有無や確認強度をこの並び順に使いません。閾値は`high / exceptional`と具体的な技術説明を維持し、通常の紹介候補にも同じsignalを表示します。
+| 成分 | 配点 |
+| --- | --- |
+| `lexicon` | 採用済みの異なるNSID数＋うち解決確認数。各1点、合計最大40点 |
+| `service_evidence` | 確認済みsignalのうち、招待制は12点。それ以外は公開画面20点・ログイン入口16点。要確認signalは8点、signalなし0点 |
+| `recent_activity` | 最新活動が3日以内30点、7日以内24点、14日以内18点、30日以内12点、60日以内6点、それ以外・未観測0点 |
+| `description` | summaryかtaglineに記述があれば3点。両方あっても3点 |
+| `repository` | 採用済み公式repoが1件以上あれば3点。候補・手動seedだけ・保留・除外中のrepoは対象外 |
+
+サービスは確認範囲とアクセス条件を一つの成分で扱い、statusを別加点しません。公開画面・ログイン入口は保存済み観測から判定し、betaとliveを同じ条件で評価します。招待制は入口確認済みでも12点に抑え、招待案内だけなら要確認の8点です。認証後の主機能の利用成功や誰でも登録できることまでは証明しません。公式repoの加点は採用済みリンクが調査の入口になることへの補助点で、現在の到達性・build成功・コード品質を保証しません。
+
+解決確認には`collection_trust.verified_publications`の保存済み有効記録を使い、最新の失敗・型変更・publisher変更・catalogの無効化を尊重します。schema本文サンプルの最大12件には依存しません。有効な検証記録がない旧形式・未解決のNSIDにも採用の1点は残し、追加1点を推測で補いません。NSID内のdefs数や同じNSIDの重複は数えません。
+
+活動はrepository更新・collection活動の最新日時を一度だけ使います。collectionの`max`に加え、`recent_count>0`の観測日時も既存の活動根拠です。DB登録日・説明更新日をサービス登場日として加点せず、repoとrecord別の追加点も付けません。未観測を古い活動と断定せず0点とし、180日等の負点は設けません。技術評価、confidence、taglineの暫定フラグ、NSID hint、review状態、利用範囲・用途注記は別加点しません。レビュー推奨は豊富な資料等への追加確認にも使うため、その不存在を準備完了とみなしません。
+
+`--view technical` / Webの「技術候補」は、eligible・通常優先度・未確認のうち`technical_insight_candidate`を持つ候補を全件から抽出し、技術scoreとproject keyで並べてからlimitを適用します。service・Lexiconの有無や通常スコアをこの並び順に使いません。閾値は`high / exceptional`と具体的な技術説明を維持します。通常候補へも載るには、別にserviceか採用済みLexiconの根拠が必要です。技術評価自体は詳細でも確認できます。
 
 promotion policyは次を混ぜずに投影します。
 
 - `candidate_visibility`: `eligible / deferred / excluded`。紹介済み、`out_of_scope / ignore`、activeな`defer_promotion`のようなproject全体の表示可否を表す
-- `service_evidence_group`: `confirmed / needs_validation / not_applicable`。service signalだけの確認度を表し、単独紹介の可否は含めない
+- `service_evidence_group`: `confirmed / needs_validation / not_applicable`。ログイン入口・公開閲覧の観測の有無を表し、機能の利用成功や紹介可否は含めない
+- `service_assessment`: URL・方法・日時と確認範囲
 - `priority_group`: `normal / lowered`。`lowered`はnormalized decisionの明示判断だけから投影し、project名・説明文・service evidenceから自動推定しない。理由メモは任意
-- `score_breakdown`: service、lexicon、technical interest、profile、activityなど既存scoreの加減点を成分別に返し、`total`を従来の`sort_score`として使う
+- `score_breakdown`: 上記5成分と`total / maximum / lexicon_counts / activity_age_days`。`total`を`sort_score`として使う
 - `attention`: 明示した確認記録から`unreviewed / recorded / held / changed / due`を投影する。未記録・判断記録あり・保留中・根拠変化・期限到来を区別する。有用性や実際の未閲覧を表さない
 
-`defer_promotion`はproject全体を期限または根拠変化まで通常の候補表示から外します。一方、serviceの`needs_validation`は候補を消さず、confirmedより100点低いsignalとして残します。
+`defer_promotion`はproject全体を期限または根拠変化まで通常の候補表示から外します。一方、serviceの`needs_validation`は候補を消さず、サービス成分8点のsignalとして残します。
 
 Webの`Promotion`は既定の「確認対象」でeligible・通常優先度の候補を表示します。「技術候補」「保留」「Lowered / 特集候補」「すべて」へ切り替えられ、理由の部分一致検索・同じ理由の件数・ページ送りでlimitより先も回収できます。専用一覧は通常のtracking state範囲外や推薦signalがなくなった保存候補も表示し、元の追跡・表示状態を示します。「すべて」は現行signal候補とこれらの保存候補の集合であり、全登録projectではありません。
 
@@ -315,7 +335,7 @@ Lower priorityは単体で先に扱わない判断であり、同じ理由をま
 
 保留は、見終えた候補や追加情報を待つ候補を通常一覧から一時的に外す可逆的な操作です。CLI・Webとも期限到来、根拠変化、明示解除で通常の選別対象へ戻します。他の除外条件やLower priorityは独立に維持します。例えば55件中先頭50件を保留すると、通常一覧は残る5件となり、50件は保留一覧から回収できます。長期表示だけからの自動減衰は、表示履歴がなく未利用と区別できないため採用しません。無操作では順序が変わらない代わりに、未閲覧の恒久判断を作りません。
 
-fingerprintのversionは`promotion-attention-v1`です。category、service状態・confidence・利用面を示すevidence、atproto寄与度、technical interestのlevel/reasons、lexicon scope、確認済みservice/repository/NSID、resolved NSIDのschema内容、features、summary/tagline/featuresの有無を比較します。集合の順序、取得時刻、activity件数、HTML/README本文hash、summary/taglineの言い換えだけでは復活させません。featuresの文言変更は意味が同じでも再提示し得るため、精密な意味判定ではなく保守的な再確認条件です。未収集の機能変化、これらのfieldへ反映されない変化は検知できず、期限と手動復帰が補います。
+fingerprintのversionは`promotion-attention-v1`です。category、service状態・collectorのconfidence・利用面の根拠、従来の観測根拠分類、technical interestのlevel/reasons、lexicon scope、確認済みservice/repository/NSID、resolved NSIDのschema内容、features、summary/tagline/featuresの有無を比較します。利用範囲・旧形式focusの手動注記の変更も再確認の契機にします。通常の候補は以前のfingerprintを維持し、一律の保留解除をしません。集合の順序、取得時刻、activity件数、HTML/README本文hash、summary/taglineの言い換えだけでは復活させません。featuresの文言変更は意味が同じでも再提示し得るため、精密な意味判定ではなく保守的な再確認条件です。未収集の機能変化、これらのfieldへ反映されない変化は検知できず、期限と手動復帰が補います。
 
 保存するのは直近の判断材料・操作・累積操作件数であり、過去の順位や表示session全体ではありません。未確認・変化は有用性そのものではなく、既知の無変化候補による占有を避ける条件です。既存の品質signal・scoreを同じ再評価group内で維持します。保存契約は[確認記録](project-record.md#promotionの確認記録)を参照してください。
 

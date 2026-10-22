@@ -109,7 +109,7 @@ class ReviewRuntimeTest(TempRegistryDbTestCase):
         queue = review.review_queue(self.conn)
         self.assertEqual([row['atproto_contribution_score'] for row in queue], [90, 70, 40])
 
-    def test_auth_only_contribution_controls_equal_priority_order(self):
+    def test_auth_only_observation_does_not_change_equal_priority_order(self):
         for key, auth in (('proj:aaaaaaaaaaaa', True), ('proj:bbbbbbbbbbbb', False)):
             project = self.make_project(key, 'service_url', f'https://{key[-12:]}.example')
             project.update(name='Login tool' if auth else 'Collection hint', category='project',
@@ -119,9 +119,9 @@ class ReviewRuntimeTest(TempRegistryDbTestCase):
                 project['input_nsids'] = ['org.example.hint.entry']
             project_record.save_project(self.conn, project)
         queue = review.review_queue(self.conn)
-        self.assertEqual([row['project_key'] for row in queue], ['proj:bbbbbbbbbbbb', 'proj:aaaaaaaaaaaa'])
+        self.assertEqual([row['project_key'] for row in queue], ['proj:aaaaaaaaaaaa', 'proj:bbbbbbbbbbbb'])
         self.assertEqual([(row['atproto_contribution_level'], row['atproto_contribution_score']) for row in queue],
-                         [('optional', 40), ('auth_only', 20)])
+                         [('auth_only', 20), ('optional', 40)])
         self.assertEqual(queue[0]['top_priority'], queue[1]['top_priority'])
 
     def test_publication_change_is_visible_and_dismissal_is_respected_on_next_read(self):

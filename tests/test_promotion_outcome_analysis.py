@@ -19,6 +19,7 @@ class _PromotionOutcomeAnalysisFixtures:
         project = self.make_project(project_key)
         project["introduced_url"] = "https://bsky.app/profile/example.test/post/3example"
         project["category"] = category
+        project['resolved_nsids'] = []  # This fixture tests the service route only.
         project["service_status"] = service_status
         project["website_url"] = website_url
         project["service_urls"] = [website_url] if website_url else []
@@ -106,7 +107,7 @@ class PromotionOutcomeAnalysisUnitTest(_PromotionOutcomeAnalysisFixtures, Projec
             {"service_surface_confirmed": 1},
         )
 
-        personal_tool["service_status"] = "none"
+        personal_tool["service_status"] = "dead"
         no_service_payload = promotion_outcome_analysis.analyze_projects(
             [personal_tool],
             include_personal_tools=True,

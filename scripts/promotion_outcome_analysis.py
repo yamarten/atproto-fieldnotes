@@ -19,7 +19,7 @@ from project_registry_core import project_record
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB_PATH = ROOT / "data" / "survey.db"
-SERVICE_STATUSES = {"live", "beta", "invite_only", "unverified"}
+SERVICE_STATUSES = {"live", "beta", "invite_only", "unverified", "none"}
 SERVICE_CATEGORIES = {"project", "infra_tool"}
 TECHNICAL_CATEGORIES_EXCLUDED = {"reject", "name_only"}
 
@@ -67,27 +67,17 @@ def _service_route(project: dict[str, Any], *, include_personal_tools: bool) -> 
     }
 
 
-def _lexicon_route(project: dict[str, Any]) -> dict[str, Any]:
-    applicable = str(project.get("category") or "") == "lexicon"
+def _lexicon_route(project: dict[str, Any], *, include_personal_tools: bool) -> dict[str, Any]:
+    category = str(project.get("category") or "")
+    applicable = category in project_record.PROJECT_CATEGORY_VALUES - {"reject", "name_only"}
     blockers: list[str] = []
     if applicable:
         if str(project.get("tracking_state") or "active") in {"out_of_scope", "ignore"}:
             blockers.append("tracking_state_ineligible")
-        nsid_hints = project_record.unique_list(
-            [str(item or "") for item in project.get("resolved_nsids", []) if str(item or "").strip()]
-            + [str(item or "") for item in project.get("input_nsids", []) if str(item or "").strip()]
-            + [str(item or "") for item in project.get("recorded_lexicon_namespaces", []) if str(item or "").strip()]
-        )
-        if not nsid_hints:
-            blockers.append("lexicon_nsid_missing")
-        has_reference = bool(
-            project.get("website_url")
-            or project.get("project_repository_urls")
-            or project_review.project_repo_hint_urls(project)
-            or project_record.resource_url_values(project)
-        )
-        if not has_reference:
-            blockers.append("lexicon_reference_missing")
+        if category == 'personal_tool' and not include_personal_tools:
+            blockers.append('personal_tool_disabled')
+        if not project_review.promotion_owned_nsids(project):
+            blockers.append("confirmed_owned_lexicon_missing")
     return {
         "applicable": applicable,
         "blockers": blockers,
@@ -134,7 +124,7 @@ def _primary_no_signal_reason(
     if category in TECHNICAL_CATEGORIES_EXCLUDED:
         return "category_excluded_from_promotion_signals"
     technical_blockers = list(routes["technical"]["blockers"])
-    return technical_blockers[0] if technical_blockers else "technical_signal_absence_unexplained"
+    return technical_blockers[0] if technical_blockers else "technical_only_candidate"
 
 
 def analyze_projects(
@@ -181,6 +171,7 @@ def analyze_projects(
             include_personal_tools=include_personal_tools,
             include_ineligible=True,
         )
+        signals = [signal for signal in signals if signal['kind'] != 'technical_insight_candidate']
         signal_kinds = sorted(str(item.get("kind") or "") for item in signals)
         signal_counts.update(signal_kinds)
         score_breakdown = project_review.promotion_queue_score_breakdown(project, signals) if signals else None
@@ -191,7 +182,7 @@ def analyze_projects(
 
         routes = {
             "service": _service_route(project, include_personal_tools=include_personal_tools),
-            "lexicon": _lexicon_route(project),
+            "lexicon": _lexicon_route(project, include_personal_tools=include_personal_tools),
             "technical": _technical_route(project),
         }
         primary_reason = ""

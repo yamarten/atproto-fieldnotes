@@ -432,7 +432,7 @@ provider別repo一覧とresource URL一覧はcanonical dataからhelperで導出
 - `beta`: beta公開
 - `invite_only`: 招待・waitlist制
 
-`service_status_confidence`は`none | low | medium | high`です。status値と根拠の強さを別に保持します。
+`service_status_confidence`は`none | low | medium | high`です。collectorの分類と既存reviewの診断材料として保持します。利用者向けの総合確信度や紹介順位への加点には使わず、確認範囲は`service_assessment`から表示します。`unknown`は公開条件の材料なし、`unverified`は未確定、`none`は利用画面未検出として読み、service不存在と断定しません。
 
 probe単体では404/410やparkedを`dead`、アクセス制限を`private`に分類する場合がありますが、projectの現行評価ではそれだけで恒久的な終了・非公開を確定せず、`unverified`へ投影します。保存済みscalarは評価・保存するまで変わりません。サービス終了の説明には、終了告知など文面を裏付ける材料を別に必要とします。
 
@@ -559,6 +559,6 @@ service観測から現在の稼働状態を算出する処理では、JSON paylo
 
 ## 主機能でのatproto利用の保存
 
-理由付き手動判断の正本は`project_decisions`の`assess_atproto_usage`で、roleをtarget value、理由をnoteへ保存し、解除・更新時は旧判断をclearedにして履歴を維持します。runtimeの`atproto_usage_decisions`はこの投影でありstate JSONへ保存しません。利用範囲の自動評価は保存契約から外し、LLM出力に同名fieldがあっても判断へ適用しません。新しいtableやschema versionは追加しません。
+理由付き手動注記の正本は`project_decisions`の`assess_atproto_usage`で、roleをtarget value、理由をnote、旧形式のfocusをmetadataへ保存します。解除・更新時は旧判断をclearedにして履歴を維持します。旧rowにfocusがなければautoとし、旧bluesky_clientは履歴を変更せずrole=unknown・focus=blueskyに投影します。focusによる自動分類や順位変更は行いません。runtimeの`atproto_usage_decisions`はこの投影でありstate JSONへ保存しません。LLM出力に同名fieldがあっても判断へ適用せず、新しいtableやschema versionは追加しません。
 
-有効値は手動判断がなければ`unknown`です。マージ時は片側だけの手動判断を保持します。両側で異なるroleの手動判断がある場合はマージを拒否し、先に判断を解消します。利用範囲の変化を紹介候補の再確認fingerprintに含め、理由文だけの変更や評価日時は含めません。未判断のprojectのfingerprintは変更しません。
+有効なroleは手動判断がなければ`unknown`です。マージ時は片側だけの手動注記を保持し、両側でroleまたはfocusが異なる場合はマージを拒否します。注記の変化を再確認fingerprintに含め、理由文だけの変更や評価日時は含めません。未判断projectのfingerprintは維持します。

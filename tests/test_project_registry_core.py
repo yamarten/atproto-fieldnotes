@@ -3257,10 +3257,10 @@ class ProjectRegistryAtprotoContributionTest(unittest.TestCase):
 
         self.assertEqual(result["atproto_contribution_level"], "substantial")
 
-    def test_review_sort_score_prioritizes_protocol_contribution(self) -> None:
+    def test_review_sort_score_does_not_treat_protocol_observations_as_value(self) -> None:
         signals = [{"kind": "llm_manual_review_recommended", "priority": 7}]
 
-        self.assertGreater(
+        self.assertEqual(
             project_review.review_queue_sort_score({"atproto_contribution_score": 90}, signals),
             project_review.review_queue_sort_score({"atproto_contribution_score": 20}, signals),
         )

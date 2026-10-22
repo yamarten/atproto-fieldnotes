@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from project_registry_core import atproto_usage
+from project_registry_core import service_assessment
+from project_registry_core import collection_trust, relations
 from project_registry_core.identity import identifiers as identifier_core
 from project_registry_core import promotion_attention
 from project_registry_core.repositories import repo_urls as repo_url_core
@@ -402,46 +404,22 @@ def compute_review_signals(
     return signals
 
 
-def confirmed_dns_lexicon_publications(project: dict[str, Any]) -> list[dict[str, str]]:
-    confirmed_nsids = {
-        identifier_core.normalize_nsid(str(item or ""))
-        for item in project.get("resolved_nsids", [])
-        if identifier_core.normalize_nsid(str(item or ""))
-    }
-    sampled_nsids = {
-        identifier_core.normalize_nsid(str(item.get("nsid") or ""))
-        for item in project.get("lexicon_schema_samples", [])
-        if isinstance(item, dict) and identifier_core.normalize_nsid(str(item.get("nsid") or ""))
-    }
-    publications: list[dict[str, str]] = []
-    for entry in project_record.normalize_lexicon_resolution_entries(
-        project.get("lexicon_resolution_entries", [])
-    ):
-        nsid = identifier_core.normalize_nsid(str(entry.get("resolved_nsid") or ""))
-        authority_domain = str(entry.get("authority_domain") or "").strip().lower().rstrip(".")
-        repo_did = str(entry.get("repo_did") or "").strip()
-        record_uri = str(entry.get("record_uri") or "").strip()
-        expected_record_uri = f"at://{repo_did}/com.atproto.lexicon.schema/{nsid}"
-        if (
-            not nsid
-            or nsid not in confirmed_nsids
-            or nsid not in sampled_nsids
-            or authority_domain != identifier_core.derive_authority_domain(nsid)
-            or identifier_core.normalize_nsid(str(entry.get("input_nsid") or "")) != nsid
-            or not repo_did
-            or record_uri != expected_record_uri
-        ):
-            continue
-        publications.append(
-            {
-                "nsid": nsid,
-                "authority_domain": authority_domain,
-                "repo_did": repo_did,
-                "record_uri": record_uri,
-                "resolved_at": str(entry.get("resolved_at") or "").strip(),
-            }
-        )
-    return publications
+def confirmed_dns_lexicon_publications(project: dict[str, Any]) -> list[dict[str, Any]]:
+    """Use saved, current verification witnesses, never the 12 body samples."""
+    owned = promotion_owned_nsids(project)
+    return [dict(entry, nsid=nsid) for nsid, entry in
+            sorted(collection_trust.verified_publications(project).items()) if nsid in owned]
+
+
+def promotion_owned_nsids(project: dict[str, Any]) -> set[str]:
+    return {nsid for value in project.get("resolved_nsids", [])
+            if (nsid := identifier_core.normalize_nsid(str(value)))
+            and not relations.identifier_is_guarded(project, "nsid", nsid)}
+
+
+def promotion_lexicon_evidence(project: dict[str, Any]) -> dict[str, int]:
+    return {"owned_count": len(promotion_owned_nsids(project)),
+            "resolved_count": len(confirmed_dns_lexicon_publications(project))}
 
 
 def service_is_derivative_bluesky_tool(project: dict[str, Any]) -> bool:
@@ -757,93 +735,44 @@ def promotion_queue_score_breakdown(
     now: dt.datetime | None = None,
 ) -> dict[str, Any]:
     current_time = now or dt.datetime.now(dt.timezone.utc)
-    components = {
-        "service_evidence": 0,
-        "lexicon_publication": 0,
-        "technical_interest": 0,
-        "service_status": 0,
-        "service_confidence": 0,
-        "profile_completeness": 0,
-        "repository_evidence": 0,
-        "lexicon_evidence": 0,
-        "review_readiness": 0,
-        "atproto_usage": 0,
-        "recent_activity": 0,
-        "recent_collection_activity": 0,
-        "recent_repository_activity": 0,
-    }
+    lexicons = promotion_lexicon_evidence(project)
+    # Explanations and adopted repository links help investigation, but together
+    # must not outweigh more than three resolved definitions (six points).
+    repositories = [url for url in project_record.project_repository_url_values(project)
+                    if not relations.identifier_is_guarded(project, "repo_url", url)]
+    components = {"lexicon": min(40, lexicons["owned_count"] + lexicons["resolved_count"]),
+                  "service_evidence": 0, "recent_activity": 0,
+                  "description": 3 if any(str(project.get(field) or "").strip()
+                                          for field in ("summary", "tagline")) else 0,
+                  "repository": 3 if repositories else 0}
     signal_kinds = {str(item.get("kind") or "") for item in signals}
     if "service_surface_confirmed" in signal_kinds:
-        components["service_evidence"] = 200
+        # An entrance is not proof of successful authenticated use. Invite-only
+        # access remains restricted even if its landing page can be viewed.
+        assessment = service_assessment.projection(project)
+        if assessment["publication"] == "invite_only":
+            components["service_evidence"] = 12
+        elif assessment["surface"] == "public":
+            components["service_evidence"] = 20
+        else:
+            components["service_evidence"] = 16
     elif "service_candidate_needs_validation" in signal_kinds:
-        components["service_evidence"] = 100
-    if "lexicon_publisher_confirmed" in signal_kinds:
-        components["lexicon_publication"] = 160
-    if "technical_insight_candidate" in signal_kinds:
-        components["technical_interest"] = int(project.get("technical_interest_score", 0) or 0)
-
-    service_status = project_record.normalize_service_status(project.get("service_status"))
-    components["service_status"] = {
-        "live": 30,
-        "beta": 20,
-        "invite_only": 15,
-        "unreleased": 10,
-        "unverified": 8,
-        "none": 6,
-        "unknown": 4,
-        "private": 2,
-        "dead": 0,
-    }.get(service_status, 0)
-    components["service_confidence"] = {
-        "high": 12,
-        "medium": 8,
-        "low": 4,
-        "none": 0,
-    }.get(project_record.normalize_service_status_confidence(project.get("service_status_confidence")), 0)
-    if str(project.get("summary") or "").strip():
-        components["profile_completeness"] += 8
-    if str(project.get("tagline") or "").strip():
-        components["profile_completeness"] += 6
-    if str(project.get("tagline") or "").strip() and not bool(project.get("tagline_is_provisional")):
-        components["profile_completeness"] += 3
-    if project_repo_hint_urls(project):
-        components["repository_evidence"] = 6
-    nsid_hints = project_record.unique_list(
-        [str(item or "") for item in project.get("resolved_nsids", []) if str(item or "").strip()]
-        + [str(item or "") for item in project.get("input_nsids", []) if str(item or "").strip()]
-    )
-    if nsid_hints:
-        components["lexicon_evidence"] = min(4, len(nsid_hints))
-    if not bool(project.get("manual_review_recommended")):
-        components["review_readiness"] = 4
-    # Ownership/observation strength is not depth of protocol use.
-    usage_role = atproto_usage.projection(project)["role"]
-    if signal_kinds & {"service_surface_confirmed", "service_candidate_needs_validation", "lexicon_publisher_confirmed"}:
-        components["atproto_usage"] = 60 if usage_role == "main_data" else -120 if usage_role in atproto_usage.LIMITED_ROLES else 0
+        components["service_evidence"] = 8
     latest_activity = project_latest_activity_at(project)
     activity_days = activity_age_days(latest_activity, current_time)
     if activity_days is not None:
         if activity_days <= 3:
-            components["recent_activity"] = 18
+            components["recent_activity"] = 30
         elif activity_days <= 7:
-            components["recent_activity"] = 14
+            components["recent_activity"] = 24
         elif activity_days <= 14:
-            components["recent_activity"] = 10
+            components["recent_activity"] = 18
         elif activity_days <= 30:
-            components["recent_activity"] = 6
+            components["recent_activity"] = 12
         elif activity_days <= 60:
-            components["recent_activity"] = 2
-        elif activity_days >= 180:
-            components["recent_activity"] = -4
-    latest_collection_activity = project_latest_collection_activity_at(project)
-    latest_repo_activity = project_latest_repo_activity_at(project)
-    collection_days = activity_age_days(latest_collection_activity, current_time)
-    repo_days = activity_age_days(latest_repo_activity, current_time)
-    if collection_days is not None and collection_days <= 14:
-        components["recent_collection_activity"] = 3
-    if repo_days is not None and repo_days <= 14:
-        components["recent_repository_activity"] = 3
-    return {"total": sum(components.values()), "components": components}
+            components["recent_activity"] = 6
+    return {"total": sum(components.values()), "components": components,
+            "maximum": 96, "lexicon_counts": lexicons, "activity_age_days": activity_days}
 
 
 def promotion_queue_sort_score(project: dict[str, Any], signals: list[dict[str, Any]]) -> int:
@@ -859,6 +788,7 @@ def promotion_policy_projection(
         "candidate_visibility": promotion_candidate_visibility(project),
         "attention": promotion_attention.projection(project),
         "atproto_usage": atproto_usage.projection(project),
+        "service_assessment": service_assessment.projection(project),
         "active_deferral": active_promotion_deferral(project),
         "service_evidence_group": promotion_service_evidence_group(signals),
         "priority_group": "lowered" if priority_adjustment else "normal",
@@ -869,7 +799,7 @@ def promotion_policy_projection(
 
 def review_queue_sort_score(project: dict[str, Any], signals: list[dict[str, Any]]) -> int:
     top_priority = max([int(item.get("priority", 0) or 0) for item in signals] or [0])
-    return top_priority * 10 + int(project.get("atproto_contribution_score", 0) or 0)
+    return top_priority * 10
 
 
 def compute_showcase_signals(
@@ -903,39 +833,20 @@ def _showcase_signals_from_shaped(
     }
     category = str(shaped.get("category") or "")
 
-    usage_role = atproto_usage.projection(shaped)["role"]
-
     allowed_service_categories = {"project", "infra_tool"}
     if include_personal_tools:
         allowed_service_categories.add("personal_tool")
     if (
         category in allowed_service_categories
-        and service_status in {"live", "beta", "invite_only", "unverified"}
+        and service_status in {"live", "beta", "invite_only", "unverified", "none"}
     ):
         if shaped.get("service_urls"):
-            usable_surface_evidence = {
-                "login_surface_detected",
-                "app_shell_detected",
-                "browser_login_surface_reached",
-                "browser_password_form_detected",
-                "browser_identity_form_detected",
-                "browser_oauth_entry_detected",
-                "browser_public_app_surface_detected",
-                "verified_authority_service_surface",
-                "invite_text_detected",
-                "beta_text_detected",
-            }
-            surface_confirmed = (
-                service_status != "unverified"
-                and service_status_confidence in {"medium", "high"}
-                and bool(service_status_evidence & usable_surface_evidence)
-            )
+            assessment = service_assessment.projection(shaped)
+            surface_confirmed = service_status in {"live", "beta", "invite_only"} and assessment["entrypoint_observed"]
             validation_reasons: list[str] = []
             if service_status == "unverified":
                 validation_reasons.append("service_status_unverified")
-            if service_status_confidence not in {"medium", "high"}:
-                validation_reasons.append("low_service_status_confidence")
-            if not service_status_evidence & usable_surface_evidence:
+            if not assessment["entrypoint_observed"]:
                 validation_reasons.append("usable_surface_unconfirmed")
             signals.append(
                 {
@@ -944,12 +855,7 @@ def _showcase_signals_from_shaped(
                         if surface_confirmed
                         else "service_candidate_needs_validation"
                     ),
-                    "priority": (
-                        ((9 if service_status == "live" else 8) if surface_confirmed else 6)
-                        if usage_role == "main_data"
-                        else (5 if surface_confirmed else 3) if usage_role in atproto_usage.LIMITED_ROLES
-                        else (7 if surface_confirmed else 4)
-                    ),
+                    "priority": 7 if surface_confirmed else 4,
                     "details": {
                         "category": category,
                         "service_status": service_status,
@@ -965,13 +871,15 @@ def _showcase_signals_from_shaped(
     if include_personal_tools:
         allowed_lexicon_categories.add("personal_tool")
     dns_publications = confirmed_dns_lexicon_publications(shaped)
-    if category in allowed_lexicon_categories and dns_publications:
+    owned_nsids = promotion_owned_nsids(shaped)
+    if category in allowed_lexicon_categories and owned_nsids:
         signals.append(
             {
-                "kind": "lexicon_publisher_confirmed",
-                "priority": 5 if usage_role in atproto_usage.LIMITED_ROLES else 7,
+                "kind": "lexicon_publisher_confirmed" if dns_publications else "lexicon_definition_confirmed",
+                "priority": 7,
                 "details": {
                     "publication_count": len(dns_publications),
+                    "owned_count": len(owned_nsids),
                     "publications": dns_publications[:5],
                     "website_url": str(shaped.get("website_url") or ""),
                     "repo_url": project_repo_hint_urls(shaped)[:1],

@@ -167,6 +167,7 @@ def build_parser() -> argparse.ArgumentParser:
         "service_surface_confirmed",
         "service_candidate_needs_validation",
         "lexicon_publisher_confirmed",
+        "lexicon_definition_confirmed",
         "technical_insight_candidate",
     ], help="Restrict to specific promotion signal kinds.")
     promotion_queue_parser.add_argument("--limit", type=int, default=None, help="Maximum number of projects to return. Default: 50, or unlimited when --interactive is set.")
@@ -176,7 +177,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     usage_parser = subparsers.add_parser("set-atproto-usage", help="Set or clear an operator assessment of AT Protocol's role in the main function.")
     usage_parser.add_argument("-p", "--project-key", required=True)
-    usage_parser.add_argument("--role", choices=["main_data", "supporting", "bluesky_client", "auth_only", "unknown"], default="unknown")
+    usage_parser.add_argument("--role", choices=["main_data", "supporting", "auth_only", "unknown"], default="unknown")
+    usage_parser.add_argument("--focus", choices=["auto", "unknown", "bluesky", "independent", "infrastructure"], default="auto", help="Legacy purpose annotation; does not classify or rank candidates.")
     usage_parser.add_argument("--reason", help="Required for an operator assessment.")
     usage_parser.add_argument("--clear", action="store_true", help="Remove the override and use the automatic assessment.")
     usage_parser.set_defaults(func=decision_commands.cmd_set_atproto_usage)

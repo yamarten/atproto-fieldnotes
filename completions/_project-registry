@@ -98,6 +98,7 @@ promotion_kinds=(
   service_surface_confirmed
   service_candidate_needs_validation
   lexicon_publisher_confirmed
+  lexicon_definition_confirmed
   technical_insight_candidate
 )
 
@@ -230,7 +231,8 @@ case "$cmd" in
     _arguments -S \
       '--project-key[Project to assess]:project key:' \
       '-p[Project to assess]:project key:' \
-      '--role[Role of AT Protocol]:role:(main_data supporting bluesky_client auth_only unknown)' \
+      '--role[Role of AT Protocol]:role:(main_data supporting auth_only unknown)' \
+      '--focus[Legacy purpose annotation, without ranking]:focus:(auto unknown bluesky independent infrastructure)' \
       '--reason[Evidence for assessment]:reason:' \
       '--clear[Clear operator override]'
     ;;

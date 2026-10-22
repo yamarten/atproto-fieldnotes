@@ -106,7 +106,7 @@ class PromotionAttentionUnitTest(_PromotionAttentionFixtures, ProjectRecordTestC
         project = self.candidate("proj:technical")
         project.update(technical_interest_level="high", technical_interest_reasons=["novel_design_pattern"],
                        technical_interest_summary="Distinctive protocol design")
-        item = application_review.build_showcase_queue_from_projects([project], kinds={"technical_insight_candidate"})[0]
+        item = application_review.build_showcase_queue_from_projects([project], view='technical', kinds={"technical_insight_candidate"})[0]
         self.assertEqual(item["service_evidence_group"], "not_applicable")
         self.assertEqual(item["score_breakdown"]["components"]["service_evidence"], 0)
 

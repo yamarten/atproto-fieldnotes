@@ -21,9 +21,9 @@ class _DescriptionFixtures:
 
 
 class DescriptionAvailabilityTest(_DescriptionFixtures, ProjectRecordTestCase):
-    def test_missing_description_is_visible_without_a_gate_or_extra_penalty(self):
+    def test_missing_description_only_loses_the_single_availability_bonus(self):
         baseline = review.build_showcase_queue_from_projects([self.profile()], limit=None)[0]
-        for missing, expected_loss in (([], 0), (["summary"], 8), (["tagline"], 9), (["summary", "tagline"], 17)):
+        for missing, expected_loss in (([], 0), (["summary"], 0), (["tagline"], 0), (["summary", "tagline"], 3)):
             with self.subTest(missing=missing):
                 project = self.profile()
                 project.update({field: "" for field in missing})

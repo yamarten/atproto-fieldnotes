@@ -120,10 +120,11 @@ Firefox拡張のポップアップは、`embed=popup`のWeb UIをiframeへ埋め
 | `integration.py` | 観測をprojectへ適用し、query・ログ・失敗を記録。取得済みLexicon schema・record sampleの縮約も担当。共通の正規化・開発者情報・信頼edgeは担当moduleを直接呼び、callbackは採用判断・probe／Lexicon適用に限定 |
 | `project_review.py` | review signal・紹介候補の採点／保留／優先度・追跡状態の提案。DB・registry・applicationには依存しない |
 | `project_merge.py` | 重複候補の比較・推薦・batch計画、未保存recordの合成、authority domainの分割対象識別子。比較集合のDB読出しは可能だが、外部取得・finalize・保存は担当しない |
-| `evaluation.py` | ownership・atproto寄与度・service statusの純粋評価 |
+| `evaluation.py` | ownership・protocol観測根拠の分類・service statusの純粋評価 |
 | `collection_trust.py` / `trust_graph.py` | Lexicon公開応答の検証・限定したcollection信頼policyと共通経路評価。取得・採用・DB保存は分離 |
 | `editorial.py` | 説明と更新案・根拠参照・編集保護。通常triageとWeb編集で共有 |
-| `atproto_usage.py` | 利用範囲の理由付き手動判断・解除・マージ。サービス確認・技術評価から独立 |
+| `atproto_usage.py` | 利用範囲・用途の理由付き手動判断・解除・マージ。サービス確認・技術評価から独立 |
+| `service_assessment.py` | 公開条件と、入口・公開閲覧・案内・失敗等の確認範囲を分ける読取り投影 |
 | `promotion_attention.py` | 候補再確認用snapshotと直近の明示操作。品質scoreや自動閲覧判定は持たない |
 | `triage_reuse.py` | 入力・実行条件・手動判断・期限を照合し、triage成功出力を再利用。他の調査・適用処理は省略しない |
 

@@ -16,12 +16,14 @@ class PromotionSelectionUnitTest(ProjectRecordTestCase):
     def test_operator_references_and_counterexamples_through_normal_queue(self):
         projects = [apply_fixed_assessment(c) for c in cases()]
         queue = application_review.build_showcase_queue_from_projects(projects, limit=None)
-        ranks = {p["project_key"]: i for i, p in enumerate(queue)}
-        for good in ("bluesky", "rolld", "meyasuat", "standard-site", "idiolect"):
-            for limited in ("squire", "skysweeper"):
-                self.assertLess(ranks["fixture:" + good], ranks["fixture:" + limited])
-        self.assertLess(ranks["fixture:schema-only"], ranks["fixture:squire"])
-        self.assertEqual(len(queue), 8)  # Unknown and limited use remain selectable.
+        # Human reference roles are annotations, not an automatic ranking axis.
+        # standard-site has only technical evidence in this constructed corpus.
+        self.assertNotIn('fixture:standard-site',{p['project_key'] for p in queue})
+        self.assertEqual(len(queue), 7)
+        scores=[p['sort_score'] for p in queue]
+        self.assertEqual(scores,sorted(scores,reverse=True))
+        self.assertTrue(all(set(p['score_breakdown']['components'])=={
+            'lexicon','service_evidence','recent_activity','description','repository'} for p in queue))
         technical = application_review.build_showcase_queue_from_projects(projects, view="technical", limit=None)
         self.assertEqual({p["project_key"] for p in technical},
                          {"fixture:bluesky", "fixture:standard-site", "fixture:idiolect"})
@@ -39,7 +41,7 @@ class PromotionSelectionUnitTest(ProjectRecordTestCase):
                 self.assertEqual(atproto_usage.projection(p)["role"], "unknown")
                 self.assertEqual(atproto_usage.projection(p)["source"], "none")
                 queue = application_review.build_showcase_queue_from_projects([p], limit=None)
-                self.assertEqual(queue[0]["score_breakdown"]["components"]["atproto_usage"], 0)
+                self.assertTrue(all('atproto_usage' not in item['score_breakdown']['components'] for item in queue))
                 # A plausible reference can still have the wrong meaning.
                 # Old automatic state must not revive that ranking in read-only views.
                 fingerprint = promotion_attention.projection(p)
@@ -57,7 +59,8 @@ class PromotionSelectionUnitTest(ProjectRecordTestCase):
         p.update(technical_interest_level="high", technical_interest_summary="A concrete reusable protocol mechanism",
                  summary="Bluesky profile viewer analytics dashboard", inspired_by=["Bluesky"])
         self.assertEqual(len(application_review.build_showcase_queue_from_projects([p], view="technical")), 1)
-        self.assertEqual(atproto_usage.projection(p)["role"], "bluesky_client")
+        self.assertEqual(atproto_usage.projection(p)["role"], "unknown")
+        self.assertEqual(atproto_usage.projection(p)["focus"], "bluesky")
 
     def test_merge_conflicting_operator_roles_requires_resolution(self):
         left, right = {}, {}

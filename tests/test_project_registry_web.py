@@ -2068,9 +2068,13 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
                                     payload={"role": "main_data", "reason": ""})
         self.assertEqual(status, 400)
         status, result, _ = self.request(f"/api/projects/{key}/atproto-usage", method="POST",
-                                        payload={"role": "main_data", "reason": "主機能も移行した根拠"})
+                                        payload={"role": "main_data", "focus": "infrastructure", "reason": "主機能も移行した根拠"})
         self.assertEqual(status, 200)
         self.assertEqual(result["detail"]["promotion_policy"]["atproto_usage"]["source"], "operator")
+        self.assertEqual(result["detail"]["promotion_policy"]["atproto_usage"]["focus"], "infrastructure")
+        self.assertNotIn('relevance',result['detail']['promotion_policy'])
+        self.assertIn("surface", result["detail"]["promotion_policy"]["service_assessment"])
+        self.assertIn("protocol_evidence", result["detail"]["evaluation"])
         status, _, _ = self.request(f"/api/projects/{key}/atproto-usage", method="POST",
                                     payload={"clear": True, "expected_revision": revision}, include_revision=False)
         self.assertEqual(status, 409)

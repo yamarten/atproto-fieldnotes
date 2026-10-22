@@ -140,22 +140,23 @@ project-registry --db-path /absolute/path/survey.db enrich --all \
 | `high_information_density` | NSID、schema sample、record sampleが多く、人が見る情報量が大きい。 |
 | `many_identity_candidates` | サービス、リポジトリ、手動シードの候補が多く、同一性の整理が必要。 |
 
-`promotion-queue --kinds`で選べる紹介候補は次の4種類です。
+`promotion-queue --kinds`で選べる根拠は次の5種類です。技術面の根拠は`--view technical`で使います。
 
 | kind | 意味 |
 | --- | --- |
-| `service_surface_confirmed` | 通常は`category=project / infra_tool`で、サービス状態が`live`、`beta`、`invite_only`、確度（`confidence`）が`medium`以上で、ログイン画面やアプリ画面の枠組み（app shell）、ブラウザーでの到達などサービスを利用する画面を確認済み。紹介可否は利用者が判断する。 |
-| `service_candidate_needs_validation` | service URLと稼働statusの候補はあるが、confidenceが低いか稼働面が未確認。上記より低い優先度で残す。 |
-| `lexicon_publisher_confirmed` | confirmed owned NSIDが、authorityの`_lexicon` DNS委譲先にあるmatching schema recordとして取得できた。categoryには依存しない。 |
+| `service_surface_confirmed` | 通常は`category=project / infra_tool`で、サービス状態が`live / beta / invite_only`かつログイン入口または公開閲覧画面を観測。認証後の利用成功と紹介可否は未判定。 |
+| `service_candidate_needs_validation` | サービスURLはあるが入口・公開閲覧は未確認。HTTP 200、app shell、案内だけでは確認済みにせず、候補として残す。 |
+| `lexicon_publisher_confirmed` | 採用済みの所有NSIDのうち、DNS委譲先からの解決を保存済みの有効な検証記録で確認できるものがある。 |
+| `lexicon_definition_confirmed` | 採用済みの所有NSIDがあり、解決の有効な検証記録はない。候補NSIDや利用・参照NSIDは含めない。 |
 | `technical_insight_candidate` | 設計・相互運用・参照実装を学ぶうえで特に見る価値がある。 |
 
-`category=personal_tool`は既定ではサービスとLexicon発行の紹介候補から除外し、`--include-personal-tools`で含めます。Lexicon発行はNSID hintやrepository内schemaだけでは成立せず、通常enrichでDNS委譲とschema record取得に成功した観測を必要とします。紹介保留は期限後または保存した判断材料の変化で一覧へ戻り、履歴は残ります。判断時の根拠情報がない古い保留だけは期限で復帰します。`defer-promotion`の理由は任意、日数省略時は履歴や登録時期によらず30日です。`--days`で期間を指定し、`--clear`で解除できます。旧「確認済み」も保留へ統合し、CLI・Webとも通常候補から一時的に外します。`--view`は`queue`（既定）、`inbox`、`technical`、`waiting`（保留）、`lowered`、`all`を選べます。理由検索はWebの紹介候補一覧を使います。
+`category=personal_tool`は既定ではサービスとLexiconの紹介候補から除外し、`--include-personal-tools`で含めます。Lexiconは採用1件1点と、うち解決確認済みの追加1点で最大40点です。サービスは公開画面20点・ログイン入口16点・入口確認済みの招待制12点・要確認8点、最近の活動は最大30点、説明と採用済み公式repoは各3点です。手動の優先度の後はこの合計とproject keyで並べます。紹介保留は期限後または保存した判断材料の変化で一覧へ戻り、履歴は残ります。`defer-promotion`の理由は任意、日数省略時は履歴や登録時期によらず30日です。`--days`で期間を指定し、`--clear`で解除できます。旧「確認済み」も保留へ統合し、CLI・Webとも通常候補から一時的に外します。`--view`は`queue`（既定）、`inbox`、`technical`、`waiting`（保留）、`lowered`、`all`を選べます。理由検索はWebの紹介候補一覧を使います。
 
 通常の`promotion-queue`は追跡状態`active / stable`を対象にし、`stalled`は含めません。`--tracking-states`で明示した時は指定した状態だけを対象にします。紹介済みや保留中などの候補は、追跡状態が対象でも通常一覧には戻りません。
 
 CLI既定の`--view queue`では低優先度も通常候補の後ろに含めます。Web既定の「確認対象」と同じく低優先度を外して確認するには`--view inbox`、低優先度だけを探すには`--view lowered`を指定します。
 
-技術面から選ぶ場合は`promotion-queue --view technical`を使います。具体的な技術的価値が`high / exceptional`と評価された未確認候補を、サービスの確認度と独立して並べます。通常一覧にも同じ技術候補が含まれます。
+技術面から選ぶ場合は`promotion-queue --view technical`を使います。具体的な技術的価値が`high / exceptional`と評価された候補を、サービスの確認度と独立して並べます。通常候補へ載るには別にサービスか採用済みLexiconの根拠が必要で、技術評価による通常候補の優先・加点は行いません。
 
 主機能でのatproto利用を判断するときは、根拠を添えて保存します。再調査は手動判断を上書きせず、解除すると未評価へ戻ります。LLMによる利用範囲の自動確定は行いません。Lower priorityは個別の編集判断として別に維持されます。
 
@@ -164,7 +165,7 @@ bin/project-registry set-atproto-usage -p PROJECT_KEY --role supporting --reason
 bin/project-registry set-atproto-usage -p PROJECT_KEY --clear
 ```
 
-`--role`は`main_data / supporting / bluesky_client / auth_only / unknown`です。補正はDBへ書き込みます。定義は[利用ガイド](guide.md#基本用語)を参照してください。
+`--role`は`main_data / supporting / auth_only / unknown`です。根拠とともにDBへ注記を書き込みますが、紹介スコアや順位は変更しません。旧形式互換の`--focus auto / unknown / bluesky / independent / infrastructure`も注記として保持し、`auto`を含め自動分類を行いません。定義は[利用ガイド](guide.md#基本用語)を参照してください。
 
 ## インポートと外部情報の取り込み
 

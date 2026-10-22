@@ -426,6 +426,7 @@ def showcase_queue_suggested_commands(project: dict[str, Any], signals: list[dic
         "service_surface_confirmed",
         "service_candidate_needs_validation",
         "lexicon_publisher_confirmed",
+        "lexicon_definition_confirmed",
     }:
         commands.append(f"{command_prefix} enrich -p {project_key} --deep-investigation")
     return project_record.unique_list(commands)
@@ -456,6 +457,8 @@ def _showcase_queue_from_shaped(
     for project in projects:
         shaped = dict(project)
         signals = project_review._showcase_signals_from_shaped(shaped, include_personal_tools=include_personal_tools, include_ineligible=True)
+        if view != "technical":
+            signals = [signal for signal in signals if signal["kind"] != "technical_insight_candidate"]
         if kinds is not None:
             signals = [item for item in signals if str(item.get("kind") or "") in kinds]
         policy = project_review.promotion_policy_projection(shaped, signals)
@@ -516,7 +519,7 @@ def _showcase_queue_from_shaped(
         )
     queue.sort(key=lambda item: (
         1 if item.get("priority_group") == "lowered" else 0,
-        -int(item.get("technical_interest_score", 0) if view == "technical" else item.get("top_priority", 0) or 0),
+        -int(item.get("technical_interest_score", 0) if view == "technical" else 0),
         0 if view == "technical" else -int(item.get("sort_score", 0) or 0),
         str(item.get("project_key") or ""),
     ))

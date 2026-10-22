@@ -17,6 +17,7 @@ def cmd_set_atproto_usage(args: argparse.Namespace) -> int:
     try:
         return _print(services.set_atproto_usage(
             conn, project_key=args.project_key, role=args.role,
+            focus=args.focus,
             reason=args.reason or "", clear=args.clear,
         ))
     finally:

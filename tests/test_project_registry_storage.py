@@ -14,7 +14,7 @@ from project_registry_core.commands import maintenance as maintenance_commands
 from project_registry_core.maintenance import registry_audit
 from project_registry_core.maintenance import source_config
 
-from project_registry_core import project_review
+from project_registry_core import project_review, collection_trust
 from project_registry_core.application import review as application_review
 
 from project_registry_core import project_merge
@@ -374,7 +374,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
 
         self.assertEqual(project_review.compute_showcase_signals(project), [])
 
-    def test_dns_verified_lexicon_publisher_is_high_priority_promotion_candidate(self) -> None:
+    def test_dns_verified_lexicon_has_definition_and_resolution_points(self) -> None:
         project = self.make_project("proj:lexiconpublisher", "nsid", "app.example.post")
         project.update({
             "category": "project",
@@ -388,6 +388,8 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
                 "pds_url": "https://pds.example",
                 "record_uri": "at://did:plc:publisher/com.atproto.lexicon.schema/app.example.post",
                 "resolved_at": "2026-08-28T00:00:00+00:00",
+                "publication_validation": {"version": collection_trust.VALIDATION_VERSION,
+                    "schema_id": "app.example.post", "schema_type": "record", "schema_hash": "fixture-hash"},
             }],
         })
 
@@ -397,11 +399,11 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
         self.assertEqual(signals[0]["priority"], 7)
         self.assertEqual(signals[0]["details"]["publication_count"], 1)
         self.assertEqual(
-            project_review.promotion_queue_score_breakdown(project, signals)["components"]["lexicon_publication"],
-            160,
+            project_review.promotion_queue_score_breakdown(project, signals)["components"]["lexicon"],
+            2,
         )
 
-    def test_lexicon_schema_without_dns_resolution_is_not_promotion_signal(self) -> None:
+    def test_owned_lexicon_without_dns_resolution_is_a_definition_candidate(self) -> None:
         project = self.make_project("proj:reposchema", "nsid", "app.example.post")
         project.update({
             "category": "project",
@@ -410,7 +412,9 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
             "lexicon_resolution_entries": [],
         })
 
-        self.assertEqual(project_review.compute_showcase_signals(project), [])
+        self.assertEqual([s['kind'] for s in project_review.compute_showcase_signals(project)],
+                         ['lexicon_definition_confirmed'])
+        self.assertEqual(project_review.promotion_queue_score_breakdown(project,[])['components']['lexicon'],1)
 
     def test_dns_resolved_candidate_nsid_is_not_confirmed_publisher_signal(self) -> None:
         project = self.make_project("proj:candidatelexicon", "nsid", "app.example.post")
@@ -425,6 +429,9 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
                 "repo_did": "did:plc:publisher",
                 "authority_domain": "example.app",
                 "record_uri": "at://did:plc:publisher/com.atproto.lexicon.schema/app.example.post",
+                "resolved_at": "2026-10-23T00:00:00Z",
+                "publication_validation": {"version": collection_trust.VALIDATION_VERSION,
+                    "schema_id": "app.example.post", "schema_type": "record", "schema_hash": "fixture-hash"},
             }],
         })
 
@@ -443,7 +450,12 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
             "repo_did": "did:plc:publisher",
             "authority_domain": "example.app",
             "record_uri": "at://did:plc:publisher/com.atproto.lexicon.schema/app.example.post",
+            "resolved_at": "2026-10-23T00:00:00Z",
+            "publication_validation": {"version": collection_trust.VALIDATION_VERSION,
+                "schema_id": "app.example.post", "schema_type": "record", "schema_hash": "fixture-hash"},
         }
+        base['lexicon_resolution_entries']=[entry]
+        self.assertEqual(project_review.promotion_lexicon_evidence(base)['resolved_count'],1)
 
         for field, invalid_value in (
             ("authority_domain", "unrelated.example"),
@@ -452,9 +464,11 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
             with self.subTest(field=field):
                 project = dict(base)
                 project["lexicon_resolution_entries"] = [{**entry, field: invalid_value}]
-                self.assertEqual(project_review.compute_showcase_signals(project), [])
+                self.assertEqual([s['kind'] for s in project_review.compute_showcase_signals(project)],
+                                 ['lexicon_definition_confirmed'])
+                self.assertEqual(project_review.promotion_lexicon_evidence(project)['resolved_count'],0)
 
-    def test_personal_tool_lexicon_publisher_requires_include_flag(self) -> None:
+    def test_personal_tool_lexicon_definition_requires_include_flag(self) -> None:
         project = self.make_project("proj:personallexicon", "nsid", "app.example.post")
         project.update({
             "category": "personal_tool",
@@ -472,7 +486,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
         self.assertEqual(project_review.compute_showcase_signals(project), [])
         self.assertEqual(
             [signal["kind"] for signal in project_review.compute_showcase_signals(project, include_personal_tools=True)],
-            ["lexicon_publisher_confirmed"],
+            ["lexicon_definition_confirmed"],
         )
 
     def test_low_confidence_http_only_service_is_validation_candidate(self) -> None:
@@ -490,7 +504,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
         self.assertEqual([signal["kind"] for signal in signals], ["service_candidate_needs_validation"])
         self.assertEqual(
             signals[0]["details"]["validation_reasons"],
-            ["low_service_status_confidence", "usable_surface_unconfirmed"],
+            ["usable_surface_unconfirmed"],
         )
 
     def test_unverified_service_remains_validation_candidate_even_with_usable_surface_evidence(self) -> None:
@@ -529,7 +543,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
             ["usable_surface_unconfirmed"],
         )
 
-    def test_infra_tool_with_usable_surface_is_promoted_as_service(self) -> None:
+    def test_infra_tool_app_shell_needs_entrypoint_validation(self) -> None:
         project = self.make_project("proj:infraservice", "service_url", "https://infra.example")
         project.update({
             "category": "infra_tool",
@@ -541,7 +555,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
 
         signals = project_review.compute_showcase_signals(project)
 
-        self.assertEqual([signal["kind"] for signal in signals], ["service_surface_confirmed"])
+        self.assertEqual([signal["kind"] for signal in signals], ["service_candidate_needs_validation"])
         self.assertEqual(signals[0]["details"]["category"], "infra_tool")
 
     def test_unverified_infra_tool_remains_validation_candidate(self) -> None:
@@ -591,7 +605,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
         self.assertEqual(
             project_review.promotion_queue_sort_score(confirmed, confirmed_signals)
             - project_review.promotion_queue_sort_score(validation, validation_signals),
-            100,
+            8,
         )
 
     def test_promotion_policy_separates_visibility_service_and_manual_priority(self) -> None:
@@ -614,7 +628,7 @@ class ProjectRegistryRecordPolicyTest(ProjectRecordTestCase):
             policy["score_breakdown"]["total"],
             sum(policy["score_breakdown"]["components"].values()),
         )
-        self.assertEqual(policy["score_breakdown"]["components"]["service_evidence"], 200)
+        self.assertEqual(policy["score_breakdown"]["components"]["service_evidence"], 16)
 
         project_review.set_promotion_priority_on_project(project, lowered=True)
         policy = project_review.promotion_policy_projection(project, signals)
@@ -2495,7 +2509,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
             project_merge.compute_duplicate_candidates = original_compute
             conn.close()
 
-    def test_review_queue_prioritizes_atproto_contribution_for_equal_signals(self) -> None:
+    def test_review_queue_does_not_rank_schema_and_record_counts_as_value(self) -> None:
         conn = registry.open_db()
         try:
             optional = self.make_project("proj:111111111111", "service_url", "https://optional.example")
@@ -2517,9 +2531,9 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
             queue = application_review.review_queue(conn, tracking_states={"active"}, limit=2)
 
-            self.assertEqual([item["project_key"] for item in queue], ["proj:222222222222", "proj:111111111111"])
-            self.assertEqual(queue[0]["atproto_contribution_level"], "substantial")
-            self.assertGreater(queue[0]["sort_score"], queue[1]["sort_score"])
+            self.assertEqual([item["project_key"] for item in queue], ["proj:111111111111", "proj:222222222222"])
+            self.assertEqual(queue[1]["atproto_contribution_level"], "substantial")
+            self.assertEqual(queue[0]["sort_score"], queue[1]["sort_score"])
         finally:
             conn.close()
 
