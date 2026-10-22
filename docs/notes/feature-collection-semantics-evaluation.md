@@ -10,13 +10,19 @@
 
 | 対照 | 観測と問題 |
 | --- | --- |
-| Glean購読／`at.glean.subscription` | 公式READMEの購読PDS保存と単一RSS購読の定義は妥当な照合候補。名前のない原文から確認先を絞る利点はあるが、このcollectionの実利用確定とは別 |
+| Glean購読／`at.glean.subscription` | [公式README][glean-readme]の購読PDS保存と[単一RSS購読の定義][glean-subscription]は妥当な照合候補。名前のない原文から確認先を絞る利点はあるが、このcollectionの実利用確定とは別 |
 | rolldプレイ／`at.rolld.play` | 原文にcollection名があり、既存の名前一致でも照合できる。追加判定の利益は小さい |
-| Glean購読／`at.glean.annotation` | 原文 `Your subscriptions live as records on your PDS.` と定義 `Reading note on a specific RSS article.` を正確に引用しながら「購読はRSS記事への注釈」と誤説明。引用一致では拒否できない |
+| Glean購読／`at.glean.annotation` | 当時の比較記録では、[原文][glean-readme] `Your subscriptions live as records on your PDS.` と[定義][glean-annotation] `Reading note on a specific RSS article.` を引用しながら「購読はRSS記事への注釈」と誤説明した。引用一致では拒否できない |
 | Glean日次要約／annotation、mathr計算練習／個人backup用score | 同じ記事・得点という話題から機能本体と補助データを同一視。一般規則の明確化後も残る |
 | Leafletテーマ／document、standard.site本文／theme・subscription | 表示設定・購読と文書本体の役割を混同 |
 | Squire | actor recordの存在からタスク保存は分からない。別の操作抽出実験では「優先順位付きの一日を生成する」をstoreと誤読し、引用検査を通過 |
 | scopeだけ、未使用・将来予定、汎用noteの構成例 | 権限をwriteと読む、非利用条件を落とす、textで表現可能というだけで定義との対応を補う誤り |
+
+Gleanの引用・定義は、2026-10-22に公開リポジトリのrevision `87c21c88c5e2e52e88101cf81e6eac9cc9341cd2`で一致を確認しました。上のリンクはその参照先です。2026-09-23の実験で使ったrevisionや入力全体を復元したものではなく、当時のLLM出力の再検証でもありません。
+
+[glean-readme]: https://tangled.org/julien.rbrt.fr/glean/blob/87c21c88c5e2e52e88101cf81e6eac9cc9341cd2/readme.md
+[glean-subscription]: https://tangled.org/julien.rbrt.fr/glean/blob/87c21c88c5e2e52e88101cf81e6eac9cc9341cd2/lexicons/at/glean/subscription.json
+[glean-annotation]: https://tangled.org/julien.rbrt.fr/glean/blob/87c21c88c5e2e52e88101cf81e6eac9cc9341cd2/lexicons/at/glean/annotation.json
 
 意味対応の比較は既存Qwen 3.6、推論none要求、最大512 tokenで、Codexが選んだ実資料23組・構成6組、計42成功requestです。候補の自動選抜を測った実験ではなく、暫定参照は人間goldではありません。全入力・prompt・出力は利用者了承により破棄済みで、上の代表例以上を再採点・完全再実行できません。実在対象での未使用確認、未知projectへの一般化、人の確認時間は未検証です。
 
