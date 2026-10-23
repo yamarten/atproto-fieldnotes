@@ -1418,6 +1418,62 @@ def list_review_candidate_projects(
     return [_project_from_snapshot_row(conn, row) for row in rows]
 
 
+@concurrency.consistent_read
+def list_promotion_candidate_projects(
+    conn: sqlite3.Connection, *, tracking_states: set[str] | None = None,
+    include_personal_tools: bool = False, view: str = "queue",
+) -> list[dict[str, Any]]:
+    """Select possible signal sources, then use the complete project reader.
+
+    Keep guards, service assessment, publication verification, deferral expiry
+    and priority decisions in the domain policy. The all view must also retain
+    saved decisions even when a project no longer has recommendation signals.
+    """
+    params: list[str] = []
+    if view == "technical":
+        source = "lower(trim(json_extract(state_json, '$.ops.technical_interest_level'))) IN ('high', 'exceptional')"
+    else:
+        service_categories = ["project", "infra_tool"]
+        lexicon_categories = sorted(PROJECT_CATEGORY_VALUES - {"reject", "name_only", "personal_tool"})
+        if include_personal_tools:
+            service_categories.append("personal_tool")
+            lexicon_categories.append("personal_tool")
+        source = f"""(
+            (json_extract(state_json, '$.ops.category') IN ({', '.join('?' for _ in service_categories)})
+             AND lower(trim(service_status)) IN ('live', 'beta', 'invite_only', 'unverified', 'none')
+             AND project_key IN (SELECT project_key FROM project_identifiers
+                                 WHERE kind = 'service_url' AND classification = 'confirmed'))
+            OR (json_extract(state_json, '$.ops.category') IN ({', '.join('?' for _ in lexicon_categories)})
+                AND project_key IN (SELECT project_key FROM project_identifiers
+                                    WHERE kind = 'nsid' AND role = 'owned_nsid' AND classification = 'confirmed'))
+        )"""
+        params.extend(service_categories + lexicon_categories)
+    if view == "all":
+        source = f"""({source}
+            OR project_key IN (SELECT project_key FROM project_decisions
+                               WHERE kind IN ('lower_promotion_priority', 'defer_promotion'))
+            OR json_extract(state_json, '$.ops.promotion_attention.reviewed_until') IS NOT NULL
+        )"""
+    conditions = [source]
+    if tracking_states is not None:
+        requested = sorted(normalize_tracking_state(item) for item in tracking_states if item)
+        if not requested:
+            return []
+        conditions.append(f"tracking_state IN ({', '.join('?' for _ in requested)})")
+        params.extend(requested)
+    rows = conn.execute(
+        f"SELECT * FROM projects WHERE {' AND '.join(conditions)} "
+        "ORDER BY last_seen_at DESC, project_key ASC", params,
+    ).fetchall()
+    # Use the same normalization as ensure_project_shape, including malformed
+    # legacy URLs. Non-empty raw text alone is not proof of an introduction.
+    return [_project_from_snapshot_row(conn, row) for row in rows
+            if view == "all" or (
+                not identifier_core.normalize_url(str(row["introduced_url"] or ""))
+                and normalize_tracking_state(row["tracking_state"]) not in {"out_of_scope", "ignore"}
+            )]
+
+
 def list_duplicate_projects(
     conn: sqlite3.Connection, *, check_cancelled: Callable[[], None] | None = None,
     project_keys: set[str] | None = None,

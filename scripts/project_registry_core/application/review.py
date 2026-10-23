@@ -521,7 +521,9 @@ def promotion_queue(
             tracking_states=tracking_states,
         )
         if view in {"lowered", "waiting"}
-        else project_record.list_projects(conn, tracking_states=tracking_states)
+        else project_record.list_promotion_candidate_projects(
+            conn, tracking_states=tracking_states, include_personal_tools=include_personal_tools, view=view,
+        )
     )
     return _showcase_queue_from_shaped(
         projects,

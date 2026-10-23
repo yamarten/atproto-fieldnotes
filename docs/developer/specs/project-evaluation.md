@@ -315,7 +315,11 @@ promotion policyは次を混ぜずに投影します。
 
 Webの`Promotion`は既定の「確認対象」でeligible・通常優先度の候補を表示します。「技術候補」「保留」「Lowered / 特集候補」「すべて」へ切り替えられ、理由の部分一致検索・同じ理由の件数・ページ送りでlimitより先も回収できます。専用一覧は通常のtracking state範囲外や推薦signalがなくなった保存候補も表示し、元の追跡・表示状態を示します。「すべて」は現行signal候補とこれらの保存候補の集合であり、全登録projectではありません。
 
-`lowered`と`waiting`一覧は完全なproject復元の前に、それぞれ`lower_promotion_priority`と`defer_promotion`の判断履歴を持つprojectへ読込み対象を絞ります。保留へ読込み変換する旧確認期限も`waiting`の対象に含めます。解除済み・期限切れ履歴も選び、有効な判断・metadata・根拠変化の解釈は復元とpolicyへ委ねます。全viewでproject本体・子行・更新番号を同じread snapshot内で復元し、正規化済みの完全runtime viewから推薦を計算します。同じrequest内で本体を再読込みせず、shape正規化と保存用baseline作成は各projectで1回です。全tracking stateからの回収、全体の順位、理由検索前の`reasons`集計、検索後の`total`、最後のoffset/limit適用を維持します。応答や評価済みprojectをrequest間でcacheせず、再取得ごとに現在のDBと期限を評価します。
+通常の`queue / inbox`は、サービスsignalのcategory・status条件と採用済みサービス識別子、またはLexicon signalのcategory条件と採用済み所有NSIDを持つprojectをSQLで先行抽出します。`technical`は`high / exceptional`の保存評価を先行抽出します。これらの一覧では、紹介済み・`out_of_scope / ignore`のprojectも完全復元前に除きます。識別子のguard、サービス確認範囲、Lexicon発行検証、技術説明の充足、保留の期限・根拠変化、低優先度の有効性は完全runtime viewと既存policyで確定します。
+
+`lowered`と`waiting`は、それぞれ`lower_promotion_priority`と`defer_promotion`の判断履歴を持つprojectへ読込み対象を絞ります。保留へ読込み変換する旧確認期限も`waiting`の対象に含めます。`all`は通常signalの候補と両判断履歴・旧確認期限を持つprojectの和集合を選び、紹介済み・追跡対象外やsignalの消えた保存候補も残します。解除済み・期限切れ履歴も選び、有効な判断・metadata・根拠変化の解釈は復元とpolicyへ委ねます。
+
+全viewでproject本体・子行・更新番号を同じread snapshot内で復元し、正規化済みの完全runtime viewから推薦を計算します。同じrequest内で本体を再読込みせず、shape正規化と保存用baseline作成は各projectで1回です。全tracking stateからの回収、全体の順位、理由検索前の`reasons`集計、検索後の`total`、最後のoffset/limit適用を維持します。応答や評価済みprojectをrequest間でcacheせず、再取得ごとに現在のDBと期限を評価します。
 
 cardは主機能での利用範囲と理由・技術評価の理由・サービスの入口確認、手動優先度、確認記録、追加確認理由、紹介スコアを表示します。詳細の「調査材料と評価」で確認範囲と点数内訳を読み、詳細上部の同じ場所で保留・Lower priority・Skipを操作します。保存後は表示中のcardを外し、Refreshで先頭から再計算します。単なる画面取得・Refresh・SkipはDBを更新しません。
 
