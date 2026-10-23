@@ -89,6 +89,36 @@ const document = {};
                                 text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_default_projects_and_explicit_review_urls_roundtrip(self):
+        self.run_javascript(r'''
+assert.equal(state.screen, "projects");
+let historyUrl;
+global.history = {pushState(_,__,url){historyUrl=url;}};
+location.pathname = "/";
+for (const view of ["queue", "promotion", "planned", "merge", "introduced"]) {
+  restoreStateFromUrl(new URLSearchParams({view}));
+  assert.equal(state.screen, "review");
+  assert.equal(state.reviewView, view);
+  syncUrl();
+  const saved = new URLSearchParams(historyUrl.split("?")[1]);
+  assert.equal(saved.get("screen"), "review");
+  restoreStateFromUrl(saved);
+  assert.equal(state.reviewView, view);
+}
+restoreStateFromUrl(new URLSearchParams({review_kind:"lexicon_publication_changed"}));
+assert.equal(state.screen, "review");
+assert.equal(state.reviewSignalKind, "lexicon_publication_changed");
+restoreStateFromUrl(new URLSearchParams({screen:"projects",view:"promotion"}));
+assert.equal(state.screen, "projects");
+restoreStateFromUrl(new URLSearchParams({screen:"review"}));
+assert.equal(state.screen, "review");
+assert.equal(state.reviewView, "queue");
+restoreStateFromUrl(new URLSearchParams());
+assert.equal(state.screen, "projects");
+syncUrl();
+assert.equal(historyUrl, "/");
+''')
+
     def test_popup_navigation_excludes_credentials_and_preserves_embedded_history(self):
         self.run_javascript(r'''
 let message, historyUrl;

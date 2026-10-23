@@ -487,7 +487,7 @@ const state = {
   browserSeed: "",
   plannedQuery: "",
   plannedOffset: 0,
-  screen: "review",
+  screen: "projects",
   reviewView: "queue",
   introducedStatus: "open",
   introducedOffset: 0,
@@ -677,13 +677,15 @@ async function api(path, options = {}) {
 
 function restoreStateFromUrl(query = new URLSearchParams(location.search)) {
   const screen = query.get("screen");
-  if (["review", "projects", "browser", "operations", "settings"].includes(screen)) state.screen = screen;
+  const view = query.get("view");
+  const hasReviewView = ["queue", "promotion", "planned", "merge", "introduced"].includes(view);
+  state.screen = ["review", "projects", "browser", "operations", "settings"].includes(screen)
+    ? screen : (hasReviewView || query.has("review_kind") ? "review" : "projects");
   state.pageUrl = query.get("url") || "";
   state.browserQuery = query.get("browser_q") || "";
   state.plannedQuery = query.get("planned_q") || "";
   state.plannedOffset = Math.max(0, Number(query.get("planned_offset")) || 0);
-  const view = query.get("view");
-  if (["queue", "promotion", "planned", "merge", "introduced"].includes(view)) state.reviewView = view;
+  state.reviewView = hasReviewView ? view : "queue";
   state.introducedStatus = query.get("introduced_status") === "all" ? "all" : "open";
   state.introducedOffset = Math.max(0, Number(query.get("introduced_offset")) || 0);
   state.reviewSignalKind = query.get("review_kind") || "";
@@ -715,7 +717,7 @@ function restoreStateFromUrl(query = new URLSearchParams(location.search)) {
 
 function syncUrl({replace = false} = {}) {
   const query = new URLSearchParams();
-  if (state.screen !== "review") query.set("screen", state.screen);
+  if (state.screen !== "projects") query.set("screen", state.screen);
   if (state.screen === "review" && state.reviewView !== "queue") query.set("view", state.reviewView);
   if (state.screen === "review" && state.reviewView === "promotion") {
     query.set("promotion_view", state.promotionView);
