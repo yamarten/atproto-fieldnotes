@@ -1805,6 +1805,7 @@ def save_project(
         exists = conn.execute("SELECT 1 FROM projects WHERE project_key=?", (project["project_key"],)).fetchone() is not None
         runtime_view.require_complete_for_update(project, exists=exists)
         concurrency.check_projects(conn, [project])
+        operator_feedback.clear_introduced_plans(project, cleared_at=iso_now())
         pending = project.get(runtime_view.RUNTIME_PENDING_RUN)
         if pending:
             investigation_storage.save_investigation_run(conn, **pending)

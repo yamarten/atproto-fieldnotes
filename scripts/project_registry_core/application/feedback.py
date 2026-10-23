@@ -21,7 +21,7 @@ def save_feedback(conn: sqlite3.Connection, *, project_key: str, kind: str, reas
         raise ValueError("reason must be at most 4000 characters")
     if kind == "introduction-plan":
         field = "introduction_plans"
-        attributes = {}
+        attributes = {"introduced_url_at_creation": str(project.get("introduced_url") or "")}
     elif kind == "service-usage":
         field = "service_usage_decisions"
         service_url = page_url(service_url, preserve_target=True)

@@ -972,6 +972,11 @@ def combine_records(target: dict[str, Any], source: dict[str, Any]) -> dict[str,
     )
     for field in ("introduction_plans", "service_usage_decisions"):
         entries = operator_feedback.merge_history(merged.get(field, []), source.get(field, []))
+        if field == "introduction_plans":
+            operator_feedback.clear_introduced_plans({
+                "introduced_url": choose_preferred_scalar(merged.get("introduced_url"), source.get("introduced_url")),
+                "introduction_plans": entries,
+            }, cleared_at=project_record.iso_now())
         active_targets = set()
         for entry in entries:
             if entry.get("cleared_at"):

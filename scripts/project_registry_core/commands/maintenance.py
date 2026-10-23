@@ -9,6 +9,7 @@ import hashlib
 import json
 import sys
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +59,22 @@ def cmd_dev_db(args: argparse.Namespace) -> int:
 def cmd_repair_db(args: argparse.Namespace) -> int:
     payload = _with_db(lambda conn: services.repair_database(conn, execute=bool(args.execute)))
     print(json.dumps(payload, ensure_ascii=False, indent=2 if not args.execute else None, sort_keys=not args.execute))
+    return 0
+
+
+def cmd_clear_introduced_plans(args: argparse.Namespace) -> int:
+    from ..maintenance import introduction_plans
+
+    if args.execute:
+        payload = _with_db(lambda conn: introduction_plans.clear_introduced_plans(conn, execute=True))
+    else:
+        with closing(sqlite3.connect(core.DB_PATH.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
+            conn.row_factory = sqlite3.Row
+            version = database.database_schema_version(conn)
+            if version != database.SCHEMA_VERSION:
+                raise database.SchemaMismatchError(f"unsupported registry schema version {version}")
+            payload = introduction_plans.clear_introduced_plans(conn)
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 
 

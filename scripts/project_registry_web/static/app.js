@@ -1783,7 +1783,7 @@ function renderDetail(data) {
       ${renderReviewChanges(data.review)}
       ${promotionActions}
       <div class="operator-feedback">
-        <div class="actions"><button id="plan-introduction" class="primary">${plan ? "紹介予定の理由を編集" : "紹介予定に入れる"}</button>${plan ? `<button id="clear-introduction-plan">紹介予定から外す</button>` : ""}<button id="feedback-ownership" class="tab-feedback">帰属を確認</button><button id="record-service-usage" class="tab-feedback" ${!browserServiceUrls.length ? "disabled" : ""}>Lexicon利用を記録</button></div>
+        <div class="actions"><button id="plan-introduction" class="primary">${plan ? "紹介予定の理由を編集" : project.introduced_url ? "再紹介予定に入れる" : "紹介予定に入れる"}</button>${plan ? `<button id="clear-introduction-plan">紹介予定から外す</button>` : ""}<button id="feedback-ownership" class="tab-feedback">帰属を確認</button><button id="record-service-usage" class="tab-feedback" ${!browserServiceUrls.length ? "disabled" : ""}>Lexicon利用を記録</button></div>
         ${plan ? `<p>紹介予定: ${esc(plan.reason || "理由なし")} · ${esc(formatTimestamp(plan.added_at))}</p>` : ""}
         ${state.screen === "browser" && state.pageUrl ? `<p class="muted">見ていたページ: ${link(state.pageUrl)}</p>` : ""}
         ${!browserServiceUrls.length ? `<p class="muted tab-feedback">Lexicon利用の記録には、先にサービスURLをシードとして追加してください。</p>` : ""}
@@ -1827,7 +1827,7 @@ function renderDetail(data) {
     else target?.scrollIntoView({behavior:"smooth", block:"start"});
   });
   bindDetailActions(project.project_key);
-  $("plan-introduction").onclick = () => confirmMutation("紹介予定に保存", "紹介予定の一覧へ残します。自動推薦の順位や保留は変えません。",
+  $("plan-introduction").onclick = () => confirmMutation("紹介予定に保存", `紹介予定の一覧へ残します。${project.introduced_url ? "新しい紹介URLが登録されると自動で外れます。同じ紹介URLの再同期では残ります。" : "紹介URLが登録されると自動で外れます。"}理由と履歴は残り、自動推薦の順位や保留は変えません。`,
     `/api/projects/${encodeURIComponent(project.project_key)}/introduction-plan`, {}, true, plan?.reason || "", "紹介したい理由・メモ（任意）");
   $("clear-introduction-plan")?.addEventListener("click", () => confirmMutation("紹介予定から外す", "取り置きを解除します。判断の履歴は残ります。",
     `/api/projects/${encodeURIComponent(project.project_key)}/introduction-plan`, {clear:true}, false));

@@ -220,6 +220,7 @@ executeはマージ先の更新、マージ元キーのalias、別プロジェ�
 | `audit-url-fields` | URL項目の利用数と、保存時に満たすべき整合性条件への違反 | 問題と例のJSON | なし |
 | `audit-trust-graph` | 採用済み（`confirmed`）識別子のtrust根拠 | 問題と例のJSON | なし |
 | `repair-db` | 登録プロジェクトの保存データ正規化、派生値更新、衝突 | 変更予定件数のJSON | `--execute` |
+| `clear-introduced-plans` | 紹介済みのまま残る紹介予定の解除 | 全対象のproject・予定ID・理由・紹介URL | `--execute`。理由と履歴を保持。明示的な再紹介予定は同じ紹介URLなら維持 |
 | `migrate-repository-trust` | 旧ページ・repository信頼根拠の退避計画。`--db-path`と`--output`必須 | 分類付きJSON計画 | `--execute-plan <確認済み計画.json> --archive <退避.json>`で旧根拠全体を退避 |
 | `repair-trust-graph` | trust graph再計算。任意で根拠不足の採用済み識別子を降格 | 変更予定件数のJSON | `--execute` |
 | `cleanup-storage-payloads` | 現在の根拠と調査履歴への保存上限再適用 | byte・件数差分のJSON | `--execute`、任意の`--vacuum` |

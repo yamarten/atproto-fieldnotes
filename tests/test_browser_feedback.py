@@ -157,19 +157,36 @@ class BrowserFeedbackTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase):
         self.assertTrue(all(item.get("cleared_at") for item in project["introduction_plans"]))
         conn.close()
 
-    def test_plans_include_ineligible_and_introduced_projects_and_paginate(self):
+    def test_plans_include_ineligible_projects_and_paginate(self):
         conn = registry.open_db()
         for key in (self.key, "proj:222222222222"):
             feedback.save_feedback(conn, project_key=key, kind="introduction-plan", reason="特集")
         project = project_record.fetch_project(conn, self.key)
         project["tracking_state"] = "ignore"
-        project["introduced_url"] = "https://bsky.app/profile/example.test/post/1"
         project_record.save_project(conn, project)
         first = browser_entry.introduction_plans(conn, query="特集", limit=1)
         second = browser_entry.introduction_plans(conn, query="特集", limit=1, offset=1)
         self.assertEqual(first["total"], 2)
         self.assertNotEqual(first["items"][0]["project_key"], second["items"][0]["project_key"])
         conn.close()
+
+    def test_profile_introduction_completes_plan_in_list_detail_and_browser_entry(self):
+        path = f"/api/projects/{self.key}/introduction-plan"
+        self.request(path, method="POST", payload={"note": "紹介したい理由"})
+        status, result, _ = self.request(f"/api/projects/{self.key}/profile", method="POST",
+            payload={"name": "Example App", "notes": "", "introduced_url": "https://example.test/post/1"})
+        self.assertEqual(status, 200)
+        _, detail, _ = self.request(f"/api/projects/{self.key}")
+        self.assertIsNone(detail["operator_feedback"]["introduction_plan"])
+        self.assertFalse(any(item["kind"] == "plan_introduction" for item in detail["decisions"]["active"]))
+        self.assertTrue(any(item["kind"] == "plan_introduction" and item["note"] == "紹介したい理由"
+                            for item in detail["decisions"]["history"]))
+        self.assertEqual(self.request("/api/introduction-plans")[1]["total"], 0)
+        self.assertEqual(self.resolve("https://github.com/example/app")[1]["project_key"], self.key)
+        # Firefox's popup embeds this same detail API and Web UI.
+        status, result, _ = self.request(path, method="POST", payload={"note": "再紹介"})
+        self.assertEqual(status, 200)
+        self.assertEqual(result["detail"]["operator_feedback"]["introduction_plan"]["reason"], "再紹介")
 
     def test_manual_service_usage_persists_as_relation_without_ownership(self):
         path = f"/api/projects/{self.key}/service-usage"

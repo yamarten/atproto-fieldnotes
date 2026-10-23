@@ -46,6 +46,7 @@ subcommands=(
   'monitor-services:Inspect or observe due confirmed services'
   'investigate-service-urls:Inspect or investigate unadopted service URLs'
   'repair-db:Normalize stored data and refresh derived fields'
+  'clear-introduced-plans:Complete fulfilled introduction plans keeping history'
   'audit-url-fields:Report URL field usage and invariant violations'
   'audit-trust-graph:Report trust-graph confirmation issues'
   'migrate-repository-trust:Review or apply repository relation migration'
@@ -485,6 +486,9 @@ case "$cmd" in
   repair-db)
     _arguments -S \
       '--execute[Apply normalization and derived-field refreshes]'
+    ;;
+  clear-introduced-plans)
+    _arguments -S '--execute[Complete the reported introduction plans]'
     ;;
   audit-url-fields)
     _arguments -S \
