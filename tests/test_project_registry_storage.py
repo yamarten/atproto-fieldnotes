@@ -2489,7 +2489,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         try:
             project = self.make_project("proj:cafecafecafe", "nsid", "app.example.post")
             project["name"] = "Candidate Service"
-            project["service_url_candidates"] = ["https://candidate.example"]
+            project["editorial"] = {"proposal": {"kind": "changed_facts"}}
             project_record.save_project(conn, project)
             conn.commit()
 
@@ -2514,7 +2514,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
         try:
             optional = self.make_project("proj:111111111111", "service_url", "https://optional.example")
             optional["name"] = "Optional"
-            optional["manual_review_recommended"] = True
+            optional["editorial"] = {"proposal": {"kind": "changed_facts"}}
             optional["manual_review_kind"] = "identity_resolution"
             optional["manual_review_priority"] = "medium"
             optional["input_nsids"] = ["app.example.optional"]
@@ -2522,7 +2522,7 @@ class ProjectRegistryStorageTest(TempRegistryDbTestCase):
 
             substantial = self.make_project("proj:222222222222", "service_url", "https://substantial.example")
             substantial["name"] = "Substantial"
-            substantial["manual_review_recommended"] = True
+            substantial["editorial"] = {"proposal": {"kind": "changed_facts"}}
             substantial["manual_review_kind"] = "identity_resolution"
             substantial["manual_review_priority"] = "medium"
             substantial["collection_observations"] = [{"collection": "app.example.substantial", "count": 5}]

@@ -5,8 +5,6 @@ import json
 import sqlite3
 from typing import Any
 
-from ..persistence import storage
-
 
 def fingerprint(target_type: str, payload: dict[str, Any]) -> str:
     encoded = json.dumps(
@@ -60,18 +58,3 @@ def with_review_state(target: dict[str, Any], active_decisions: list[dict[str, A
     if decisions:
         status = "dismissed" if any(item["kind"] == "dismiss_review_target" for item in decisions) else "deferred"
     return {**target, "status": status, "decisions": decisions}
-
-
-def available_targets(conn: sqlite3.Connection, project_key: str) -> dict[str, dict[str, Any]]:
-    output: dict[str, dict[str, Any]] = {}
-    for row in conn.execute(
-        "SELECT * FROM project_relations WHERE project_key = ? ORDER BY ordinal", (project_key,)
-    ):
-        target = relation_target(row)
-        output[target["target_value"]] = target
-    run = storage.latest_investigation_run(conn, project_key)
-    if run is not None:
-        for failure in run["bundle"].failures:
-            target = failure_target(run["run_id"], failure.to_dict())
-            output[target["target_value"]] = target
-    return output

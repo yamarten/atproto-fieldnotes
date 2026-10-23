@@ -28,6 +28,7 @@
       "seed_value": "org.example.sketch.entry",
       "fields": {
         "name": "Demo Sketch Board",
+        "editorial": {"mode": "review", "proposal": {"kind": "expansion", "reason": "架空の説明更新案。候補の帰属判断とは別に説明を更新する。", "generated_at": "2026-09-01T00:00:00+00:00", "profile": {"tagline": "スケッチを共有する架空サービス", "summary": "架空のスケッチ共有候補。説明更新案の採用・見送りを確認する。", "features": ["スケッチ共有"]}, "sources": [{"id": "dev-sketch-source", "locator": "https://sketch.example/docs", "content": "架空の追加説明。スケッチを共有できる。"}]}},
         "summary": "架空のスケッチ共有候補。未確定URL、要レビュー、除外判断、部分失敗の履歴を確認する。",
         "category": "project",
         "tracking_state": "active",

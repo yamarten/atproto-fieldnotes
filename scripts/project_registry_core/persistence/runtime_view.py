@@ -449,7 +449,7 @@ def _derive_project_decisions(project: Mapping[str, Any]) -> list[ProjectDecisio
                 metadata=dict(item),
             ))
     for item in project.get("review_target_decisions", []):
-        if isinstance(item, Mapping) and str(item.get("kind") or "") in {"dismiss_review_target", "defer_review_target"}:
+        if isinstance(item, Mapping) and str(item.get("kind") or "") in {"dismiss_review_target", "defer_review_target", "acknowledge_review"}:
             output.append(ProjectDecision(
                 str(item.get("kind")),
                 str(item.get("target_type") or ""),
@@ -723,7 +723,7 @@ def hydrate(
                 "note": str(row["note"]), "added_at": str(row["created_at"]),
                 "cleared_at": str(row["cleared_at"]),
             })
-        elif kind in {"dismiss_review_target", "defer_review_target"}:
+        elif kind in {"dismiss_review_target", "defer_review_target", "acknowledge_review"}:
             project["review_target_decisions"].append({
                 "kind": kind,
                 "target_type": str(row["target_type"]),

@@ -804,10 +804,18 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 reason=str(payload.get("reason") or note).strip(),
             )
         if action == "dismiss-review-kind":
+            if not payload.get("clear"):
+                raise ValueError("review kinds can no longer be dismissed")
             return decisions.dismiss_review_kind(
                 conn,
                 project_key=project_key,
                 kind=str(payload.get("kind") or "").strip(),
+                clear=True,
+            )
+        if action in {"acknowledge-review", "clear-review-acknowledgement"}:
+            return decisions.acknowledge_review(
+                conn, project_key=project_key, fingerprint=str(payload.get("target_value") or ""),
+                clear=action == "clear-review-acknowledgement",
             )
         if action in {"dismiss-review-target", "defer-review-target", "clear-review-target"}:
             return decisions.set_review_target(

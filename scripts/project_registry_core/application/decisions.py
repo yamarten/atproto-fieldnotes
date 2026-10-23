@@ -5,12 +5,10 @@ from project_registry_core import project_review
 from project_registry_core import project_merge
 
 import sqlite3
-import datetime as dt
 from typing import Any
 
 from .. import registry as core
 from ..persistence import concurrency
-from . import review_targets
 from project_registry_core import project_record
 from project_registry_core import promotion_attention
 from project_registry_core import atproto_usage
@@ -113,6 +111,8 @@ def set_identifier_block(
         })
     project["blocked_identifiers"] = blocked
     if not clear:
+        project["deferred_identifiers"] = [item for item in project.get("deferred_identifiers", [])
+                                           if (item.get("type"), item.get("value")) != key]
         core.clear_confirmed_identifier_decision(project, identifier_type, normalized_value)
         core.remove_identifier_from_project(
             project,
@@ -163,6 +163,8 @@ def set_identifier_defer(
             if (str(item.get("type") or ""), str(item.get("value") or "")) != (identifier_type, normalized_value)
         ]
     else:
+        project["blocked_identifiers"] = [item for item in project.get("blocked_identifiers", [])
+                                          if (item.get("type"), item.get("value")) != (identifier_type, normalized_value)]
         core.clear_confirmed_identifier_decision(project, identifier_type, normalized_value)
         core.defer_identifier_on_project(
             project,
@@ -267,14 +269,13 @@ def dismiss_review_kind(
     kind: str,
     clear: bool = False,
 ) -> dict[str, Any]:
+    if not clear:
+        raise ValueError("review-kind dismissal has been retired")
     project = project_record.fetch_project(conn, project_record.resolve_project_key_input(conn, project_key))
     if project is None:
         raise ValueError(f"project not found: {project_key}")
     kinds = [str(item) for item in project.get("dismissed_review_kinds", []) if str(item)]
-    if clear:
-        kinds = [item for item in kinds if item != kind]
-    else:
-        kinds = project_record.unique_list(kinds + [kind])
+    kinds = [item for item in kinds if item != kind]
     project["dismissed_review_kinds"] = kinds
     project_record.save_project(
         conn,
@@ -284,6 +285,35 @@ def dismiss_review_kind(
     )
     conn.commit()
     return {"project_key": project["project_key"], "kind": kind, "cleared": clear, "dismissed_review_kinds": kinds}
+
+
+def acknowledge_review(
+    conn: sqlite3.Connection, *, project_key: str, fingerprint: str, clear: bool = False,
+) -> dict[str, Any]:
+    project = core.resolve_single_project(conn, project_key=project_key)
+    entries = [dict(item) for item in project.get("review_target_decisions", [])]
+    now = project_record.iso_now()
+    matching = [item for item in entries if item.get("kind") == "acknowledge_review"
+                and item.get("target_value") == fingerprint]
+    if clear:
+        if not matching:
+            raise ValueError("review decision does not belong to this project")
+        for item in matching:
+            if not item.get("cleared_at"):
+                item["cleared_at"] = now
+    else:
+        signal = next((item for item in project_review.compute_review_signals(project)
+                       if item.get("fingerprint") == fingerprint), None)
+        if signal is None:
+            raise ValueError("review change is stale or does not belong to this project")
+        entries.append({"kind": "acknowledge_review", "target_type": "review_change",
+                        "target_value": fingerprint, "created_at": now,
+                        "note": "", "expires_at": "", "cleared_at": "",
+                        "metadata": {"signal_kind": signal["kind"], "details": signal["details"]}})
+    project["review_target_decisions"] = entries
+    project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")),
+                                preserve_timestamps=True)
+    return {"project_key": project["project_key"], "fingerprint": fingerprint, "cleared": clear}
 
 
 def set_review_target(
@@ -297,35 +327,19 @@ def set_review_target(
     days: int = 30,
     clear: bool = False,
 ) -> dict[str, Any]:
+    if not clear:
+        raise ValueError("individual evidence review has been retired")
     project = core.resolve_single_project(conn, project_key=project_key)
-    available = review_targets.available_targets(conn, str(project["project_key"]))
-    target = available.get(str(target_value))
-    if not clear and (target is None or target["target_type"] != target_type):
-        raise ValueError("review target is stale or does not belong to this project")
     kind = "dismiss_review_target" if action == "dismiss" else "defer_review_target" if action == "defer" else ""
     if not kind:
         raise ValueError("review target action must be dismiss or defer")
     now = project_record.iso_now()
     entries = [dict(item) for item in project.get("review_target_decisions", []) if isinstance(item, dict)]
-    if clear and not any(item.get("kind") == kind and item.get("target_type") == target_type and item.get("target_value") == target_value for item in entries):
+    if not any(item.get("kind") == kind and item.get("target_type") == target_type and item.get("target_value") == target_value for item in entries):
         raise ValueError("review decision does not belong to this project")
     for item in entries:
         if item.get("kind") == kind and item.get("target_type") == target_type and item.get("target_value") == target_value and not item.get("cleared_at"):
             item["cleared_at"] = now
-    if not clear:
-        expires_at = ""
-        if kind == "defer_review_target":
-            expires_at = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=max(1, min(365, int(days))))).isoformat()
-        entries.append({
-            "kind": kind,
-            "target_type": target_type,
-            "target_value": target_value,
-            "note": note.strip(),
-            "created_at": now,
-            "expires_at": expires_at,
-            "cleared_at": "",
-            "metadata": dict(target["metadata"]),
-        })
     project["review_target_decisions"] = entries
     project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True)
     conn.commit()

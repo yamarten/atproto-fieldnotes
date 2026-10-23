@@ -11,6 +11,15 @@ from helpers import ROOT
 
 @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web display checks")
 class WebDisplayTest(unittest.TestCase):
+    def test_review_mutation_keeps_unresolved_changes_visible(self):
+        self.run_javascript(r'''
+state.screen = "review"; state.reviewView = "queue";
+assert.equal(advanceReviewListAfterMutation({detail:{review:{signals:[{kind:"editorial_refresh"}]}}},
+  "/api/projects/test/acknowledge-review"), false);
+assert.equal(advanceReviewListAfterMutation({project_key:"test"},
+  "/api/projects/test/block-identifier"), false);
+''')
+
     def test_partial_completion_and_account_correspondence_are_visible(self):
         self.run_javascript(r'''
 const job = {job_id:"job:partial", operation:"observe_services", status:"completed",
@@ -290,6 +299,23 @@ assert.ok(!container.innerHTML.includes('<img'));
 assert.ok(container.innerHTML.includes('&lt;img src=x onerror=alert(1)&gt;'));
 renderList({items: [], count: 12});
 assert.match(container.innerHTML, /<strong>12<\/strong> 件/);
+''')
+
+    def test_identifier_actions_are_once_per_value_not_per_role(self):
+        self.run_javascript(r'''
+const actions = {identifier_type:"repo_url", confirm:true, reject:true};
+const item = {family:"repository", value:"https://github.com/example/app", classification:"candidate", kinds:["repo_url"],
+ entries:[{kind:"repo_url", value:"https://github.com/example/app", role:"project_repository", classification:"candidate", actions},
+          {kind:"repo_url", value:"https://github.com/example/app", role:"source_repository_record", classification:"candidate", actions}],
+ actions:{identifier_type:"repo_url", confirm:true, reject:true, block:true, defer:true, split:true}};
+const html = renderIdentifier(item);
+for (const action of ["confirm-candidate", "block-identifier", "defer-identifier", "split-project"])
+  assert.equal((html.match(new RegExp(`data-action="${action}"`, "g")) || []).length, 1);
+assert.ok(!html.includes('data-action="reject-candidate"'));
+assert.ok(!renderRelation({classification:"candidate", subject:{type:"service_url",value:"a"}, object:{type:"nsid",value:"b"}, predicate:"uses_collection", review_target:{status:"open"}}).includes('data-action='));
+const changes = renderReviewChanges({signals:[{kind:"editorial_refresh"}, {kind:"lexicon_publication_changed",fingerprint:'x"<tag>'}]});
+assert.equal((changes.match(/data-action="acknowledge-review"/g) || []).length, 1);
+assert.ok(changes.includes('x&quot;&lt;tag&gt;'));
 ''')
 
     def test_review_selection_covers_generated_signals_and_preserves_values(self):

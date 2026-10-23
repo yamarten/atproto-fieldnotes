@@ -281,3 +281,5 @@ dialog input, dialog textarea { min-width: 0; max-width: 100%; }
 .operator-feedback { margin: 1rem 0; padding: 1rem; border: 1px solid var(--line); border-radius: .6rem; }
 .operator-feedback p { overflow-wrap: anywhere; }
 :is(select, option).lexicon-type, .lexicon-type option { font-family: ui-monospace, monospace; }
+.review-change { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin: .6rem 0; }
+.review-change .actions { margin: 0; }

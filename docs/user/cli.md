@@ -121,24 +121,13 @@ project-registry --db-path /absolute/path/survey.db enrich --all \
 
 `--interactive`では1件ずつ確認します。skipはその実行中だけ先送りし、DBへ書きません。`--execute`は表示対象の候補を一括適用します。
 
-`review-queue --kinds`の値は、要レビューとなった理由を表します。
+`review-queue --kinds`の値は、要レビューとなった理由を表します。対話操作の`x`は、表示されたサービス観測・Lexicon発行の変化を確認した記録を保存します。新しい変化は再表示されます。説明更新案はWebの説明編集で採用・見送りを判断してください。`c`/`r`はサービス/リポジトリ候補の採用、`C`/`R`は除外です。
 
 | kind | 意味 |
 | --- | --- |
-| `missing_project_identity` | 登録プロジェクトが表す対象が未採用。対象を採用するか、追跡状態を見直す。 |
-| `editorial_refresh` | 保護された説明に、根拠付きの更新案がある。 |
-| `service_observation_changed` | 保存したサービスの利用面・ページ内容に変化がある。機能変更や終了の確定ではない。 |
-| `lexicon_publication_changed` | Lexiconの発行根拠・帰属について確認材料がある。 |
-| `service_candidate_needs_confirmation` | サービス候補はあるが、confirmed serviceとして未採用。Websiteの有無とは独立。 |
-| `candidate_repo_needs_confirmation` | リポジトリ候補はあるが、ソースコードを保持するリポジトリとして未採用。 |
-| `llm_manual_review_recommended` | LLM評価が、利用者による確認が必要な具体的な種類と理由を返した。 |
-| `more_evidence_than_current_classification` | 識別子候補やNSIDが増え、現在の分類より根拠が多い。 |
-| `stale_metadata_with_recent_activity` | 最近活動がある一方、説明またはサービス状態が古い・未確定。 |
-| `service_status_unverified_but_promising` | login/app/beta等の兆候があるが状態は未確認。 |
-| `category_recheck_needed` | lexicon分類だがサービスやリポジトリの公開情報も見つかった。 |
-| `external_lexicon_dependency_needs_review` | 所有NSIDと外部lexicon依存が併存し、所有関係の確認が必要。 |
-| `high_information_density` | NSID、schema sample、record sampleが多く、人が見る情報量が大きい。 |
-| `many_identity_candidates` | サービス、リポジトリ、手動シードの候補が多く、同一性の整理が必要。 |
+| `editorial_refresh` | 保護された説明に根拠付きの更新案がある。編集で採用・見送りを判断する。 |
+| `service_observation_changed` | 採用済みサービスの利用画面の確認結果に変化がある。本文変更だけでは載せず、終了も断定しない。 |
+| `lexicon_publication_changed` | Lexiconの発行根拠・帰属に変化がある。 |
 
 `promotion-queue --kinds`で選べる根拠は次の5種類です。技術面の根拠は`--view technical`で使います。
 

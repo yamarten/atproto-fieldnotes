@@ -10,10 +10,6 @@ from typing import Any, Callable
 from project_registry_core.persistence import runtime_view
 from project_registry_core.enrichment_pipeline import enrich_project
 from project_registry_core.registry import (
-    add_confirmed_identifier_decision,
-    confirm_repo_seed,
-    confirm_service_seed,
-    finalize_project_shape,
     update_project_tracking_state_value,
     verify_service_project,
 )
@@ -24,12 +20,10 @@ from project_registry_core.project_review import (
     project_service_hint_urls,
 )
 from project_registry_core.application.review import build_review_queue_item, build_showcase_queue_item
-from project_registry_core.project_merge import compute_duplicate_candidates, compute_merge_recommendation
+from project_registry_core.application import decisions, presentation
 from project_registry_core.project_record import (
     ensure_project_shape,
     fetch_project,
-    iso_now,
-    normalize_blocked_identifiers,
     save_project,
     unique_list,
 )
@@ -104,7 +98,8 @@ def output_project_queue(
                 if queue_name == "review":
                     actions.append("e=enrich")
                     actions.append("k=tracking-state")
-                    actions.append("x=dismiss signal")
+                    if any(signal.get("fingerprint") for signal in current_item.get("signals", [])):
+                        actions.append("x=acknowledge change")
                     project = fetch_project(conn, str(current_item.get("project_key") or ""))
                     project_hints = ensure_project_shape(project) if project is not None else None
                     service_candidates = project_service_hint_urls(project_hints) if project_hints is not None else []
@@ -114,14 +109,7 @@ def output_project_queue(
                          + (list(project_hints.get("service_urls", [])) if project_hints else [])
                          + service_candidates)
                     )
-                    if signal_kinds & {
-                        "llm_manual_review_recommended",
-                        "high_information_density",
-                        "stale_metadata_with_recent_activity",
-                        "service_status_unverified_but_promising",
-                        "external_lexicon_dependency_needs_review",
-                        "category_recheck_needed",
-                    }:
+                    if "service_observation_changed" in signal_kinds:
                         actions.append("E=deep enrich")
                     if service_candidates:
                         actions.append("c=confirm service")
@@ -279,7 +267,7 @@ def output_project_queue(
                         )
                     )
                     break
-                if queue_name == "review" and lowered == "e":
+                if queue_name == "review" and answer == "e":
                     project = fetch_project(conn, str(current_item.get("project_key") or ""))
                     if project is not None:
                         enriched = enrich_project(conn, project, deep_investigation=False)
@@ -311,14 +299,7 @@ def output_project_queue(
                             break
                         current_item = refreshed
                     continue
-                if queue_name == "review" and answer == "E" and signal_kinds & {
-                    "llm_manual_review_recommended",
-                    "high_information_density",
-                    "stale_metadata_with_recent_activity",
-                    "service_status_unverified_but_promising",
-                    "external_lexicon_dependency_needs_review",
-                    "category_recheck_needed",
-                }:
+                if queue_name == "review" and answer == "E" and "service_observation_changed" in signal_kinds:
                     project = fetch_project(conn, str(current_item.get("project_key") or ""))
                     if project is not None:
                         enriched = enrich_project(conn, project, deep_investigation=True)
@@ -341,16 +322,16 @@ def output_project_queue(
                         current_item = refreshed
                     continue
                 if queue_name == "review" and lowered == "x":
-                    signal_list = [dict(signal) for signal in current_item.get("signals", []) if isinstance(signal, dict)]
+                    signal_list = [dict(signal) for signal in current_item.get("signals", []) if isinstance(signal, dict) and signal.get("fingerprint")]
                     if not signal_list:
                         continue
                     if len(signal_list) == 1:
-                        dismissed_kind = str(signal_list[0].get("kind") or "")
+                        selected_signal = signal_list[0]
                     else:
                         print(
                             json.dumps(
                                 {
-                                    "dismissible_signals": [
+                                    "changes_to_acknowledge": [
                                         {
                                             "index": idx,
                                             "kind": str(signal.get("kind") or ""),
@@ -364,160 +345,50 @@ def output_project_queue(
                                 indent=2,
                             )
                         )
-                        print("dismiss which signal? [number]/[Enter]=cancel", file=sys.stderr)
+                        print("acknowledge which change? [number]/[Enter]=cancel", file=sys.stderr)
                         try:
-                            dismiss_answer = input().strip()
+                            selection_answer = input().strip()
                         except EOFError:
                             return 0
-                        if not dismiss_answer:
+                        if not selection_answer:
                             continue
                         try:
-                            dismiss_index = int(dismiss_answer)
+                            selection_index = int(selection_answer)
                         except ValueError:
-                            print(json.dumps({"warning": "invalid_signal_selection", "answer": dismiss_answer}, ensure_ascii=False))
+                            print(json.dumps({"warning": "invalid_signal_selection", "answer": selection_answer}, ensure_ascii=False))
                             continue
-                        if dismiss_index < 1 or dismiss_index > len(signal_list):
-                            print(json.dumps({"warning": "signal_selection_out_of_range", "answer": dismiss_answer}, ensure_ascii=False))
+                        if selection_index < 1 or selection_index > len(signal_list):
+                            print(json.dumps({"warning": "signal_selection_out_of_range", "answer": selection_answer}, ensure_ascii=False))
                             continue
-                        dismissed_kind = str(signal_list[dismiss_index - 1].get("kind") or "")
-                    project = fetch_project(conn, str(current_item.get("project_key") or ""))
-                    if project is not None and dismissed_kind:
-                        project = ensure_project_shape(project)
-                        project["dismissed_review_kinds"] = unique_list(
-                            list(project.get("dismissed_review_kinds", [])) + [dismissed_kind]
-                        )
-                        save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
-                        conn.commit()
-                        print(
-                            json.dumps(
-                                {
-                                    "dismissed_review_kind": dismissed_kind,
-                                    "project_key": current_item.get("project_key", ""),
-                                },
-                                ensure_ascii=False,
-                            )
-                        )
-                        refreshed = build_review_queue_item(conn, str(current_item.get("project_key") or ""), kinds=kinds)
-                        if refreshed is None:
-                            break
-                        current_item = refreshed
+                        selected_signal = signal_list[selection_index - 1]
+                    try:
+                        decisions.acknowledge_review(conn, project_key=str(current_item["project_key"]),
+                                                     fingerprint=selected_signal["fingerprint"])
+                    except ValueError as exc:
+                        print(json.dumps({"warning": str(exc)}, ensure_ascii=False))
+                    else:
+                        print(json.dumps({"acknowledged_review_change": selected_signal["kind"],
+                                          "project_key": current_item["project_key"]}, ensure_ascii=False))
+                    refreshed = build_review_queue_item(conn, str(current_item["project_key"]), kinds=kinds)
+                    if refreshed is None:
+                        break
+                    current_item = refreshed
                     continue
-                if queue_name == "review" and lowered == "c":
-                    project = fetch_project(conn, str(current_item.get("project_key") or ""))
+                if queue_name == "review" and answer in {"c", "C", "r", "R"}:
+                    project = fetch_project(conn, str(current_item["project_key"]))
                     if project is not None:
-                        project = ensure_project_shape(project)
-                        service_candidates = project_service_hint_urls(project)
-                        if service_candidates:
-                            confirmed_service = confirm_service_seed(project, service_candidates[0], source="review_queue")
-                            if confirmed_service:
-                                add_confirmed_identifier_decision(
-                                    project,
-                                    "service_url",
-                                    confirmed_service,
-                                    source="review_queue",
-                                    note="candidate confirmed by operator",
-                                )
-                            project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
-                            project["merge_recommendation"] = compute_merge_recommendation(project)
-                            save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
-                            conn.commit()
-                            print(
-                                json.dumps(
-                                    {
-                                        "confirmed_service_seed": confirmed_service or service_candidates[0],
-                                        "project_key": current_item.get("project_key", ""),
-                                    },
-                                    ensure_ascii=False,
-                                )
-                            )
-                            refreshed = build_review_queue_item(conn, str(current_item.get("project_key") or ""), kinds=kinds)
-                            if refreshed is None:
-                                break
-                            current_item = refreshed
-                    continue
-                if queue_name == "review" and answer == "C":
-                    project = fetch_project(conn, str(current_item.get("project_key") or ""))
-                    if project is not None:
-                        project = ensure_project_shape(project)
-                        service_candidates = project_service_hint_urls(project)
-                        if service_candidates:
-                            blocked = normalize_blocked_identifiers(list(project.get("blocked_identifiers", [])))
-                            blocked.append(
-                                {
-                                    "type": "service_url",
-                                    "value": service_candidates[0],
-                                    "note": "rejected from review-queue interactive",
-                                    "added_at": iso_now(),
-                                }
-                            )
-                            project["blocked_identifiers"] = blocked
-                            project = finalize_project_shape(project)
-                            project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
-                            project["merge_recommendation"] = compute_merge_recommendation(project)
-                            save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
-                            conn.commit()
-                            print(json.dumps({"rejected_service_candidate": service_candidates[0], "project_key": current_item.get("project_key", "")}, ensure_ascii=False))
-                            refreshed = build_review_queue_item(conn, str(current_item.get("project_key") or ""), kinds=kinds)
-                            if refreshed is None:
-                                break
-                            current_item = refreshed
-                    continue
-                if queue_name == "review" and lowered == "r":
-                    project = fetch_project(conn, str(current_item.get("project_key") or ""))
-                    if project is not None:
-                        project = ensure_project_shape(project)
-                        repo_candidates = project_repo_hint_urls(project)
-                        if repo_candidates:
-                            confirmed_repo = confirm_repo_seed(project, repo_candidates[0], source="review_queue")
-                            if confirmed_repo:
-                                add_confirmed_identifier_decision(
-                                    project,
-                                    "repo_url",
-                                    confirmed_repo,
-                                    source="review_queue",
-                                    note="candidate confirmed by operator",
-                                )
-                            project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
-                            project["merge_recommendation"] = compute_merge_recommendation(project)
-                            save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
-                            conn.commit()
-                            print(
-                                json.dumps(
-                                    {
-                                        "confirmed_repo_seed": confirmed_repo or repo_candidates[0],
-                                        "project_key": current_item.get("project_key", ""),
-                                    },
-                                    ensure_ascii=False,
-                                )
-                            )
-                            refreshed = build_review_queue_item(conn, str(current_item.get("project_key") or ""), kinds=kinds)
-                            if refreshed is None:
-                                break
-                            current_item = refreshed
-                    continue
-                if queue_name == "review" and answer == "R":
-                    project = fetch_project(conn, str(current_item.get("project_key") or ""))
-                    if project is not None:
-                        project = ensure_project_shape(project)
-                        repo_candidates = project_repo_hint_urls(project)
-                        if repo_candidates:
-                            blocked = normalize_blocked_identifiers(list(project.get("blocked_identifiers", [])))
-                            blocked.append(
-                                {
-                                    "type": "repo_url",
-                                    "value": repo_candidates[0],
-                                    "note": "rejected from review-queue interactive",
-                                    "added_at": iso_now(),
-                                }
-                            )
-                            project["blocked_identifiers"] = blocked
-                            project = finalize_project_shape(project)
-                            project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
-                            project["merge_recommendation"] = compute_merge_recommendation(project)
-                            save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
-                            conn.commit()
-                            print(json.dumps({"rejected_repo_candidate": repo_candidates[0], "project_key": current_item.get("project_key", "")}, ensure_ascii=False))
-                            refreshed = build_review_queue_item(conn, str(current_item.get("project_key") or ""), kinds=kinds)
+                        is_service = answer.lower() == "c"
+                        candidates = project_service_hint_urls(project) if is_service else project_repo_hint_urls(project)
+                        if candidates:
+                            identifier_type = "service_url" if is_service else "repo_url"
+                            operation = presentation.confirm_candidate if answer.islower() else decisions.set_identifier_block
+                            payload = dict(project_key=str(current_item["project_key"]),
+                                           identifier_type=identifier_type, value=candidates[0])
+                            if answer.islower():
+                                payload["source"] = "review_queue"
+                            result = operation(conn, **payload)
+                            print(json.dumps(result, ensure_ascii=False))
+                            refreshed = build_review_queue_item(conn, str(current_item["project_key"]), kinds=kinds)
                             if refreshed is None:
                                 break
                             current_item = refreshed

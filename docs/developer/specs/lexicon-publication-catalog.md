@@ -41,7 +41,7 @@ Jetstream v2 snapshotは同一sealed tipまで揃ってから現在状態へ原�
 
 型は共通identityに付随する観測であり、samplingと信頼経路の適用条件に使います。record samplingはrecord型、範囲付きpublication policyは各Lexicon型を対象とします。spaceのcollection宣言は`mentions_collection`として参照関係を表します。型変更は要確認に残し、明示的なNSID採用で解除されるまで新しい自動採用の支持に使いません。
 
-内容・型・publisher変更、不正化、削除、期限切れで古い検証を新しい支持に流用しません。既存identifier・手動採用は自動削除せず、`lexicon_publication_changed`の要レビュー理由を保存します。要レビューを非表示にした後でも、新しい変化があれば再表示します。詳細は現在のcatalogと期限を読み直して表示します。
+内容・型・publisher変更、不正化、削除、期限切れで古い検証を新しい支持に流用しません。既存identifier・手動採用は自動削除せず、`lexicon_publication_changed`の要レビュー理由を保存します。要レビューを確認した後でも、新しい変化があれば再表示します。公開情報の各schemaに`review_change_id`を保持し、型・状態・発行者・record hash・帰属競合の変化時だけ新しいIDを付けます。再検証時刻だけの更新ではIDを維持します。詳細は現在のcatalogと期限を読み直して表示します。
 
 ## 公開活動との比較
 

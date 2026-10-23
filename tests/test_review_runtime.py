@@ -14,8 +14,8 @@ class ReviewRuntimeTest(TempRegistryDbTestCase):
         self.conn = registry.open_db()
         self.addCleanup(self.conn.close)
 
-    def test_cli_filters_identity_editorial_service_and_publication_signals(self):
-        kinds = ("missing_project_identity", "editorial_refresh",
+    def test_cli_filters_editorial_service_and_publication_signals(self):
+        kinds = ("editorial_refresh",
                  "service_observation_changed", "lexicon_publication_changed")
         expected = {}
         for index, kind in enumerate(kinds):
@@ -51,6 +51,10 @@ class ReviewRuntimeTest(TempRegistryDbTestCase):
 
     def test_demo_queue_batch_and_detail_keep_full_contribution_and_signals(self):
         dev_database.seed_database(self.conn)
+        for key in ('proj:dddd00000002', 'proj:dddd00000004', 'proj:dddd00000005'):
+            project = project_record.fetch_project(self.conn, key)
+            project['editorial'] = {'proposal': {'kind': 'changed_facts', 'reason': 'New facts'}}
+            project_record.save_project(self.conn, project)
         self.conn.commit()
         with mock.patch.object(project_record, 'ensure_project_shape', wraps=project_record.ensure_project_shape) as shape, \
              mock.patch.object(runtime_view, 'refresh_baselines', wraps=runtime_view.refresh_baselines) as baseline:
@@ -90,7 +94,7 @@ class ReviewRuntimeTest(TempRegistryDbTestCase):
                 nsid = 'org.example.notes.entry'
                 project = self.make_project(key, 'service_url', url)
                 registry.confirm_service_seed(project, url, source='fixture')
-                project.update(manual_review_recommended=True, manual_review_kind='identity_resolution',
+                project.update(editorial={'proposal': {'kind': 'changed_facts'}}, manual_review_recommended=True, manual_review_kind='identity_resolution',
                                manual_review_priority='medium', relation_evidence=[{
                     'relation': {'subject': {'type': 'service_url', 'value': url},
                                  'predicate': predicate, 'object': {'type': 'nsid', 'value': nsid},
@@ -112,7 +116,7 @@ class ReviewRuntimeTest(TempRegistryDbTestCase):
     def test_auth_only_observation_does_not_change_equal_priority_order(self):
         for key, auth in (('proj:aaaaaaaaaaaa', True), ('proj:bbbbbbbbbbbb', False)):
             project = self.make_project(key, 'service_url', f'https://{key[-12:]}.example')
-            project.update(name='Login tool' if auth else 'Collection hint', category='project',
+            project.update(editorial={'proposal': {'kind': 'changed_facts'}}, name='Login tool' if auth else 'Collection hint', category='project',
                            atproto_auth_only=auth, manual_review_recommended=True,
                            manual_review_kind='identity_resolution', manual_review_priority='medium')
             if not auth:

@@ -391,28 +391,8 @@ def review_queue_suggested_commands(project: dict[str, Any], signals: list[dict[
         return commands
     commands.append(f"{command_prefix} show -p {project_key} --format json")
     signal_kinds = {str(item.get("kind") or "") for item in signals}
-    if signal_kinds & {
-        "llm_manual_review_recommended",
-        "high_information_density",
-        "stale_metadata_with_recent_activity",
-        "service_status_unverified_but_promising",
-        "external_lexicon_dependency_needs_review",
-        "category_recheck_needed",
-        "service_observation_changed",
-    }:
+    if "service_observation_changed" in signal_kinds:
         commands.append(f"{command_prefix} enrich -p {project_key} --deep-investigation")
-    if "service_candidate_needs_confirmation" in signal_kinds:
-        service_candidates = project_review.project_service_hint_urls(project)
-        if service_candidates:
-            commands.append(
-                f"{command_prefix} add-seed {shlex.quote(service_candidates[0])} --type service_url --project-key {project_key}"
-            )
-    if "candidate_repo_needs_confirmation" in signal_kinds:
-        repo_candidates = project_review.project_repo_hint_urls(project)
-        if repo_candidates:
-            commands.append(
-                f"{command_prefix} add-seed {shlex.quote(repo_candidates[0])} --type repo_url --project-key {project_key}"
-            )
     return commands
 
 

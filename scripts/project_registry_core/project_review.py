@@ -10,9 +10,11 @@ from project_registry_core import promotion_attention
 from project_registry_core.repositories import repo_urls as repo_url_core
 from project_registry_core import service as service_core
 import datetime as dt
+import hashlib
+import json
 from typing import Any
 
-from project_registry_core import project_record, registration
+from project_registry_core import project_record
 
 
 DEFAULT_PROMOTION_DEFER_DAYS = 30
@@ -103,17 +105,6 @@ def missing_description_fields(project: dict[str, Any]) -> list[str]:
     return [field for field in ("summary", "tagline") if not str(project.get(field) or "").strip()]
 
 
-def project_confirmed_identifier_count(project: dict[str, Any]) -> int:
-    count = 0
-    if project.get("service_urls"):
-        count += 1
-    if project.get("project_repository_urls"):
-        count += 1
-    if project.get("resolved_nsids"):
-        count += 1
-    return count
-
-
 def project_repo_hint_urls(project: dict[str, Any]) -> list[str]:
     hints = repo_url_core.normalize_repo_collection(
         project_record.unique_list(
@@ -178,230 +169,60 @@ def sanitize_manual_review_reason(project: dict[str, Any], reason: str) -> str:
     return text
 
 
-def service_status_manual_review_action_basis(project: dict[str, Any]) -> list[str]:
-    service_status = project_record.normalize_service_status(str(project.get("service_status") or "unknown"))
-    service_confidence = project_record.normalize_service_status_confidence(str(project.get("service_status_confidence") or "none"))
-    service_evidence = {str(item) for item in project.get("service_status_evidence", []) if str(item).strip()}
-    basis: list[str] = []
-
-    if service_status == "unknown":
-        basis.append("service_status_resolution")
-
-    if (
-        not str(project.get("introduced_url") or "").strip()
-        and str(project.get("category") or "") in {"project", "personal_tool"}
-        and service_status in {"live", "beta", "invite_only"}
-        and service_confidence in {"none", "low"}
-    ):
-        basis.append("introduction_validation")
-
-    if "mixed_launch_signals_detected" in service_evidence:
-        basis.append("conflicting_service_status_evidence")
-
-    return basis
+def review_change_fingerprint(kind: str, details: dict[str, Any]) -> str:
+    """Identify the observed change, not the project or its notification kind."""
+    payload = json.dumps({"kind": kind, "details": details}, ensure_ascii=False,
+                         sort_keys=True, separators=(",", ":"))
+    return "review-change-v1:" + hashlib.sha256(payload.encode()).hexdigest()
 
 
 def compute_review_signals(
     project: dict[str, Any],
     *,
     assume_shaped: bool = False,
+    include_acknowledged: bool = False,
 ) -> list[dict[str, Any]]:
     shaped = dict(project) if assume_shaped else project_record.ensure_project_shape(dict(project))
     signals: list[dict[str, Any]] = []
-    if shaped.get("tracking_state") in {"active", "stable", "stalled"} and not registration.confirmed_components(shaped):
-        signals.append({"kind": "missing_project_identity", "priority": 9,
-                        "reason": "登録プロジェクトが表す対象を採用するか、プロジェクト自体の追跡状態を見直してください。",
-                        "details": {"action_basis": ["review_project_identity_and_tracking"]}})
-    dismissed_kinds = {str(item).strip() for item in shaped.get("dismissed_review_kinds", []) if str(item).strip()}
     proposal = (shaped.get("editorial") or {}).get("proposal")
     if proposal:
         signals.append({"kind": "editorial_refresh", "priority": 7,
                         "reason": str(proposal.get("reason") or "説明の更新案があります"),
                         "details": {"action_basis": ["description_proposal"],
                                     "change_kind": proposal.get("kind")}})
+    # A changed page hash alone does not imply a change that needs an operator.
     changed_services = [service_core.observation_summary(item) for item in shaped.get("service_verification_results", [])
                         if item.get("requested_url") in shaped.get("service_urls", [])
-                        and (item.get("surface_change") or item.get("content_changed"))]
+                        and item.get("surface_change")]
     if changed_services:
+        changed_services.sort(key=lambda item: (str(item["requested_url"]), str(item["lane"])))
         signals.append({"kind": "service_observation_changed", "priority": 5,
                         "details": {"observations": changed_services,
                                     "action_basis": ["review_description_and_tracking_separately"]}})
     if shaped.get("publication_review"):
+        # Reverification timestamps are not new facts. Schema, publisher and
+        # verification state changes are; use them even when the reason repeats.
+        schemas = [{key: item.get(key) for key in
+                    ("schema_id", "schema_type", "status", "publisher_did", "record_hash", "attribution_conflict", "review_change_id")}
+                   for item in shaped.get("publication_schemas", [])]
+        affected = [item for item in schemas if any(
+            str(reason).endswith(": " + str(item["schema_id"])) for reason in shaped["publication_review"])]
+        if affected:
+            schemas = affected
+        schemas.sort(key=lambda item: str(item["schema_id"]))
         signals.append({"kind": "lexicon_publication_changed", "priority": 5,
-                        "details": {"reasons": list(shaped["publication_review"]), "action_basis": ["review_lexicon_publication"]}})
-    if shaped.get("tracking_state") == "out_of_scope":
-        return [signal for signal in signals if signal["kind"] not in dismissed_kinds]
-    service_status = str(shaped.get("service_status") or "unknown")
-    service_confidence = str(shaped.get("service_status_confidence") or "none")
-    service_evidence = {str(item) for item in shaped.get("service_status_evidence", []) if str(item).strip()}
-    confirmed_identifier_count = project_confirmed_identifier_count(shaped)
-    service_candidates = project_record.unique_list(
-        ([str(shaped.get("website_url") or "")] if shaped.get("website_url") else [])
-        + [str(item or "") for item in shaped.get("service_urls", [])]
-        + [str(item or "") for item in project_record.service_url_candidate_values(shaped)]
-    )
-    repo_candidates = project_repo_hint_urls(shaped)
-    standalone_service_candidates = project_service_hint_urls(shaped)
-    nsid_count = len(project_record.unique_list(
-        [str(item or "") for item in shaped.get("input_nsids", [])]
-        + [str(item or "") for item in shaped.get("resolved_nsids", [])]
-    ))
-    manual_review_kind = str(shaped.get("manual_review_kind") or "other")
-    manual_review_action_basis = (
-        service_status_manual_review_action_basis(shaped)
-        if manual_review_kind == "service_status_manual_check"
-        else []
-    )
-    if (
-        shaped.get("manual_review_recommended")
-        and manual_review_kind != "other"
-        and (manual_review_kind != "service_status_manual_check" or manual_review_action_basis)
-    ):
-        llm_priority = {"none": 0, "low": 4, "medium": 7, "high": 9}.get(str(shaped.get("manual_review_priority") or "none"), 4)
-        signals.append(
-            {
-                "kind": "llm_manual_review_recommended",
-                "priority": llm_priority,
-                "details": {
-                    "manual_review_kind": manual_review_kind,
-                    "manual_review_priority": str(shaped.get("manual_review_priority") or "none"),
-                    "manual_review_reason": str(shaped.get("manual_review_reason") or ""),
-                    "action_basis": manual_review_action_basis,
-                },
-            }
-        )
-
-    if not shaped.get("service_urls") and standalone_service_candidates:
-        signals.append(
-            {
-                "kind": "service_candidate_needs_confirmation",
-                "priority": 8,
-                "details": {
-                    "service_candidate_count": len(standalone_service_candidates),
-                    "service_candidates": standalone_service_candidates[:3],
-                },
-            }
-        )
-
-    if not shaped.get("project_repository_urls") and repo_candidates:
-        signals.append(
-            {
-                "kind": "candidate_repo_needs_confirmation",
-                "priority": 8,
-                "details": {
-                    "repo_candidate_count": len(repo_candidates),
-                    "repo_candidates": repo_candidates[:3],
-                },
-            }
-        )
-
-    if confirmed_identifier_count <= 1 and service_status == "unknown" and (
-        len(service_candidates) >= 2 or len(repo_candidates) >= 2 or nsid_count >= 2
-    ):
-        signals.append(
-            {
-                "kind": "more_evidence_than_current_classification",
-                "priority": 7,
-                "details": {
-                    "service_candidate_count": len(service_candidates),
-                    "repo_candidate_count": len(repo_candidates),
-                    "nsid_count": nsid_count,
-                    "confirmed_identifier_count": confirmed_identifier_count,
-                },
-            }
-        )
-
-    latest_activity = project_latest_activity_at(shaped)
-    now = dt.datetime.now(dt.timezone.utc)
-    activity_days = activity_age_days(latest_activity, now)
-    editorial_missing = not str(shaped.get("tagline") or "").strip() or not str(shaped.get("summary") or "").strip()
-    if activity_days is not None and activity_days <= 14 and (editorial_missing or service_status in {"unknown", "unverified"}):
-        signals.append(
-            {
-                "kind": "stale_metadata_with_recent_activity",
-                "priority": 7,
-                "details": {
-                    "activity_age_days": activity_days,
-                    "latest_activity_at": latest_activity.isoformat() if latest_activity else "",
-                    "missing_editorial": editorial_missing,
-                    "service_status": service_status,
-                },
-            }
-        )
-
-    if service_status == "unverified" and service_confidence in {"medium", "high"} and service_evidence & {
-        "login_surface_detected",
-        "app_shell_detected",
-        "invite_text_detected",
-        "beta_text_detected",
-        "coming_soon_detected",
-    }:
-        signals.append(
-            {
-                "kind": "service_status_unverified_but_promising",
-                "priority": 8,
-                "details": {
-                    "service_status_confidence": service_confidence,
-                    "service_status_evidence": sorted(service_evidence),
-                },
-            }
-        )
-
-    if str(shaped.get("category") or "") == "lexicon" and shaped.get("service_urls"):
-        signals.append(
-            {
-                "kind": "category_recheck_needed",
-                "priority": 7,
-                "details": {
-                    "category": str(shaped.get("category") or ""),
-                    "website_url": str(shaped.get("website_url") or ""),
-                    "service_url_count": len(shaped.get("service_urls", [])),
-                    "repo_url_count": len(project_repo_hint_urls(shaped)),
-                },
-            }
-        )
-
-    if shaped.get("external_lexicons") and (shaped.get("resolved_nsids") or shaped.get("input_nsids")):
-        signals.append(
-            {
-                "kind": "external_lexicon_dependency_needs_review",
-                "priority": 6,
-                "details": {
-                    "external_lexicons": list(shaped.get("external_lexicons", []))[:5],
-                    "owned_nsid_count": len(project_record.unique_list(list(shaped.get("resolved_nsids", [])) + list(shaped.get("input_nsids", [])))),
-                },
-            }
-        )
-
-    if nsid_count >= 3 or len(shaped.get("lexicon_schema_samples", [])) >= 3 or len(shaped.get("recent_record_samples", [])) >= 6:
-        signals.append(
-            {
-                "kind": "high_information_density",
-                "priority": 6,
-                "details": {
-                    "nsid_count": nsid_count,
-                    "lexicon_schema_sample_count": len(shaped.get("lexicon_schema_samples", [])),
-                    "recent_record_sample_count": len(shaped.get("recent_record_samples", [])),
-                },
-            }
-        )
-
-    if len(service_candidates) >= 3 or len(repo_candidates) >= 3 or len(shaped.get("manual_seeds", [])) >= 4:
-        signals.append(
-            {
-                "kind": "many_identity_candidates",
-                "priority": 5,
-                "details": {
-                    "service_candidate_count": len(service_candidates),
-                    "repo_candidate_count": len(repo_candidates),
-                    "manual_seed_count": len(shaped.get("manual_seeds", [])),
-                },
-            }
-        )
-
-    if dismissed_kinds:
-        signals = [signal for signal in signals if str(signal.get("kind") or "") not in dismissed_kinds]
-    return signals
+                        "details": {"reasons": sorted(set(shaped["publication_review"])),
+                                    "schemas": schemas, "action_basis": ["review_lexicon_publication"]}})
+    acknowledged = {item.get("target_value") for item in shaped.get("review_target_decisions", [])
+                    if item.get("kind") == "acknowledge_review" and not item.get("cleared_at")}
+    dismissed = set(shaped.get("dismissed_review_kinds", []))
+    output = []
+    for signal in signals:
+        if signal["kind"] != "editorial_refresh":
+            signal["fingerprint"] = review_change_fingerprint(signal["kind"], signal["details"])
+        if include_acknowledged or (signal["kind"] not in dismissed and signal.get("fingerprint") not in acknowledged):
+            output.append(signal)
+    return output
 
 
 def confirmed_dns_lexicon_publications(project: dict[str, Any]) -> list[dict[str, Any]]:

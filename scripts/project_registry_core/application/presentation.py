@@ -44,6 +44,7 @@ RELATION_ENTITY_TYPES = (
     "website",
 )
 DECISION_KINDS = (
+    "acknowledge_review",
     "plan_introduction",
     "confirm_service_usage",
     "assess_atproto_usage",
@@ -58,6 +59,7 @@ DECISION_KINDS = (
     "separate_project",
 )
 DECISION_TARGET_TYPES = (
+    "review_change",
     "atproto_usage",
     "project_key",
     "promotion_priority",
@@ -855,15 +857,16 @@ def confirm_candidate(
     identifier_type: str,
     value: str,
     note: str = "",
+    source: str = "web_ui",
 ) -> dict[str, Any]:
     project = core.resolve_single_project(conn, project_key=project_key)
     # An explicit operator confirmation supersedes an exact block/defer. If the
     # candidate is invalid, the unsaved in-memory change is discarded below.
     projects._clear_exact_identifier_guards(project, identifier_type, value)
     if identifier_type == "service_url":
-        confirmed = core.confirm_service_seed(project, value, source="web_ui")
+        confirmed = core.confirm_service_seed(project, value, source=source)
     elif identifier_type == "repo_url":
-        confirmed = core.confirm_repo_seed(project, value, source="web_ui")
+        confirmed = core.confirm_repo_seed(project, value, source=source)
     elif identifier_type == "nsid":
         normalized = project_record.canonical_seed_value("nsid", value)
         if normalized not in project.get("input_nsids", []):
@@ -886,7 +889,7 @@ def confirm_candidate(
             project_record.add_developer_account(
                 project,
                 str(candidate.get("handle") or ""),
-                "web_ui",
+                source,
                 did=str(candidate.get("did") or ""),
             )
             project["candidate_developer_accounts"] = [
@@ -902,7 +905,7 @@ def confirm_candidate(
         project,
         identifier_type,
         confirmed,
-        source="web_ui",
+        source=source,
         note=note.strip() or "candidate confirmed by operator",
         role={
             "service_url": "service",

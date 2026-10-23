@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 from collections import defaultdict
 from typing import Any
 
@@ -208,6 +209,12 @@ def _import_projects(conn: sqlite3.Connection, observed: dict[str, dict[str, Any
         reasons = []
         for item in items:
             old = previous.get(item["schema_id"])
+            item = dict(item)
+            if old and old.get("review_change_id"):
+                item["review_change_id"] = old["review_change_id"]
+            review_fields = ("schema_type", "status", "publisher_did", "record_hash", "attribution_conflict")
+            facts_changed = not old or any(old.get(field) != item.get(field) for field in review_fields)
+            changed_for_review = False
             if old != item:
                 relation_source = f"{SOURCE}:{item['schema_id']}"
                 p["relation_evidence"] = [r for r in p.get("relation_evidence", []) if r.get("source") != relation_source]
@@ -221,11 +228,17 @@ def _import_projects(conn: sqlite3.Connection, observed: dict[str, dict[str, Any
                     ).to_dict())
             if item.get("attribution_conflict"):
                 reasons.append(f"帰属候補が競合: {item['schema_id']}")
-            if old and old != item and (item["status"] in {"deleted", "invalid"} or old.get("schema_type") != item.get("schema_type") or
+                changed_for_review = facts_changed
+            if old and facts_changed and (item["status"] in {"deleted", "invalid"} or old.get("schema_type") != item.get("schema_type") or
                     old.get("status") == "verified" and (item["status"] != "verified" or old.get("publisher_did") != item.get("publisher_did") or old.get("record_hash") != item.get("record_hash"))):
                 reasons.append(f"発行根拠の変化: {item['schema_id']}")
+                changed_for_review = True
                 from .. import trust_graph
                 trust_graph.remove_edges(p, source=f"lexicon_resolution:{item['schema_id']}")
+            if changed_for_review:
+                # Repeated facts after another change are a new event; periodic
+                # verification of unchanged facts is not.
+                item["review_change_id"] = uuid.uuid4().hex
             previous[item["schema_id"]] = item
         p["publication_schemas"] = [previous[n] for n in sorted(previous)]
         if reasons:

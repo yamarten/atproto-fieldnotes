@@ -70,7 +70,7 @@ class DevDatabaseTest(unittest.TestCase):
             self.assertEqual([p["project_key"] for p in promotion], ["proj:dddd00000001"])
             review = application_review.review_queue(conn)
             sketch = next(p for p in review if p["project_key"] == "proj:dddd00000002")
-            self.assertIn("service_candidate_needs_confirmation", [s["kind"] for s in sketch["signals"]])
+            self.assertEqual([s["kind"] for s in sketch["signals"]], ["editorial_refresh"])
             for item in promotion + review:
                 for command in item["suggested_commands"]:
                     self.assertEqual(shlex.split(command)[1:3], ["--db-path", str(self.path)])

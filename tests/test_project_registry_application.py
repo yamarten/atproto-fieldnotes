@@ -886,7 +886,12 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
                 value="https://wrong.example",
                 note="not this project",
             )
-            decisions.dismiss_review_kind(conn, project_key=created["project_key"], kind="candidate_repo_needs_confirmation")
+            with self.assertRaises(ValueError):
+                decisions.dismiss_review_kind(conn, project_key=created["project_key"], kind="candidate_repo_needs_confirmation")
+            # Legacy saved decisions remain readable, but no new dismissal can be created.
+            project = project_record.fetch_project(conn, created["project_key"])
+            project["dismissed_review_kinds"] = ["candidate_repo_needs_confirmation"]
+            project_record.save_project(conn, project)
             rows = conn.execute(
                 "SELECT kind, target_type, target_value FROM project_decisions WHERE project_key = ? ORDER BY ordinal",
                 (created["project_key"],),
@@ -1306,7 +1311,7 @@ class ProjectRegistryApplicationTest(TempRegistryDbTestCase):
             created = projects.add_seed(conn, seed="https://example.com", seed_type="service_url")
             project = project_record.fetch_project(conn, created["project_key"])
             assert project is not None
-            project["service_url_candidates"] = ["https://app.example.com"]
+            project["editorial"] = {"proposal": {"kind": "changed_facts"}}
             project_record.save_project(conn, project)
             conn.commit()
             items = review.review_queue(conn, tracking_states={"active"}, limit=10)

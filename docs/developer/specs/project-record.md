@@ -347,14 +347,17 @@ operator判断を履歴として保持し、自動収集・評価より優先し
 - `confirm_identifier`: operator入力または採用済みsource seedによるidentifier採用判断
 - `defer_promotion`: promotion queueへの再出現を期限付きで保留する
 - `lower_promotion_priority`: promotion候補の手動優先度を下げる。Webの通常確認対象（`inbox`）から外し、「低優先度・特集候補」に残す。CLI既定の`queue`では通常候補より後ろに含める。理由は`note`に保存し、clear後は通常優先度へ戻る
-- `dismiss_review`: 特定の要レビュー理由（review signal）の表示を抑止する
-- `dismiss_review_target`: 内容の変更検出値（fingerprint）で特定したrelationまたはcollector failureのレビュー表示を抑止する
-- `defer_review_target`: fingerprintで特定したrelationまたはcollector failureのレビューを期限付きで保留する
+- `acknowledge_review`: 特定の変化通知を内容のfingerprintで確認し、同じ通知の再表示を抑止する
+- `dismiss_review`: 旧操作による種類単位の表示抑止。新規操作は提供せず、保存済みの指定と解除を保持する
+- `dismiss_review_target`: 旧操作によるrelation / collector failureの表示抑止
+- `defer_review_target`: 旧操作によるrelation / collector failureの期限付き表示保留
 - `separate_project`: 2 projectを別物としてmerge候補から除外する
 
 各rowはtarget、note、created/expires/cleared timestamp、追加metadataを持ちます。clear後も履歴を残すdecisionがあります。`confirm_identifier`はmigrationや再評価で自動判定より優先する明示的な採用根拠として扱い、`source`でoperator入力とsource syncを区別します。
 
-relation / collector failureのreview target判断は、詳細APIで各項目の`review_target.status`と有効な`decisions`へ投影します。Webは有効な除外・保留を折りたたみ、解除または期限到来で通常表示へ戻します。relationのclassification、identifierの採用、失敗件数、project単位のreview signalは変更しません。relation fingerprintはsubject / predicate / objectとsource / locator / method、failure fingerprintはrun IDと失敗内容を含みます。relationの観測時刻やclassificationだけの変化では別対象になりません。過去の対象が最新表示から消えた後も、所属projectの判断履歴から解除できます。
+relation / collector failureに新しい確認・保留は記録しません。保存済みのreview target判断は、詳細APIで各項目の`review_target.status`と有効な`decisions`へ投影します。Webは有効な除外・保留を折りたたみ、解除または期限到来で通常表示へ戻します。relationのclassification、identifierの採用、失敗件数、project単位のreview signalは変更しません。relation fingerprintはsubject / predicate / objectとsource / locator / method、failure fingerprintはrun IDと失敗内容を含みます。relationの観測時刻やclassificationだけの変化では別対象になりません。過去の対象が最新表示から消えた後も、所属projectの判断履歴から解除できます。
+
+`acknowledge_review`は`target_type=review_change`、`target_value=review-change-v1:...`とし、metadataに`signal_kind`と確認した`details`を保存します。runtimeでは旧表示判断と同じ`review_target_decisions`へ投影し、state JSONへ二重保存しません。解除済みも履歴に残し、現在のprojectに存在しないfingerprintへの新規確認は拒否します。新規確認と解除は通常のrevision検査を通ります。比較項目とマージ後の再表示は[評価仕様](project-evaluation.md#人に求める判断と再表示)を参照してください。
 
 ### サイト閲覧後の手動判断
 
@@ -368,7 +371,7 @@ mergeでは両側のentry IDと履歴を保持します。紹介予定や同じs
 
 `defer_promotion`は紹介候補の保留を表し、reasonは空文字を許可します。新しいmetadataには判断時点の`fingerprint`を保存します。期限前でも現在の根拠が異なれば紹介候補の保留効果を解除し、元のdecision rowは履歴として維持します。再保留では期限内の旧entryをclearして新しい基準を保存します。fingerprintがない既存decisionは期限だけで判定し、読込み時の推測補完・移行はしません。Lower priorityの保存形、理由、解除済み履歴、merge時のtarget優先は維持します。
 
-operatorがcandidateをconfirmすると、同じ`kind + value`を対象とするexactなblock/deferを解除して`confirm_identifier`を追加します。operatorがblock/deferすると、同じ対象のactiveなconfirmと採用理由を終了させます。現行mutationは同じ値を持つ全roleへ作用し、`target_role`は判断対象のroleを記録しますがrole単位のguardにはまだ使いません。古い矛盾したdecisionを併存させて優先順位を毎回推測せず、最新の明示的判断をactiveな状態として保存します。
+operatorがcandidateをconfirmすると、同じ`kind + value`を対象とするexactなblock/deferを解除して`confirm_identifier`を追加します。operatorがblock/deferすると、同じ対象のactiveなconfirmと採用理由を終了させます。除外と保留を切り替えた時も同じ種類・値の逆のguardを取り除きます。現行mutationは同じ値を持つ全roleへ作用し、`target_role`は判断対象のroleを記録しますがrole単位のguardにはまだ使いません。古い矛盾したdecisionを併存させて優先順位を毎回推測せず、最新の明示的判断をactiveな状態として保存します。
 
 ### Promotionの確認記録
 

@@ -211,22 +211,15 @@ probeがprojectを支持し、検証済みauthorityの完全一致hostが正常�
 
 #### 要レビュー一覧の評価入力
 
-要レビュー一覧・対話batch・単件項目は、詳細と同じ正規化済みの完全runtime viewから寄与度・review signal・順位を計算します。保存された評価値をそのまま表示するのではなく、識別子・関係根拠・手動判断を含む現在の保存材料に共通規則を適用します。関係根拠や認証専用フラグを省いて寄与度を再計算せず、公開Lexiconの変更通知とそのdismiss判断も保持します。一覧はproject本体・子行・更新番号を同じread snapshotで読み、各projectの正規化と保存用baseline作成は一度です。重複候補の再探索は行いません。
+要レビュー一覧・対話batch・単件項目は、詳細と同じ正規化済みの完全runtime viewから寄与度・review signal・順位を計算します。保存された評価値をそのまま表示するのではなく、識別子・関係根拠・手動判断を含む現在の保存材料に共通規則を適用します。関係根拠や認証専用フラグを省いて寄与度を再計算せず、公開Lexiconの変更通知と確認・旧非表示判断も保持します。一覧はproject本体・子行・更新番号を同じread snapshotで読み、各projectの正規化と保存用baseline作成は一度です。重複候補の再探索は行いません。
 
-#### Service statusの要レビュー条件
+#### 人に求める判断と再表示
 
-LLM の `manual_review_recommended=true` は保存しますが、`manual_review_kind=service_status_manual_check`は単に `service_status_confidence=low` というだけでは review queue に載せません。
+要レビュー一覧は、`editorial_refresh`（説明更新案）、`service_observation_changed`（採用済みサービスの利用画面の確認結果の変化）、`lexicon_publication_changed`（発行根拠・帰属の変化）に限定します。未採用識別子、情報量、最近の活動、外部Lexiconの併用、分類の組合せ、LLMの確認推奨だけでは載せません。紹介候補や新規登録から選んだprojectで必要な帰属を判断する運用とし、台帳全体の候補消化を利用者の未処理作業にしないためです。LLMの推奨・理由と観測情報は調査記録に保持します。紹介スコアと手動の紹介保留・低優先度はこの一覧から独立します。
 
-`llm_manual_review_recommended` signal を残すのは、手動確認の結果で次のいずれかが変わる時です。
+説明更新案は既存の編集画面で採用・見送りを決め、別の確認記録を求めません。サービスは`surface_change`だけを対象とし、本文hashの変化だけでは通知しません。利用画面を確認できなくなった場合も、終了の確定ではなく取得失敗を含む確認材料です。必要なら説明・追跡状態を訂正します。Lexiconでは公開情報を見て必要な採用を訂正します。
 
-- `service_status_resolution`
-  - `service_status=unknown`で、利用できる状態かを解決する
-- `introduction_validation`
-  - 未紹介の `project` / `personal_tool` で、usable service の confidence が `none` / `low`
-- `conflicting_service_status_evidence`
-  - `mixed_launch_signals_detected` があり、status evidence が矛盾している
-
-要レビュー一覧へ載せた理由はsignalの`details.action_basis`に残します。この絞り込みは`service_status_manual_check`に適用し、`identity_resolution`など他の`manual_review_kind`には適用しません。
+変化の通知を閉じる`acknowledge_review`は、その内容のfingerprintに対する確認記録です。採用・説明・失敗・紹介候補は変更しません。同じ変化の再表示を抑え、解除または異なる内容で再表示します。サービスはURL・lane・観測時点・変化の内容、Lexiconは要確認理由と対象schemaの型・状態・publisher・record hash・帰属競合・変化IDを比較します。再検証時刻だけではLexiconを再提示せず、一度別の状態を経て同じ状態へ戻った場合は新たな変化IDで再提示します。旧データの変化IDは推定補完しません。マージは両側の確認記録を保持し、合成後の通知内容が異なれば再確認となります。旧`dismiss_review`の種類単位の非表示は元の意味で保持し、判断記録から解除できます。
 
 ### Atprotoの観測根拠
 

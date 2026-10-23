@@ -103,7 +103,7 @@ class RegistrationOriginsTest(TempRegistryDbTestCase):
             self.assertEqual(len(origins), 1)
             self.assertEqual((origins[0]['source'], origins[0]['adoption_kind']), ('semble_collection_sync', 'bootstrap'))
 
-    def test_rejecting_last_identity_requires_project_review_without_promoting_candidate(self):
+    def test_rejecting_last_identity_stays_visible_in_detail_without_review_task(self):
         key = publication_registry.import_projects(self.conn, self.publication(), execute=True)['imported_project_keys'][0]
         publication_registry.import_projects(self.conn, self.publication('org.example.project.other'), execute=True)
         decisions.set_identifier_block(self.conn, project_key=key, identifier_type='nsid',
@@ -113,7 +113,7 @@ class RegistrationOriginsTest(TempRegistryDbTestCase):
         p = project_record.fetch_project(self.conn, key)
         self.assertEqual(p['resolved_nsids'], [])
         self.assertIn('org.example.project.other', p['input_nsids'])
-        self.assertIn('missing_project_identity', {item['kind'] for item in project_review.compute_review_signals(p)})
+        self.assertNotIn('missing_project_identity', {item['kind'] for item in project_review.compute_review_signals(p)})
         projects.set_tracking_state(self.conn, project_key=key, tracking_state='ignore')
         p = project_record.fetch_project(self.conn, key)
         self.assertNotIn('missing_project_identity', {item['kind'] for item in project_review.compute_review_signals(p)})
