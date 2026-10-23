@@ -92,9 +92,9 @@ const displayLabels = {
   "clear-defer-identifier": "識別子の保留を解除",
   "defer-promotion": "紹介候補を保留にする",
   "clear-promotion-deferral": "紹介候補の保留を解除",
-  "acknowledge-review": "変化を確認した",
-  "clear-review-acknowledgement": "確認記録を解除",
-  "acknowledge_review": "変化の確認記録",
+  "acknowledge-review": "通知を閉じる",
+  "clear-review-acknowledgement": "通知を戻す",
+  "acknowledge_review": "閉じた通知",
 
   "clear-review-target": "レビュー対象の手動判断を解除",
   "clear-separate": "別プロジェクト指定を解除",
@@ -242,7 +242,7 @@ const displayLabels = {
   "observe_services": "サービス巡回",
   "observe confirmed then investigate unadopted URLs": "採用済みサービスの再確認 → 未採用URLの調査",
   "Observe due confirmed services, then investigate unadopted service URLs with a separate adjustable budget. No automatic tracking changes.": "採用済みサービスを再確認し、別の処理予算で未採用URLを調査します。追跡状態は自動変更しません。",
-  "lexicon_publication_changed": "Lexiconの発行根拠・帰属の確認",
+  "lexicon_publication_changed": "Lexicon発行の変化",
   "missing_project_identity": "プロジェクトが表す対象の確認",
   "review_project_identity_and_tracking": "対象の採用・プロジェクト自体の追跡判断",
   "sync lexicons": "Lexicon公開情報の取得",
@@ -265,8 +265,8 @@ const displayLabels = {
   "fewer than 3 features": "特徴が3件未満",
   "category missing": "分類が未登録",
   "LLM review missing": "LLMによる評価が未実施",
-  "editorial_refresh": "説明の更新案あり",
-  "service_observation_changed": "サービスの観測に変化あり",
+  "editorial_refresh": "説明更新案",
+  "service_observation_changed": "利用画面の変化",
   "llm_manual_review_recommended": "LLMが手動レビューを推奨",
   "service_candidate_needs_confirmation": "サービス候補の確認が必要",
   "candidate_repo_needs_confirmation": "リポジトリ候補の確認が必要",
@@ -1681,12 +1681,12 @@ const detailTabHelp = {
 function renderReviewChanges(review) {
   return list(review?.signals).map(signal => {
     const editorial = signal.kind === "editorial_refresh";
-    const label = editorial ? "説明更新案" : signal.kind === "service_observation_changed" ? "利用画面の変化" : "発行根拠の変化";
+    const label = displayLabel(signal.kind);
     const destination = editorial ? "edit-profile" : signal.kind === "service_observation_changed" ? "service-observations" : "publication-schemas";
     const help = editorial ? "更新案と根拠を読み、説明への採用・見送りを決めます。" : signal.kind === "service_observation_changed"
       ? "採用済みサービスで利用画面の確認結果が変わりました。一時的な取得失敗の場合もあります。必要なら説明や追跡状態を訂正し、確認後に通知を閉じます。"
       : "Lexiconの発行根拠・帰属に変化があります。必要なら識別子の採用を訂正し、確認後に通知を閉じます。";
-    return `<div class="review-change"><strong>${label}</strong>${helpButton(label, `<p>${help}</p>`)}<div class="actions"><button class="small" data-review-destination="${destination}">${editorial ? "更新案を確認" : "変化を見る"}</button>${signal.fingerprint ? actionButton("確認した", "acknowledge-review", {"target-value":signal.fingerprint}) : ""}</div></div>`;
+    return `<div class="review-change"><strong>${esc(label)}</strong>${helpButton(label, `<p>${help}</p>`)}<div class="actions"><button class="small" data-review-destination="${destination}">${editorial ? "更新案を確認" : "変化を見る"}</button>${signal.fingerprint ? actionButton(displayLabel("acknowledge-review"), "acknowledge-review", {"target-value":signal.fingerprint}) : ""}</div></div>`;
   }).join("");
 }
 
@@ -2033,9 +2033,9 @@ function renderDecisions(decisions) {
       ? `${pill("紹介候補の優先度", "candidate")} 低い優先度`
       : item.kind === "assess_atproto_usage"
       ? `${pill("atproto利用と用途の判断", "candidate")} ${esc(item.target_value === "bluesky_client" ? "旧Bluesky向け用途（利用範囲は未判断）" : `${atprotoUsageLabels[item.target_value] || item.target_value} / ${atprotoFocusLabels[item.metadata?.focus || "auto"] || "用途は不明"}`)}`
-      : item.kind === "acknowledge_review" ? `${pill("変化の確認記録")} ${esc(displayLabel(item.metadata?.signal_kind))}`
+      : item.kind === "acknowledge_review" ? `${pill("acknowledge_review")} ${esc(displayLabel(item.metadata?.signal_kind))}`
       : `${pill(item.kind, "candidate")} ${esc(displayLabel(item.target_type))} ${esc(item.target_value)}`;
-    return `<div class="decision"><div>${summary}</div><div class="muted">${esc(decisionNote(item))} ${item.expires_at ? `· 期限 ${esc(formatTimestamp(item.expires_at))}` : ""}</div><div class="actions">${item.kind === "block_identifier" ? actionButton("除外を解除", "clear-block-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_identifier" ? actionButton("保留を解除", "clear-defer-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_promotion" ? actionButton("保留を解除", "clear-promotion-deferral") : ""}${item.kind === "lower_promotion_priority" ? actionButton("通常の優先度へ戻す", "clear-promotion-priority") : ""}${item.kind === "separate_project" ? actionButton("別プロジェクト指定を解除", "clear-separate", {other:item.target_value}) : ""}${item.kind === "acknowledge_review" ? actionButton("確認記録を解除", "clear-review-acknowledgement", {"target-value":item.target_value}) : ""}${item.kind === "dismiss_review" ? actionButton("非表示を解除", "dismiss-review-kind", {kind:item.target_value, clear:"true"}) : ""}${["dismiss_review_target", "defer_review_target"].includes(item.kind) ? actionButton("解除", "clear-review-target", {"target-type":item.target_type, "target-value":item.target_value, "review-action":item.kind.startsWith("defer") ? "defer" : "dismiss"}) : ""}</div></div>`;
+    return `<div class="decision"><div>${summary}</div><div class="muted">${esc(decisionNote(item))} ${item.expires_at ? `· 期限 ${esc(formatTimestamp(item.expires_at))}` : ""}</div><div class="actions">${item.kind === "block_identifier" ? actionButton("除外を解除", "clear-block-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_identifier" ? actionButton("保留を解除", "clear-defer-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_promotion" ? actionButton("保留を解除", "clear-promotion-deferral") : ""}${item.kind === "lower_promotion_priority" ? actionButton("通常の優先度へ戻す", "clear-promotion-priority") : ""}${item.kind === "separate_project" ? actionButton("別プロジェクト指定を解除", "clear-separate", {other:item.target_value}) : ""}${item.kind === "acknowledge_review" ? actionButton(displayLabel("clear-review-acknowledgement"), "clear-review-acknowledgement", {"target-value":item.target_value}) : ""}${item.kind === "dismiss_review" ? actionButton("非表示を解除", "dismiss-review-kind", {kind:item.target_value, clear:"true"}) : ""}${["dismiss_review_target", "defer_review_target"].includes(item.kind) ? actionButton("解除", "clear-review-target", {"target-type":item.target_type, "target-value":item.target_value, "review-action":item.kind.startsWith("defer") ? "defer" : "dismiss"}) : ""}</div></div>`;
   }).join("") : `<p class="muted">有効な判断はありません。</p>`;
   return current + (history.length ? `<details><summary>判断履歴（JSON） (${history.length})</summary>${json(history)}</details>` : "");
 }
@@ -2450,6 +2450,8 @@ function bindDetailActions(projectKey) {
       ? "普段の確認対象から外し、「低優先度・特集候補」に残します。見慣れた候補を繰り返し確認せず、後で理由から探すための操作です。自動では通常の優先度へ戻りません。"
       : action === "acknowledge-review"
       ? "この変化の通知を閉じます。採用状態や説明は変わりません。別の変化があれば再表示します。"
+      : action === "clear-review-acknowledgement"
+      ? "閉じた通知を戻します。現在も対象の変化が残っていれば、要レビュー一覧に再表示します。"
       : action === "defer-identifier"
       ? `${payload.value}: このプロジェクトでの採用を外し、30日間、自動採用を止めます。同じ種類・値のすべての役割に作用します。解除・期限到来では採用済みに戻りません。${scope}`
       : action === "block-identifier"
