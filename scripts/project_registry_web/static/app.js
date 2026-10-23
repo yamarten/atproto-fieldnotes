@@ -200,6 +200,7 @@ const displayLabels = {
   "separate_project": "別プロジェクト指定",
   "review_kind": "要レビューの種類",
   "review_target": "レビュー対象",
+  "review_change": "変化の通知",
   "queued": "実行待ち",
   "running": "実行中",
   "cancelling": "停止要求中",
@@ -1537,10 +1538,10 @@ function advanceReviewList(sourceKey, {targetKey = "", statusPrefix = ""} = {}) 
     clearDetailSelection();
     document.body.classList.remove("detail-open");
     syncUrl();
-    $("detail").innerHTML = `<div class="empty-state"><p>表示中の要レビュー項目はすべて確認しました。</p><div class="actions"><button id="refresh-empty-review-list" class="primary">一覧を再読込</button></div></div>`;
+    $("detail").innerHTML = `<div class="empty-state"><p>次の項目はありません。</p><div class="actions"><button id="refresh-empty-review-list" class="primary">一覧を再読込</button></div></div>`;
     resetDetailScroll();
     $("refresh-empty-review-list")?.addEventListener("click", () => loadList());
-    status(`${statusPrefix ? `${statusPrefix} ` : ""}表示中の項目をすべて確認しました。再読込で一覧を更新します。`);
+    status(`${statusPrefix ? `${statusPrefix} ` : ""}次の項目はありません。再読込で一覧を更新できます。`);
   }
   return true;
 }
@@ -1615,10 +1616,10 @@ function advanceMergeReviewAfterMerge(response) {
     clearDetailSelection();
     document.body.classList.remove("detail-open");
     syncUrl();
-    $("detail").innerHTML = `<div class="empty-state"><p>表示中の要レビュー項目はすべて確認しました。</p><div class="actions"><button id="refresh-empty-review-list" class="primary">一覧を再読込</button></div></div>`;
+    $("detail").innerHTML = `<div class="empty-state"><p>次の項目はありません。</p><div class="actions"><button id="refresh-empty-review-list" class="primary">一覧を再読込</button></div></div>`;
     resetDetailScroll();
     $("refresh-empty-review-list")?.addEventListener("click", () => loadList());
-    status("保存しました。 表示中の項目をすべて確認しました。再読込で一覧を更新します。");
+    status("保存しました。 次の項目はありません。再読込で一覧を更新できます。");
   }
   return true;
 }
