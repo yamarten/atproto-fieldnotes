@@ -460,7 +460,7 @@ prompt・根拠に現れる規則変更は実入力の差で無効化します�
 
 対象はendpointとmodelを明示したendpoint方式です。任意のfile・環境に依存し得るcommand方式では再利用しません。`ATPROTO_SURVEY_TRIAGE_REUSE=0`を指定した実行では必ず再生成し、照合値を残しません。通常の独立したLLM評価commandはこの再利用経路を通りません。
 
-再利用用の入力hashと適用状態hashは`llm_source.triage_reuse`へ保存します。新たにprompt本文や認証情報を保存しません。`llm_source.evidence`・`generated_at`・`last_llm_review_at`は元の生成時の記録を保持し、再利用時の最新観測を「実際に送信した入力」として上書きしません。説明更新案や規則評価の適用には、今回収集した同等なevidenceを使います。
+再利用用の入力hashと適用状態hashは`llm_source.triage_reuse`へ保存します。入力hashは推論時の条件から作り、適用状態hashは出力の適用と最終規則評価を終えた状態から作ります。サービス固有Lexiconの`lexicon`から`project`へのcategory補正等を反映し、その後の手動変更を照合します。新たにprompt本文や認証情報を保存しません。`llm_source.evidence`・`generated_at`・`last_llm_review_at`は元の生成時の記録を保持し、再利用時の最新観測を「実際に送信した入力」として上書きしません。説明更新案や規則評価の適用には、今回収集した同等なevidenceを使います。
 
 ## Run observability
 

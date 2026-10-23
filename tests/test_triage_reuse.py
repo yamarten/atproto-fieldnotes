@@ -101,6 +101,54 @@ class TriageReuseTest(TempRegistryDbTestCase):
                 self.assertEqual(self.requests[before:], ["triage"])
                 self.assertEqual(run["metrics"]["triage_reuse"]["status"], "miss")
 
+    def test_service_specific_lexicon_reuses_after_final_category_correction(self):
+        self.payload = {"category": "lexicon", "lexicon_scope": "service_specific"}
+        project = self.make_project("proj:reclassified")
+        for _ in range(3):
+            project, run = self.run_saved(project)
+            self.assertEqual(project["category"], "project")
+            self.assertEqual(project["llm_output"]["category"], "lexicon")
+            entry = project["llm_source"][triage_reuse.CACHE_KEY]
+            self.assertEqual(entry["application_guard"], triage_reuse.application_guard(project))
+            self.assertEqual(run["output_project"]["llm_source"][triage_reuse.CACHE_KEY], entry)
+
+        self.assertEqual(run["metrics"]["triage_reuse"]["status"], "hit")
+        generated = project["last_llm_review_at"]
+        original_evidence = copy.deepcopy(project["llm_source"]["evidence"])
+        before = len(self.requests)
+        self.now = "2026-09-08T00:00:00+00:00"
+        cached, run = self.run_saved(project)
+        self.assertEqual(self.requests[before:], [])
+        self.assertEqual(run["metrics"]["triage_reuse"]["status"], "hit")
+        self.assertEqual(run["metrics"]["llm_requests"], [])
+        self.assertEqual(cached["last_llm_review_at"], generated)
+        self.assertEqual(cached["llm_source"]["evidence"], original_evidence)
+
+        with mock.patch.dict(os.environ, {"ATPROTO_SURVEY_TRIAGE_REUSE": "0"}):
+            fresh, fresh_run = self.run_saved(cached)
+        self.assertEqual(self.requests[before:], ["triage"])
+        self.assertEqual(fresh_run["metrics"]["triage_reuse"]["reason"], "disabled")
+        self.assertNotIn(triage_reuse.CACHE_KEY, fresh["llm_source"])
+        for field in ("category", "lexicon_scope", "llm_output", "summary", "tagline",
+                      "features", "editorial", "service_status", "project_repository_urls"):
+            self.assertEqual(cached[field], fresh[field], field)
+
+    def test_final_category_cache_still_rejects_operator_and_payload_changes(self):
+        self.payload = {"category": "lexicon", "lexicon_scope": "service_specific"}
+        for mutation in (
+            lambda p: p.update(category="library"),
+            lambda p: p["llm_output"].update(why_keep="Changed saved output"),
+            lambda p: editorial.record_edit(p, allow_automatic=False, updated_at=self.now),
+            lambda p: p["blocked_identifiers"].append({"type": "repo_url", "value": "https://github.com/example/app", "note": "Different owner"}),
+        ):
+            with self.subTest(mutation=mutation):
+                project = self.make_reusable()
+                mutation(project)
+                before = len(self.requests)
+                _, run = self.run_saved(project)
+                self.assertEqual(self.requests[before:], ["triage"])
+                self.assertEqual(run["metrics"]["triage_reuse"]["status"], "miss")
+
     def test_config_prompt_and_age_changes_recompute(self):
         for options in (
             {"llm_model": "other-model"}, {"llm_endpoint": "https://other.example.test/v1"},

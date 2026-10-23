@@ -585,6 +585,7 @@ def enrich_project(
     )
     phase_started = time.perf_counter()
     triage_reuse_metrics: dict[str, Any] = {"status": "miss", "reason": "not_attempted"}
+    successful_fingerprint = ""
     try:
         prompt, evidence = build_triage_prompt(project)
         observations["triage_changes"] = enrich_observations.triage_changes(project, evidence)
@@ -633,11 +634,8 @@ def enrich_project(
             # application above still consumes today's equivalent observation.
             project["llm_source"]["evidence"] = copy.deepcopy(meta["evidence"])
         triage_reuse.invalidate(project)
-        if fingerprint:
-            triage_reuse.remember(project, fingerprint)
-            if triage_reuse.CACHE_KEY in project["llm_source"]:
-                project["llm_source"][triage_reuse.CACHE_KEY]["observation_components"] = components
         triage_reuse_metrics["generated_at"] = str(meta.get("generated_at") or "")
+        successful_fingerprint = fingerprint
     except Exception as exc:
         triage_reuse.invalidate(project)
         triage_reuse_metrics.update(status="miss", reason="triage_failed")
@@ -676,6 +674,12 @@ def enrich_project(
     project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
     project["merge_recommendation"] = compute_merge_recommendation(project)
     project["last_run_errors"] = unique_list(project.pop("_run_errors", []))
+    # Final rules can correct category and automatic identifier decisions.
+    # Compare future operator changes against the state actually being saved.
+    if successful_fingerprint:
+        triage_reuse.remember(project, successful_fingerprint)
+        if triage_reuse.CACHE_KEY in project["llm_source"]:
+            project["llm_source"][triage_reuse.CACHE_KEY]["observation_components"] = components
     phase_timings["evaluation_ms"] = max(0, round((time.perf_counter() - phase_started) * 1000))
     observations["operations"] = operation_timer.rows
     observations["search_outcomes"] = enrich_observations.search_outcomes(
