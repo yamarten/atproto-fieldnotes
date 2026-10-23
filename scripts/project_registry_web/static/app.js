@@ -487,8 +487,8 @@ const state = {
   browserSeed: "",
   plannedQuery: "",
   plannedOffset: 0,
-  screen: "projects",
-  reviewView: "queue",
+  screen: "review",
+  reviewView: "promotion",
   introducedStatus: "open",
   introducedOffset: 0,
   introducedItems: [],
@@ -679,13 +679,19 @@ function restoreStateFromUrl(query = new URLSearchParams(location.search)) {
   const screen = query.get("screen");
   const view = query.get("view");
   const hasReviewView = ["queue", "promotion", "planned", "merge", "introduced"].includes(view);
+  const hasProjectSearch = [
+    "q", "tracking", "service", "contribution", "notes", "introduced", "candidates", "errors", "sort",
+    "lexicon_type", "identifier_kind", "identifier_value", "identifier_classification", "relation_predicate",
+    "relation_subject_type", "relation_subject_value", "relation_object_type", "relation_object_value",
+    "relation_source", "decision_kind", "decision_target_type", "decision_target_value", "decision_status",
+  ].some((key) => query.has(key));
   state.screen = ["review", "projects", "browser", "operations", "settings"].includes(screen)
-    ? screen : (hasReviewView || query.has("review_kind") ? "review" : "projects");
+    ? screen : (hasReviewView || query.has("review_kind") ? "review" : hasProjectSearch ? "projects" : "review");
   state.pageUrl = query.get("url") || "";
   state.browserQuery = query.get("browser_q") || "";
   state.plannedQuery = query.get("planned_q") || "";
   state.plannedOffset = Math.max(0, Number(query.get("planned_offset")) || 0);
-  state.reviewView = hasReviewView ? view : "queue";
+  state.reviewView = hasReviewView ? view : (screen === "review" || query.has("review_kind") ? "queue" : "promotion");
   state.introducedStatus = query.get("introduced_status") === "all" ? "all" : "open";
   state.introducedOffset = Math.max(0, Number(query.get("introduced_offset")) || 0);
   state.reviewSignalKind = query.get("review_kind") || "";
@@ -717,7 +723,7 @@ function restoreStateFromUrl(query = new URLSearchParams(location.search)) {
 
 function syncUrl({replace = false} = {}) {
   const query = new URLSearchParams();
-  if (state.screen !== "projects") query.set("screen", state.screen);
+  query.set("screen", state.screen);
   if (state.screen === "review" && state.reviewView !== "queue") query.set("view", state.reviewView);
   if (state.screen === "review" && state.reviewView === "promotion") {
     query.set("promotion_view", state.promotionView);

@@ -89,9 +89,10 @@ const document = {};
                                 text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_default_projects_and_explicit_review_urls_roundtrip(self):
+    def test_default_promotion_and_explicit_screen_urls_roundtrip(self):
         self.run_javascript(r'''
-assert.equal(state.screen, "projects");
+assert.equal(state.screen, "review");
+assert.equal(state.reviewView, "promotion");
 let historyUrl;
 global.history = {pushState(_,__,url){historyUrl=url;}};
 location.pathname = "/";
@@ -108,15 +109,26 @@ for (const view of ["queue", "promotion", "planned", "merge", "introduced"]) {
 restoreStateFromUrl(new URLSearchParams({review_kind:"lexicon_publication_changed"}));
 assert.equal(state.screen, "review");
 assert.equal(state.reviewSignalKind, "lexicon_publication_changed");
+assert.equal(state.reviewView, "queue");
 restoreStateFromUrl(new URLSearchParams({screen:"projects",view:"promotion"}));
 assert.equal(state.screen, "projects");
+syncUrl();
+assert.equal(new URLSearchParams(historyUrl.split("?")[1]).get("screen"), "projects");
+for (const key of ["q", "tracking", "identifier_value", "relation_predicate", "decision_status"]) {
+  restoreStateFromUrl(new URLSearchParams({[key]:"example"}));
+  assert.equal(state.screen, "projects");
+}
 restoreStateFromUrl(new URLSearchParams({screen:"review"}));
 assert.equal(state.screen, "review");
 assert.equal(state.reviewView, "queue");
 restoreStateFromUrl(new URLSearchParams());
-assert.equal(state.screen, "projects");
+assert.equal(state.screen, "review");
+assert.equal(state.reviewView, "promotion");
+assert.equal(state.promotionView, "inbox");
 syncUrl();
-assert.equal(historyUrl, "/");
+restoreStateFromUrl(new URLSearchParams(historyUrl.split("?")[1]));
+assert.equal(state.screen, "review");
+assert.equal(state.reviewView, "promotion");
 ''')
 
     def test_popup_navigation_excludes_credentials_and_preserves_embedded_history(self):
