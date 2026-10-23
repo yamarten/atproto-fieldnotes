@@ -120,7 +120,6 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "project_state",
         "ownership_signal",
         "tracking_note",
-        "dismissed_review_kinds",
         "manual_review_recommended",
         "manual_review_kind",
         "manual_review_priority",
@@ -755,7 +754,6 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "classification_reason": "",
         "exclude_reason": "",
         "watch_reason": "",
-        "dismissed_review_kinds": [],
         "manual_review_recommended": False,
         "manual_review_kind": "other",
         "manual_review_priority": "none",
@@ -991,7 +989,6 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["service_status_evidence"] = unique_list([str(item).strip() for item in defaults.get("service_status_evidence", []) if str(item).strip()])
     defaults["atproto_auth_only"] = bool(defaults.get("atproto_auth_only"))
     defaults["atproto_usage_decisions"] = atproto_usage.normalize_decisions(defaults.get("atproto_usage_decisions"))
-    defaults["dismissed_review_kinds"] = unique_list([str(item).strip() for item in defaults.get("dismissed_review_kinds", []) if str(item).strip()])
     defaults["name_candidates"] = [dict(item) for item in defaults.get("name_candidates", []) if isinstance(item, dict)]
     defaults["tagline_is_provisional"] = bool(defaults.get("tagline_is_provisional"))
     defaults["app_category"] = str(defaults.get("app_category") or "")

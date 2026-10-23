@@ -803,30 +803,10 @@ class RegistryWebHandler(BaseHTTPRequestHandler):
                 lowered=action == "lower-promotion-priority",
                 reason=str(payload.get("reason") or note).strip(),
             )
-        if action == "dismiss-review-kind":
-            if not payload.get("clear"):
-                raise ValueError("review kinds can no longer be dismissed")
-            return decisions.dismiss_review_kind(
-                conn,
-                project_key=project_key,
-                kind=str(payload.get("kind") or "").strip(),
-                clear=True,
-            )
         if action in {"acknowledge-review", "clear-review-acknowledgement"}:
             return decisions.acknowledge_review(
                 conn, project_key=project_key, fingerprint=str(payload.get("target_value") or ""),
                 clear=action == "clear-review-acknowledgement",
-            )
-        if action in {"dismiss-review-target", "defer-review-target", "clear-review-target"}:
-            return decisions.set_review_target(
-                conn,
-                project_key=project_key,
-                target_type=str(payload.get("target_type") or "").strip(),
-                target_value=str(payload.get("target_value") or "").strip(),
-                action=str(payload.get("review_action") or ("defer" if action == "defer-review-target" else "dismiss")),
-                note=note,
-                days=_int(payload.get("days"), 30, maximum=365),
-                clear=action == "clear-review-target",
             )
         if action == "split-project":
             return merge.split_identifier(

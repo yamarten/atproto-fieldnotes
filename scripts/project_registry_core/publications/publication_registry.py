@@ -243,7 +243,6 @@ def _import_projects(conn: sqlite3.Connection, observed: dict[str, dict[str, Any
         p["publication_schemas"] = [previous[n] for n in sorted(previous)]
         if reasons:
             p["publication_review"] = records.unique_list(list(p.get("publication_review", [])) + reasons)
-            p["dismissed_review_kinds"] = [kind for kind in p.get("dismissed_review_kinds", []) if kind != "lexicon_publication_changed"]
         p["discovery_sources"] = records.unique_list(list(p.get("discovery_sources", [])) + [SOURCE])
         if key in created_keys or records.dump_json(p["publication_schemas"]) != before or reasons:
             changes.append(p)

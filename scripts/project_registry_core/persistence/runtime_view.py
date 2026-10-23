@@ -76,10 +76,9 @@ DECISION_FIELDS = {
     "deferred_identifiers",
     "promotion_deferrals",
     "promotion_priority_adjustments",
-    "dismissed_review_kinds",
     "separate_project_keys",
     "confirmed_identifiers",
-    "review_target_decisions",
+    "review_acknowledgements",
     "atproto_usage_decisions",
     "introduction_plans",
     "service_usage_decisions",
@@ -432,8 +431,6 @@ def _derive_project_decisions(project: Mapping[str, Any]) -> list[ProjectDecisio
                 cleared_at=str(item.get("cleared_at") or ""),
                 metadata=dict(item),
             ))
-    for value in project.get("dismissed_review_kinds", []):
-        output.append(ProjectDecision("dismiss_review", "review_kind", str(value), ""))
     for value in project.get("separate_project_keys", []):
         output.append(ProjectDecision("separate_project", "project_key", str(value), ""))
     for item in project.get("confirmed_identifiers", []):
@@ -448,8 +445,8 @@ def _derive_project_decisions(project: Mapping[str, Any]) -> list[ProjectDecisio
                 cleared_at=str(item.get("cleared_at") or ""),
                 metadata=dict(item),
             ))
-    for item in project.get("review_target_decisions", []):
-        if isinstance(item, Mapping) and str(item.get("kind") or "") in {"dismiss_review_target", "defer_review_target", "acknowledge_review"}:
+    for item in project.get("review_acknowledgements", []):
+        if isinstance(item, Mapping) and item.get("kind") == "acknowledge_review":
             output.append(ProjectDecision(
                 str(item.get("kind")),
                 str(item.get("target_type") or ""),
@@ -670,8 +667,8 @@ def hydrate(
     project.update({
         "blocked_identifiers": [], "deferred_identifiers": [], "promotion_deferrals": [],
         "promotion_priority_adjustments": [],
-        "dismissed_review_kinds": [], "separate_project_keys": [], "confirmed_identifiers": [],
-        "review_target_decisions": [],
+        "separate_project_keys": [], "confirmed_identifiers": [],
+        "review_acknowledgements": [],
         "atproto_usage_decisions": [],
         "introduction_plans": [], "service_usage_decisions": [],
     })
@@ -711,8 +708,6 @@ def hydrate(
                 "reason": str(row["note"]),
                 "added_at": str(row["created_at"]), "cleared_at": str(row["cleared_at"]),
             })
-        elif kind == "dismiss_review":
-            project["dismissed_review_kinds"].append(str(row["target_value"]))
         elif kind == "separate_project":
             project["separate_project_keys"].append(str(row["target_value"]))
         elif kind == "confirm_identifier":
@@ -723,8 +718,8 @@ def hydrate(
                 "note": str(row["note"]), "added_at": str(row["created_at"]),
                 "cleared_at": str(row["cleared_at"]),
             })
-        elif kind in {"dismiss_review_target", "defer_review_target", "acknowledge_review"}:
-            project["review_target_decisions"].append({
+        elif kind == "acknowledge_review":
+            project["review_acknowledgements"].append({
                 "kind": kind,
                 "target_type": str(row["target_type"]),
                 "target_value": str(row["target_value"]),

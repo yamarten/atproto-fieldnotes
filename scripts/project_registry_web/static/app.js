@@ -68,7 +68,6 @@ const displayLabels = {
   "discovery_limit must be an integer": "未採用URLの上限は整数で指定してください",
   "discovery_budget_minutes must be an integer": "未採用URLの調査時間は整数で指定してください",
   "identifier value could not be normalized": "識別子の値を確認してください。正規化できませんでした",
-  "review target is stale or does not belong to this project": "レビュー対象が変更されたか、別プロジェクトに属しています。詳細を再読込してください",
   "guarded identifier cannot be added as a candidate": "除外・保留中の識別子は候補へ追加できません",
   "identifier is already confirmed": "採用済みの識別子です",
   "candidate identifiers require an existing project": "候補の追加には既存のプロジェクトを指定してください",
@@ -96,7 +95,6 @@ const displayLabels = {
   "clear-review-acknowledgement": "通知を戻す",
   "acknowledge_review": "閉じた通知",
 
-  "clear-review-target": "レビュー対象の手動判断を解除",
   "clear-separate": "別プロジェクト指定を解除",
   "service_observation": "サービス巡回",
   "enrich_all": "通常調査",
@@ -194,12 +192,7 @@ const displayLabels = {
   "confirm_service_usage": "サービスのLexicon利用の確認",
   "operator_service_usage": "利用者の確認",
   "promotion_priority": "紹介候補の優先度",
-  "defer_review_target": "個別のレビュー対象を保留",
-  "dismiss_review": "要レビューの種類を除外",
-  "dismiss_review_target": "個別のレビュー対象を除外",
   "separate_project": "別プロジェクト指定",
-  "review_kind": "要レビューの種類",
-  "review_target": "レビュー対象",
   "review_change": "変化の通知",
   "queued": "実行待ち",
   "running": "実行中",
@@ -244,8 +237,6 @@ const displayLabels = {
   "observe confirmed then investigate unadopted URLs": "採用済みサービスの再確認 → 未採用URLの調査",
   "Observe due confirmed services, then investigate unadopted service URLs with a separate adjustable budget. No automatic tracking changes.": "採用済みサービスを再確認し、別の処理予算で未採用URLを調査します。追跡状態は自動変更しません。",
   "lexicon_publication_changed": "Lexicon発行の変化",
-  "missing_project_identity": "プロジェクトが表す対象の確認",
-  "review_project_identity_and_tracking": "対象の採用・プロジェクト自体の追跡判断",
   "sync lexicons": "Lexicon公開情報の取得",
   "service_status": "サービス状態",
   "ownership": "帰属",
@@ -268,16 +259,6 @@ const displayLabels = {
   "LLM review missing": "LLMによる評価が未実施",
   "editorial_refresh": "説明更新案",
   "service_observation_changed": "利用画面の変化",
-  "llm_manual_review_recommended": "LLMが手動レビューを推奨",
-  "service_candidate_needs_confirmation": "サービス候補の確認が必要",
-  "candidate_repo_needs_confirmation": "リポジトリ候補の確認が必要",
-  "more_evidence_than_current_classification": "現在の分類を見直す材料あり",
-  "stale_metadata_with_recent_activity": "最近の活動あり・登録情報が古い",
-  "service_status_unverified_but_promising": "有望だがサービス状態は未確認",
-  "category_recheck_needed": "分類の再確認が必要",
-  "external_lexicon_dependency_needs_review": "外部Lexiconへの依存の確認が必要",
-  "high_information_density": "調査材料が豊富",
-  "many_identity_candidates": "アカウント・ドメインの候補が多数",
   "service_status_unverified": "サービス状態が未確認",
   "browser_surface_not_confirmed": "ブラウザーで利用画面を確認できず",
   "browser_password_form_detected": "パスワード入力欄を検出",
@@ -491,8 +472,8 @@ const filterOptionFallbacks = {
   relation_predicates: ["defines_schema", "mentions_collection", "official_account", "operates_service", "redirects_to", "requests_permission", "project_repository", "uses_collection"],
   relation_subject_types: ["account", "did", "domain", "handle", "nsid", "oauth_client", "project", "repo", "service", "website"],
   relation_object_types: ["account", "did", "domain", "handle", "nsid", "oauth_client", "project", "repo", "service", "website"],
-  decision_kinds: ["block_identifier", "confirm_identifier", "defer_identifier", "defer_promotion", "defer_review_target", "dismiss_review", "dismiss_review_target", "lower_promotion_priority", "separate_project"],
-  decision_target_types: ["account", "did", "domain", "handle", "nsid", "project_key", "promotion_priority", "repo_url", "review_kind", "review_target", "service_url"],
+  decision_kinds: ["acknowledge_review", "block_identifier", "confirm_identifier", "defer_identifier", "defer_promotion", "lower_promotion_priority", "separate_project"],
+  decision_target_types: ["review_change", "account", "did", "domain", "handle", "nsid", "project_key", "promotion_priority", "repo_url", "service_url"],
 };
 const decisionKindOptionLabels = {
   lower_promotion_priority: "紹介候補の優先度を下げる",
@@ -1695,12 +1676,6 @@ function renderRelation(item) {
   const entity = value => `<span class="relation-entity"><span class="muted">${esc(displayLabel(value.type))}</span> ${esc(value.value)}</span>`;
   return `<div class="relation ${esc(item.classification)}">${pill(item.classification === "confirmed" ? "確定" : item.classification, item.classification)}<div class="relation-path">${entity(item.subject)}<span class="relation-edge">─ ${esc(displayLabel(item.predicate))} →</span>${entity(item.object)}</div><div class="muted">${esc([displayLabel(item.source), item.locator, displayLabel(item.method)].filter(Boolean).join(" · "))}</div></div>`;
 }
-function renderReviewTargets(items, renderItem, emptyMessage) {
-  const folded = items.filter(item => ["dismissed", "deferred"].includes(item.review_target?.status));
-  const open = items.filter(item => !folded.includes(item));
-  return (open.map(renderItem).join("") || `<p class="muted">${esc(emptyMessage)}</p>`)
-    + (folded.length ? `<details><summary>以前に非表示にした項目 (${folded.length})</summary>${folded.map(renderItem).join("")}</details>` : "");
-}
 function projectTimestampRows(project) {
   return `<dt>初回観測</dt><dd>${esc(formatTimestamp(project.first_seen_at) || "不明")}</dd><dt>最終観測</dt><dd>${esc(formatTimestamp(project.last_seen_at) || "不明")}</dd><dt>最終調査</dt><dd>${esc(formatTimestamp(project.last_enriched_at) || "未調査")}</dd>`;
 }
@@ -1804,7 +1779,7 @@ function renderDetail(data) {
     </nav>
     ${tab("overview", "概要", overviewBody)}
     ${tab("identifiers", "識別子", section("識別子", identifiers.length ? renderIdentifiers(identifiers) : `<p class="muted">識別子はありません。</p>`, detailTabHelp.identifiers))}
-    ${tab("relations", "関係", section("関係", renderReviewTargets(relations, renderRelation, "確認対象の関係はありません。"), detailTabHelp.relations))}
+    ${tab("relations", "関係", section("関係", (relations.map(renderRelation).join("") || `<p class="muted">関係の記録はありません。</p>`), detailTabHelp.relations))}
     ${tab("investigation", "調査履歴", section("最新の調査実行記録", `${renderInvestigation(investigation)}<div class="actions"><button id="load-investigation-history">調査履歴を読み込む</button></div><div id="investigation-history"></div>`, detailTabHelp.investigation))}
     ${tab("decisions", "判断記録", section("判断記録", renderDecisions(decisions), detailTabHelp.decisions))}
     ${tab("raw", "元データ", section("元データ（JSON）", `<details open><summary>プロジェクトのJSON</summary>${json(data)}</details>`, detailTabHelp.raw))}
@@ -2036,7 +2011,7 @@ function renderDecisions(decisions) {
       ? `${pill("atproto利用と用途の判断", "candidate")} ${esc(item.target_value === "bluesky_client" ? "旧Bluesky向け用途（利用範囲は未判断）" : `${atprotoUsageLabels[item.target_value] || item.target_value} / ${atprotoFocusLabels[item.metadata?.focus || "auto"] || "用途は不明"}`)}`
       : item.kind === "acknowledge_review" ? `${pill("acknowledge_review")} ${esc(displayLabel(item.metadata?.signal_kind))}`
       : `${pill(item.kind, "candidate")} ${esc(displayLabel(item.target_type))} ${esc(item.target_value)}`;
-    return `<div class="decision"><div>${summary}</div><div class="muted">${esc(decisionNote(item))} ${item.expires_at ? `· 期限 ${esc(formatTimestamp(item.expires_at))}` : ""}</div><div class="actions">${item.kind === "block_identifier" ? actionButton("除外を解除", "clear-block-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_identifier" ? actionButton("保留を解除", "clear-defer-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_promotion" ? actionButton("保留を解除", "clear-promotion-deferral") : ""}${item.kind === "lower_promotion_priority" ? actionButton("通常の優先度へ戻す", "clear-promotion-priority") : ""}${item.kind === "separate_project" ? actionButton("別プロジェクト指定を解除", "clear-separate", {other:item.target_value}) : ""}${item.kind === "acknowledge_review" ? actionButton(displayLabel("clear-review-acknowledgement"), "clear-review-acknowledgement", {"target-value":item.target_value}) : ""}${item.kind === "dismiss_review" ? actionButton("非表示を解除", "dismiss-review-kind", {kind:item.target_value, clear:"true"}) : ""}${["dismiss_review_target", "defer_review_target"].includes(item.kind) ? actionButton("解除", "clear-review-target", {"target-type":item.target_type, "target-value":item.target_value, "review-action":item.kind.startsWith("defer") ? "defer" : "dismiss"}) : ""}</div></div>`;
+    return `<div class="decision"><div>${summary}</div><div class="muted">${esc(decisionNote(item))} ${item.expires_at ? `· 期限 ${esc(formatTimestamp(item.expires_at))}` : ""}</div><div class="actions">${item.kind === "block_identifier" ? actionButton("除外を解除", "clear-block-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_identifier" ? actionButton("保留を解除", "clear-defer-identifier", {type:item.target_type, value:item.target_value}) : ""}${item.kind === "defer_promotion" ? actionButton("保留を解除", "clear-promotion-deferral") : ""}${item.kind === "lower_promotion_priority" ? actionButton("通常の優先度へ戻す", "clear-promotion-priority") : ""}${item.kind === "separate_project" ? actionButton("別プロジェクト指定を解除", "clear-separate", {other:item.target_value}) : ""}${item.kind === "acknowledge_review" ? actionButton(displayLabel("clear-review-acknowledgement"), "clear-review-acknowledgement", {"target-value":item.target_value}) : ""}</div></div>`;
   }).join("") : `<p class="muted">有効な判断はありません。</p>`;
   return current + (history.length ? `<details><summary>判断履歴（JSON） (${history.length})</summary>${json(history)}</details>` : "");
 }
@@ -2045,7 +2020,7 @@ function renderInvestigation(run) {
   if (!run) return `<p class="muted">保存済みの調査実行記録はありません。</p>`;
   return `<dl class="kv"><dt>調査実行記録</dt><dd>${esc(run.run_id)}</dd><dt>完了日時</dt><dd>${esc(formatTimestamp(run.completed_at))}</dd><dt>所要時間</dt><dd>${esc(formatMilliseconds(run.metrics?.total_ms) || "未記録")}</dd><dt>記録件数</dt><dd>${esc(run.record_count)}</dd><dt>失敗</dt><dd>${esc(run.failure_count)}</dd></dl>
     <div>${list(run.collectors).map((item) => `<div class="collector"><div>${pill(item.status, item.status)} <strong>${esc(displayLabel(item.source))}</strong></div><div class="muted">${esc(displayLabel(item.operation))} · ${esc(item.request_count || 0)} リクエスト · ${esc(item.result_count || 0)} 件${item.stop_reason ? ` · ${esc(displayLabel(item.stop_reason))}` : ""}</div></div>`).join("") || `<p class="muted">収集処理の概要はありません。</p>`}</div>
-    ${run.failures?.length ? `<details><summary>失敗</summary>${renderReviewTargets(run.failures, (item) => `<div class="collector"><div>${pill(item.category, "candidate")} ${esc(displayLabel(item.source))} ${esc(displayLabel(item.operation))}</div><div class="muted">技術詳細（原文）: ${esc(item.message)}</div></div>`, "確認対象の失敗はありません。")}</details>` : ""}`;
+    ${run.failures?.length ? `<details><summary>失敗</summary>${list(run.failures).map((item) => `<div class="collector"><div>${pill(item.category, "candidate")} ${esc(displayLabel(item.source))} ${esc(displayLabel(item.operation))}</div><div class="muted">技術詳細（原文）: ${esc(item.message)}</div></div>`).join("")}</details>` : ""}`;
 }
 
 function renderRunMetrics(metrics) {
@@ -2437,7 +2412,7 @@ function bindDetailActions(projectKey) {
     `/api/projects/${encodeURIComponent(projectKey)}/atproto-usage`, {clear:true}, false));
   document.querySelectorAll("[data-action]").forEach((button) => button.onclick = () => {
     const action = button.dataset.action;
-    const payload = {identifier_type: button.dataset.type || "", value: button.dataset.value || "", other_project_key: button.dataset.other || "", target_type: button.dataset.targetType || "", target_value: button.dataset.targetValue || "", review_action: button.dataset.reviewAction || "", kind:button.dataset.kind || "", clear:button.dataset.clear === "true", days: button.dataset.days || ""};
+    const payload = {identifier_type: button.dataset.type || "", value: button.dataset.value || "", other_project_key: button.dataset.other || "", target_value: button.dataset.targetValue || "", days: button.dataset.days || ""};
     const needsNote = ["confirm-candidate", "reject-candidate", "block-identifier", "defer-identifier", "split-project", "defer-promotion", "lower-promotion-priority"].includes(action);
     const title = action === "defer-promotion" ? `紹介候補を${payload.days}日間、保留にする` : action === "lower-promotion-priority"
       ? "紹介候補の優先度を下げる"

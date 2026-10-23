@@ -450,7 +450,7 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         self.assertIn("repo", settings["filter_options"]["relation_subject_types"])
         self.assertIn("service", settings["filter_options"]["relation_object_types"])
         self.assertIn("confirm_identifier", settings["filter_options"]["decision_kinds"])
-        self.assertIn("review_kind", settings["filter_options"]["decision_target_types"])
+        self.assertIn("review_change", settings["filter_options"]["decision_target_types"])
         self.assertNotIn("read_only", settings)
         self.assertNotIn("--read-only", build_parser().format_help())
 
@@ -1635,45 +1635,14 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
             payload={'target_value': signal['fingerprint']})
         self.assertEqual(status, 400)
 
-    def test_targeted_review_decisions_and_developer_confirmation(self) -> None:
+    def test_evidence_is_read_only_and_developer_can_be_adopted(self) -> None:
         status, detail, _ = self.request("/api/projects/proj:111111111111")
         self.assertEqual(status, 200)
-        relation_target = detail["relations"][0]["review_target"]
-        failure_target = detail["investigation"]["failures"][0]["review_target"]
-
-        # Historical display decisions retain their original meaning; new ones
-        # cannot be created now that evidence no longer has a review workflow.
-        conn = registry.open_db()
-        project = project_record.fetch_project(conn, 'proj:111111111111')
-        project['review_target_decisions'] = [
-            {**target, 'kind': kind, 'created_at': '2026-01-01T00:00:00+00:00',
-             'expires_at': expires, 'note': 'legacy display choice', 'cleared_at': ''}
-            for target, kind, expires in ((relation_target, 'dismiss_review_target', ''),
-                                          (failure_target, 'defer_review_target', '2099-01-01T00:00:00+00:00'))
-        ]
-        project_record.save_project(conn, project)
-        conn.close()
-        _, saved, _ = self.request('/api/projects/proj:111111111111')
-        self.assertEqual(saved['relations'][0]['review_target']['status'], 'dismissed')
-        self.assertEqual(saved['investigation']['failures'][0]['review_target']['status'], 'deferred')
-        self.assertEqual(saved['relations'][0]['classification'], detail['relations'][0]['classification'])
-        status, _, _ = self.request('/api/projects/proj:111111111111/dismiss-review-target', method='POST',
-            payload={'target_type': relation_target['target_type'], 'target_value': relation_target['target_value']})
-        self.assertEqual(status, 400)
-        payload = {'detail': saved}
-
-        status, payload, _ = self.request(
-            "/api/projects/proj:111111111111/clear-review-target",
-            method="POST",
-            payload={
-                "expected_revision": payload["detail"]["revision"],
-                "target_type": relation_target["target_type"],
-                "target_value": relation_target["target_value"],
-                "review_action": "dismiss",
-            },
-        )
-        self.assertEqual(status, 200)
-        self.assertEqual(payload["detail"]["relations"][0]["review_target"]["status"], "open")
+        self.assertTrue(detail["relations"])
+        self.assertTrue(detail["investigation"]["failures"])
+        self.assertTrue(all("review_target" not in row for row in detail["relations"]))
+        self.assertTrue(all("review_target" not in row for row in detail["investigation"]["failures"]))
+        payload = {"detail": detail}
 
         account = next(item for item in payload["detail"]["identifiers"] if item["value"] == "did:plc:developer")
         self.assertFalse(account["actions"]["confirm"])
@@ -1695,42 +1664,6 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         self.assertEqual(status, 200)
         confirmed = next(item for item in payload["detail"]["identifiers"] if item["value"] == "did:plc:developer")
         self.assertEqual(confirmed["classification"], "confirmed")
-
-    def test_review_target_expiry_and_clear_after_target_changes(self) -> None:
-        _, detail, _ = self.request("/api/projects/proj:111111111111")
-        target = detail["relations"][0]["review_target"]
-        conn = registry.open_db()
-        project = project_record.fetch_project(conn, 'proj:111111111111')
-        project['review_target_decisions'] = [{**target, 'kind': 'defer_review_target',
-            'created_at': '2026-01-01T00:00:00+00:00', 'expires_at': '2099-01-01T00:00:00+00:00',
-            'note': 'legacy display choice', 'cleared_at': ''}]
-        project_record.save_project(conn, project)
-        conn.close()
-        conn = registry.open_db()
-        try:
-            conn.execute("UPDATE project_decisions SET expires_at = '2000-01-01T00:00:00+00:00' WHERE kind = 'defer_review_target'")
-            conn.commit()
-            _, detail, _ = self.request("/api/projects/proj:111111111111")
-            self.assertEqual(detail["relations"][0]["review_target"]["status"], "open")
-            conn.execute("UPDATE project_relations SET locator = 'new/location.json' WHERE project_key = 'proj:111111111111'")
-            conn.commit()
-        finally:
-            conn.close()
-        _, detail, _ = self.request("/api/projects/proj:111111111111")
-        self.assertNotEqual(detail["relations"][0]["review_target"]["target_value"], target["target_value"])
-        self.assertEqual(detail["relations"][0]["review_target"]["status"], "open")
-        status, payload, _ = self.request(
-            "/api/projects/proj:111111111111/clear-review-target", method="POST",
-            payload={"expected_revision": detail["revision"], "target_type": target["target_type"], "target_value": target["target_value"], "review_action": "defer"},
-        )
-        self.assertEqual(status, 200)
-        self.assertTrue(any(item["kind"] == "defer_review_target" and item["cleared_at"] for item in payload["detail"]["decisions"]["history"]))
-        _, other, _ = self.request("/api/projects/proj:222222222222")
-        status, _, _ = self.request(
-            "/api/projects/proj:222222222222/clear-review-target", method="POST",
-            payload={"expected_revision": other["revision"], "target_type": target["target_type"], "target_value": target["target_value"], "review_action": "defer"},
-        )
-        self.assertEqual(status, 400)
 
     def test_identity_identifier_defer_accepts_account_and_handle_types(self) -> None:
         status, detail, _ = self.request("/api/projects/proj:111111111111")

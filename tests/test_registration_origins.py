@@ -113,10 +113,10 @@ class RegistrationOriginsTest(TempRegistryDbTestCase):
         p = project_record.fetch_project(self.conn, key)
         self.assertEqual(p['resolved_nsids'], [])
         self.assertIn('org.example.project.other', p['input_nsids'])
-        self.assertNotIn('missing_project_identity', {item['kind'] for item in project_review.compute_review_signals(p)})
+        self.assertEqual(project_review.compute_review_signals(p), [])
         projects.set_tracking_state(self.conn, project_key=key, tracking_state='ignore')
         p = project_record.fetch_project(self.conn, key)
-        self.assertNotIn('missing_project_identity', {item['kind'] for item in project_review.compute_review_signals(p)})
+        self.assertEqual(project_review.compute_review_signals(p), [])
 
     def test_publication_merge_requires_current_verification_or_independent_adoption(self):
         key = publication_registry.import_projects(self.conn, self.publication(), execute=True)['imported_project_keys'][0]

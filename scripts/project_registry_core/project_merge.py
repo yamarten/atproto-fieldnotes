@@ -979,12 +979,9 @@ def combine_records(target: dict[str, Any], source: dict[str, Any]) -> dict[str,
                 entry["cleared_at"] = project_record.iso_now()
             active_targets.add(feedback_target)
         merged[field] = entries
-    merged["dismissed_review_kinds"] = project_record.unique_list(
-        list(merged.get("dismissed_review_kinds", [])) + list(source.get("dismissed_review_kinds", []))
-    )
-    merged["review_target_decisions"] = [
+    merged["review_acknowledgements"] = [
         dict(item)
-        for item in list(merged.get("review_target_decisions", [])) + list(source.get("review_target_decisions", []))
+        for item in list(merged.get("review_acknowledgements", [])) + list(source.get("review_acknowledgements", []))
         if isinstance(item, dict)
     ]
 

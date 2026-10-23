@@ -17,6 +17,8 @@ from typing import Any
 from project_registry_core import project_record
 
 
+REVIEW_SIGNAL_KINDS = ("editorial_refresh", "service_observation_changed", "lexicon_publication_changed")
+
 DEFAULT_PROMOTION_DEFER_DAYS = 30
 
 
@@ -213,14 +215,13 @@ def compute_review_signals(
         signals.append({"kind": "lexicon_publication_changed", "priority": 5,
                         "details": {"reasons": sorted(set(shaped["publication_review"])),
                                     "schemas": schemas, "action_basis": ["review_lexicon_publication"]}})
-    acknowledged = {item.get("target_value") for item in shaped.get("review_target_decisions", [])
+    acknowledged = {item.get("target_value") for item in shaped.get("review_acknowledgements", [])
                     if item.get("kind") == "acknowledge_review" and not item.get("cleared_at")}
-    dismissed = set(shaped.get("dismissed_review_kinds", []))
     output = []
     for signal in signals:
         if signal["kind"] != "editorial_refresh":
             signal["fingerprint"] = review_change_fingerprint(signal["kind"], signal["details"])
-        if include_acknowledged or (signal["kind"] not in dismissed and signal.get("fingerprint") not in acknowledged):
+        if include_acknowledged or (signal.get("fingerprint") not in acknowledged):
             output.append(signal)
     return output
 

@@ -24,7 +24,6 @@ from . import (
     projects,
     query as query_service,
     review,
-    review_targets,
 )
 from project_registry_core import project_record, promotion_attention, operator_feedback
 
@@ -53,9 +52,6 @@ DECISION_KINDS = (
     "defer_identifier",
     "defer_promotion",
     "lower_promotion_priority",
-    "defer_review_target",
-    "dismiss_review",
-    "dismiss_review_target",
     "separate_project",
 )
 DECISION_TARGET_TYPES = (
@@ -63,8 +59,6 @@ DECISION_TARGET_TYPES = (
     "atproto_usage",
     "project_key",
     "promotion_priority",
-    "review_kind",
-    "review_target",
     *tuple(sorted(project_record.IDENTIFIER_DECISION_TYPES)),
 )
 
@@ -455,7 +449,6 @@ def _relation_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[str,
     ).fetchall()
     output = []
     for row in rows:
-        target = review_targets.relation_target(row)
         output.append({
             "subject": {"type": str(row["subject_type"]), "value": str(row["subject_value"])},
             "predicate": str(row["predicate"]),
@@ -473,7 +466,6 @@ def _relation_rows(conn: sqlite3.Connection, project_key: str) -> list[dict[str,
             "evidence_label": " · ".join(
                 value for value in (str(row["source"]), str(row["locator"]), str(row["method"])) if value
             ),
-            "review_target": target,
         })
     return output
 
@@ -528,7 +520,7 @@ def _investigation_summary(conn: sqlite3.Connection, project_key: str) -> dict[s
             for result in bundle.collector_results
         ],
         "failures": [
-            {**failure.to_dict(), "review_target": review_targets.failure_target(run["run_id"], failure.to_dict())}
+            failure.to_dict()
             for failure in bundle.failures
         ],
     }
@@ -777,9 +769,6 @@ def project_detail(conn: sqlite3.Connection, *, project_key: str) -> dict[str, A
         "explanations": explain.explain_project_state(prepared, merge_pending=True),
     }
     payload["merge_target_revision"] = ""
-    review_rows = [*payload["relations"], *((payload["investigation"] or {}).get("failures", []))]
-    for item in review_rows:
-        item["review_target"] = review_targets.with_review_state(item["review_target"], payload["decisions"]["active"])
     identifiers = payload["identifiers"]
     primary_account = next((item for item in identifiers if item["family"] == "identity" and "account" in item["kinds"]), None)
     payload["overview"] = {

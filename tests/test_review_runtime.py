@@ -5,7 +5,7 @@ from unittest import mock
 from helpers import TempRegistryDbTestCase, captured_stdout, registry
 from project_registry_core import cli, dev_database, editorial, project_record, project_review
 from project_registry_core.persistence import runtime_view
-from project_registry_core.application import presentation, review
+from project_registry_core.application import decisions, presentation, review
 
 
 class ReviewRuntimeTest(TempRegistryDbTestCase):
@@ -17,14 +17,17 @@ class ReviewRuntimeTest(TempRegistryDbTestCase):
     def test_cli_filters_editorial_service_and_publication_signals(self):
         kinds = ("editorial_refresh",
                  "service_observation_changed", "lexicon_publication_changed")
+        parser = cli.build_parser()
+        subparsers = next(action for action in parser._actions if action.dest == "command")
+        kind_option = next(action for action in subparsers.choices["review-queue"]._actions if action.dest == "kinds")
+        self.assertEqual(tuple(kind_option.choices), kinds)
         expected = {}
         for index, kind in enumerate(kinds):
             key = f"proj:{index + 1:012x}"
             url = f"https://review{index}.example"
             project = self.make_project(key, "service_url", url)
             project.update(name=kind, summary="Stored description", tracking_state="active")
-            if kind != "missing_project_identity":
-                registry.confirm_service_seed(project, url, source="fixture")
+            registry.confirm_service_seed(project, url, source="fixture")
             if kind == "editorial_refresh":
                 material = editorial.source("service_page", url, "New feature", "2026-10-01T00:00:00+00:00")
                 editorial.apply_proposal(project, {"summary": "Updated description"}, {
@@ -128,7 +131,7 @@ class ReviewRuntimeTest(TempRegistryDbTestCase):
                          [('auth_only', 20), ('optional', 40)])
         self.assertEqual(queue[0]['top_priority'], queue[1]['top_priority'])
 
-    def test_publication_change_is_visible_and_dismissal_is_respected_on_next_read(self):
+    def test_publication_change_is_visible_and_acknowledgement_is_respected_on_next_read(self):
         project = self.make_project('proj:cccccccccccc', 'service_url', 'https://publication.example')
         registry.confirm_service_seed(project, 'https://publication.example', source='fixture')
         project.update(name='Publication tool', category='project', service_status='live',
@@ -140,10 +143,9 @@ class ReviewRuntimeTest(TempRegistryDbTestCase):
         self.assertEqual([s['kind'] for s in item['signals']], ['lexicon_publication_changed'])
         self.assertEqual(item['signals'][0]['details']['reasons'], ['publisher_changed'])
         self.assertEqual(review.review_queue(self.conn), [item])
-        self.assertEqual(review.review_queue(self.conn, kinds={'candidate_repo_needs_confirmation'}), [])
+        self.assertEqual(review.review_queue(self.conn, kinds={'editorial_refresh'}), [])
         self.assertEqual(review.review_queue(self.conn, tracking_states={'stalled'}), [])
-        saved = project_record.fetch_project(self.conn, project['project_key'])
-        saved['dismissed_review_kinds'] = ['lexicon_publication_changed']
-        project_record.save_project(self.conn, saved)
+        decisions.acknowledge_review(self.conn, project_key=project['project_key'],
+                                     fingerprint=item['signals'][0]['fingerprint'])
         self.assertEqual(review.review_queue(self.conn), [])
         self.assertIsNone(review.build_review_queue_item(self.conn, project['project_key']))

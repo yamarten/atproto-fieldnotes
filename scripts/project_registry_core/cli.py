@@ -140,22 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     review_queue_parser = subparsers.add_parser("review-queue", help="List projects that likely deserve human review next.")
     review_queue_parser.add_argument("--tracking-states", nargs="+", choices=sorted(project_record.TRACKING_STATES), help="Restrict review queue to these tracking states. Default: active stable stalled.")
-    review_queue_parser.add_argument("--kinds", nargs="+", choices=[
-        "missing_project_identity",
-        "editorial_refresh",
-        "service_observation_changed",
-        "lexicon_publication_changed",
-        "service_candidate_needs_confirmation",
-        "candidate_repo_needs_confirmation",
-        "llm_manual_review_recommended",
-        "more_evidence_than_current_classification",
-        "stale_metadata_with_recent_activity",
-        "service_status_unverified_but_promising",
-        "category_recheck_needed",
-        "external_lexicon_dependency_needs_review",
-        "high_information_density",
-        "many_identity_candidates",
-    ], help="Restrict to specific review signal kinds.")
+    review_queue_parser.add_argument("--kinds", nargs="+", choices=project_review.REVIEW_SIGNAL_KINDS, help="Restrict to specific review signal kinds.")
     review_queue_parser.add_argument("--limit", type=int, default=None, help="Maximum number of projects to return. Default: 50, or unlimited when --interactive is set.")
     review_queue_parser.add_argument("--interactive", action="store_true", help="Step through review items interactively in a TTY.")
     review_queue_parser.set_defaults(func=review_commands.cmd_review_queue)

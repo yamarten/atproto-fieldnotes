@@ -17,7 +17,7 @@ repository、service、Lexiconなどの外部対象（resource）の帰属・採
 
 この契約はrecord型Lexiconに限らず、公開Lexicon各型、collection inventory、GitHub、Tangled、Semble、手動seedに共通です。[入口ごとの対象](discovery-and-sync.md#新規登録と既存projectへの追加)を参照してください。既存projectへの追加は従来の帰属・信頼規則で判定し、confirmedが無いことだけを理由に候補を自動昇格させません。
 
-最後の構成要素を除外・保留した場合や旧データに対象未採用のprojectがある場合は、保存を禁止せず、active / stable / stalledのprojectを`missing_project_identity`の要レビュー対象にします。候補の明示採用またはprojectの追跡判断が必要です。旧データの補正は明示した対象への保守操作とし、通常load/saveでは行いません。
+最後の構成要素を除外・保留した場合や対象未採用のprojectがある場合も保存できます。未採用の候補があるだけでは要レビュー一覧に載せません。紹介候補として選んだprojectで、必要な識別子の採用や追跡状態を判断します。旧データの補正は明示した対象への保守操作とし、通常load/saveでは行いません。
 
 未検証・期限切れ・帰属競合のある公開Lexiconを登録起点として採用しただけでは、merge用のtrusted collectionを増やしません。現在有効な公開検証または独立した採用根拠が必要です。採用来歴が要再確認なら、その根拠だけでmergeを支持しません。
 

@@ -44,11 +44,10 @@ class ReviewChangesTest(TempRegistryDbTestCase):
                 queue=review.review_queue(self.conn), tracking_states={'active'}, kinds=None, interactive=True)
         return stdout.getvalue(), stderr.getvalue()
 
-    def test_cli_acknowledges_change_without_dismissing_kind(self):
+    def test_cli_acknowledges_specific_change(self):
         self.interact(['x'])
         self.assertEqual(review.review_queue(self.conn), [])
-        self.assertEqual(self.load()['dismissed_review_kinds'], [])
-        self.assertEqual(self.load()['review_target_decisions'][0]['kind'], 'acknowledge_review')
+        self.assertEqual(self.load()['review_acknowledgements'][0]['kind'], 'acknowledge_review')
 
     def test_cli_editorial_is_not_acknowledgeable(self):
         p = self.load()
@@ -57,7 +56,6 @@ class ReviewChangesTest(TempRegistryDbTestCase):
         project_record.save_project(self.conn, p)
         _, menu = self.interact(['x', 'q'])
         self.assertNotIn('x=acknowledge', menu)
-        self.assertEqual(self.load()['dismissed_review_kinds'], [])
         self.assertIsNotNone(review.build_review_queue_item(self.conn, self.key))
 
     def test_cli_uppercase_rejects_candidate_instead_of_confirming(self):
