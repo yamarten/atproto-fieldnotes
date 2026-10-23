@@ -1385,6 +1385,39 @@ def list_projects(
     return projects
 
 
+@concurrency.consistent_read
+def list_review_candidate_projects(
+    conn: sqlite3.Connection, *, tracking_states: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Hydrate a conservative superset of projects with current review signals.
+
+    Only test for stored source material here. Adoption, acknowledgements and
+    signal details remain the responsibility of the full reader and review
+    policy. Keep selection and child reads in one snapshot; never limit before
+    policy filtering and ranking.
+    """
+    conditions = ["""(
+        json_extract(state_json, '$.evidence.editorial.proposal') IS NOT NULL
+        OR json_extract(state_json, '$.evidence.publication_review') IS NOT NULL
+        OR EXISTS (
+            SELECT 1 FROM json_each(state_json, '$.evidence.service_verification_results') AS observation
+            WHERE observation.type = 'object'
+              AND json_extract(observation.value, '$.surface_change') IS NOT NULL
+        )
+    )"""]
+    params: list[str] = []
+    if tracking_states is not None:
+        params = sorted(normalize_tracking_state(item) for item in tracking_states if item)
+        if not params:
+            return []
+        conditions.append(f"tracking_state IN ({', '.join('?' for _ in params)})")
+    rows = conn.execute(
+        f"SELECT * FROM projects WHERE {' AND '.join(conditions)} "
+        "ORDER BY last_seen_at DESC, project_key ASC", params,
+    ).fetchall()
+    return [_project_from_snapshot_row(conn, row) for row in rows]
+
+
 def list_duplicate_projects(
     conn: sqlite3.Connection, *, check_cancelled: Callable[[], None] | None = None,
     project_keys: set[str] | None = None,

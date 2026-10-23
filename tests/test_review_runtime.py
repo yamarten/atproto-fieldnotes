@@ -62,10 +62,10 @@ class ReviewRuntimeTest(TempRegistryDbTestCase):
         with mock.patch.object(project_record, 'ensure_project_shape', wraps=project_record.ensure_project_shape) as shape, \
              mock.patch.object(runtime_view, 'refresh_baselines', wraps=runtime_view.refresh_baselines) as baseline:
             queue = review.review_queue(self.conn, limit=100)
-        self.assertEqual(shape.call_count, 5)
-        self.assertEqual(baseline.call_count, 5)
+        self.assertEqual(shape.call_count, 3)
+        self.assertEqual(baseline.call_count, 3)
         batch, end = review.build_review_queue_batch(self.conn, batch_size=100)
-        self.assertEqual(end, 5)
+        self.assertEqual(end, 3)
         self.assertEqual(batch, queue)
         for key in ('proj:dddd00000002', 'proj:dddd00000004', 'proj:dddd00000005'):
             with self.subTest(key=key):
