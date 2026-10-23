@@ -156,7 +156,7 @@ class PromotionSelectionTest(TempRegistryDbTestCase):
                 self.assertEqual(args.func(args), 0)
             self.assertIn(p["project_key"], stream.getvalue())
 
-    def test_cli_promotion_defaults_include_stable_but_not_stalled(self):
+    def test_cli_promotion_defaults_include_stable_and_stalled(self):
         with contextlib.closing(registry.open_db()) as conn:
             for state in ("stable", "stalled"):
                 project = self.make_project(f"fixture:{state}")
@@ -171,7 +171,7 @@ class PromotionSelectionTest(TempRegistryDbTestCase):
                 project_record.save_project(conn, project)
         parser = build_parser()
         for argv, expected in (
-            (["promotion-queue", "--view", "technical"], (True, False)),
+            (["promotion-queue", "--view", "technical"], (True, True)),
             (["promotion-queue", "--view", "technical", "--tracking-states", "stalled"], (False, True)),
         ):
             args = parser.parse_args(argv)

@@ -1975,24 +1975,35 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         self.assertEqual(detail["evaluation"]["description_missing"], ["summary", "tagline"])
         self.assertNotIn("promotion_ready", detail["evaluation"])
 
-    def test_promotion_queue_api_defaults_include_stable_but_not_stalled(self) -> None:
+    def test_promotion_queue_api_includes_stalled_but_keeps_other_exclusions(self) -> None:
         with contextlib.closing(registry.open_db()) as conn:
-            for state in ("stable", "stalled"):
-                project = self.make_project(f"proj:{state}")
+            for state in ("active", "stable", "stalled", "out_of_scope", "archived", "ignore", "introduced-stalled", "deferred-stalled"):
+                project = self.make_project(f"proj:{state}", "service_url", f"https://{state}.example")
                 project.update(
                     name=f"{state} technical project",
-                    tracking_state=state,
+                    tracking_state="stalled" if state.endswith("-stalled") else state,
                     category="project",
                     technical_interest_level="high",
                     technical_interest_reasons=["implementation_reference"],
                     technical_interest_summary="Reusable protocol implementation",
                 )
+                registry.confirm_service_seed(project, f"https://{state}.example", source="fixture")
+                project["service_status"] = "live"
+                if state == "introduced-stalled":
+                    project["introduced_url"] = "https://example.com/introduced"
                 project_record.save_project(conn, project)
+                if state == "deferred-stalled":
+                    from project_registry_core.application import decisions
+                    decisions.set_promotion_defer(conn, project_key=project["project_key"], reason="later", days=30)
+                    saved = project_record.fetch_project(conn, project["project_key"])
+                    self.assertIsNotNone(project_review.active_promotion_deferral(saved), saved.get("promotion_deferrals"))
 
-        _, default, _ = self.request("/api/promotion-queue?view=technical")
-        default_keys = {item["project_key"] for item in default["items"]}
-        self.assertIn("proj:stable", default_keys)
-        self.assertNotIn("proj:stalled", default_keys)
+        for view in ("inbox", "technical"):
+            with self.subTest(view=view):
+                _, default, _ = self.request(f"/api/promotion-queue?view={view}")
+                default_keys = {item["project_key"] for item in default["items"]}
+                self.assertTrue({"proj:active", "proj:stable", "proj:stalled"} <= default_keys)
+                self.assertFalse({"proj:out_of_scope", "proj:archived", "proj:ignore", "proj:introduced-stalled", "proj:deferred-stalled"} & default_keys)
 
         _, explicit, _ = self.request("/api/promotion-queue?view=technical&tracking_states=stalled")
         explicit_keys = {item["project_key"] for item in explicit["items"]}

@@ -31,7 +31,7 @@ CLI/Webの手動確認には`project-registry dev-db`で架空データ5件を�
 | `archived` | アーカイブ。終了した対象の定期調査を止め、記録を残す。 |
 | `ignore` | 無視。無関係・誤登録等の判断を記憶し、再発見で調査を繰り返さない。 |
 
-追跡状態は調査対象を選ぶための区分で、データを削除したり、状態ごとに調査時刻を予約したりするものではありません。通常の`enrich --all`は`active`だけ、通常の紹介候補一覧は未紹介の`active / stable`を対象にします。`stable / stalled / out_of_scope`は拡大調査で低頻度に調べます。単体指定や追加状態の指定では通常対象外も調査でき、`--all-tracking-states`は`ignore / archived`も含みます。
+追跡状態は調査対象を選ぶための区分で、データを削除したり、状態ごとに調査時刻を予約したりするものではありません。通常の`enrich --all`は`active`だけ、通常の紹介候補一覧は未紹介の`active / stable / stalled`を対象にします。`stable / stalled / out_of_scope`は拡大調査で低頻度に調べます。単体指定や追加状態の指定では通常対象外も調査でき、`--all-tracking-states`は`ignore / archived`も含みます。
 
 紹介URLの初回登録で`active`は`stable`へ自動で移り、同じ紹介の再取込みでは手動の追跡指定を変えません。自動移行後に紹介URLを解除すると`active`へ戻りますが、その間に手動で状態を指定した場合は指定を維持します。既存の紹介済みprojectを一括で読み替える処理ではありません。`stable`は利用者が選ぶこともでき、紹介済みは必須条件ではありません。[追跡状態の見直し条件](../developer/specs/project-evaluation.md#追跡と再調査)と、[定期処理の対象](web-ui.md#定期実行)を確認してください。
 
@@ -143,7 +143,7 @@ project-registry --db-path /absolute/path/survey.db enrich --all \
 
 `category=personal_tool`は既定ではサービスとLexiconの紹介候補から除外し、`--include-personal-tools`で含めます。Lexiconは所有NSIDの採用1件1点と、うち解決確認済みの追加1点で最大40点です。サービスは公開閲覧画面20点・ログイン入口16点・入口確認済みの招待・申込み制12点・要確認8点、最近の活動は最大30点、説明と採用済み公式リポジトリは各3点です。手動の優先度の後はこの合計とproject keyで並べます。紹介保留は期限後または保存した判断材料の変化で一覧へ戻り、履歴は残ります。`defer-promotion`の理由は任意、日数省略時は履歴や登録時期によらず30日です。`--days`で期間を指定し、`--clear`で解除できます。旧「確認済み」も保留へ統合し、CLI・Webとも通常候補から一時的に外します。`--view`は`queue`（既定）、`inbox`、`technical`、`waiting`（保留）、`lowered`、`all`を選べます。理由検索はWebの紹介候補一覧を使います。
 
-通常の`promotion-queue`は追跡状態`active / stable`を対象にし、`stalled`は含めません。`--tracking-states`で明示した時は指定した状態だけを対象にします。紹介済みや保留中などの候補は、追跡状態が対象でも通常一覧には戻りません。
+通常の`promotion-queue`は追跡状態`active / stable / stalled`を対象にします。活動停滞だけでは候補から外さず、活動の新しさを順位に反映します。`--tracking-states`で明示した時は指定した状態だけを対象にします。紹介済みや保留中などの候補は、追跡状態が対象でも通常一覧には戻りません。
 
 CLI既定の`--view queue`では低優先度も通常候補の後ろに含めます。Web既定の「確認対象」と同じく低優先度を外して確認するには`--view inbox`、低優先度だけを探すには`--view lowered`を指定します。
 

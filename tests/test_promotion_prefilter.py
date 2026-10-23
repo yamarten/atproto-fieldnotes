@@ -49,6 +49,7 @@ class PromotionPrefilterTest(TempRegistryDbTestCase):
             {'service': True, 'status': 'dead'}, {'technical': True},
             {'technical': True, 'category': 'personal_tool'}, {'service': True, 'introduced': True},
             {'service': True, 'tracking': 'ignore'}, {'owned': True, 'tracking': 'archived'},
+            {'service': True, 'tracking': 'stalled'},
         )):
             self.put(n, **options)
         # Saved decisions with no current recommendation signal must survive all.
@@ -62,7 +63,7 @@ class PromotionPrefilterTest(TempRegistryDbTestCase):
             for personal in (False, True):
                 for kinds in (None, {'lexicon_definition_confirmed'}, {'technical_insight_candidate'}):
                     for reason, offset in (('', 0), ('テーマ', 0), ('', 2)):
-                        args = dict(queue='promotion', tracking_states={'active', 'stable'},
+                        args = dict(queue='promotion', tracking_states={'active', 'stable', 'stalled'},
                                     promotion_view=view, include_personal_tools=personal, kinds=kinds,
                                     reason=reason, offset=offset, limit=2)
                         with self.subTest(view=view, personal=personal, kinds=kinds, reason=reason, offset=offset):

@@ -280,7 +280,7 @@ roleは読取り・書込み・削除の操作別観測ではなく、repo宣言
 
 `promotion-queue`の通常候補はserviceまたは採用済みLexiconのsignalを持つ対象です。手動の`priority_group`、`sort_score`降順、`project_key`の順で全体を並べてから`--limit`を適用します。自動signalのpriorityや用途による別区分を並び順に使いません。技術だけを根拠に通常候補へ入れず、技術候補viewでは技術score順を使います。確認履歴は品質scoreを増減しません。
 
-CLIとWebの通常候補は既定で`active`と`stable`を含み、`stalled`を含めません。紹介済み、明示した対象外、保留、低優先度の扱いは追跡状態とは別に評価します。CLIの`--tracking-states`とWeb APIの`tracking_states`で明示した場合は、その指定を使います。
+CLIとWebの通常候補は既定で`active / stable / stalled`を含みます。活動停滞は調査頻度を下げるための区分であり、紹介価値がないとはみなしません。活動の新しさは以下の順位付けに反映し、`stalled`自体による除外や追加減点は行いません。紹介済み、明示した対象外、保留、低優先度の扱いは別に評価します。CLIの`--tracking-states`とWeb APIの`tracking_states`で明示した場合は、その指定を使います。紹介候補への追加で通常の一括調査対象は変わりません。
 
 採用済みの`owned_nsid:confirmed`があれば`lexicon_definition_confirmed`、うちDNS委譲先からのschema解決を有効な検証記録で確認できるものがあれば代わりに`lexicon_publisher_confirmed`を返します。`reject / name_only`を除きcategory横断で適用し、`personal_tool`は`--include-personal-tools`指定時だけ対象にします。候補NSID、利用・参照NSID、保留・除外中のNSIDは数えません。採用は帰属判断であり、新規登録起点の採用を含め、それ自体を外部解決の証明とは扱いません。
 
