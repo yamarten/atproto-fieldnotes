@@ -607,6 +607,9 @@ const detail = {project:{project_key:"proj:display", name:"Example"},
   overview:{confirmed_services:["https://example.com/app"]}};
 renderDetail(detail);
 const html = nodes.get("detail").innerHTML;
+assert.match(html, /追跡状態の説明/);
+assert.match(html, /既知対象/);
+assert.match(html, /終了や大きな変化/);
 for (const identity of [{has_identity:true, components:[{value:"org.example.post", registration_origin:true}]},
                         {has_identity:false, components:[]}]) {
   renderDetail({...detail, identity});

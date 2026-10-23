@@ -111,6 +111,7 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
             by_key = {(x["post_uri"].split("/")[-1], x["url"]): x for x in payload["items"]}
             self.assertEqual(summary["updated"], 1)
             self.assertEqual(saved["introduced_url"], atproto.bsky_post_web_url(posts[0]))
+            self.assertEqual(saved["tracking_state"], "stable")
             self.assertEqual(by_key[("mixed", "https://auto.example")]["status"], "auto_applied")
             self.assertEqual(by_key[("mixed", "https://auto.example/about")]["reason"], "unmatched")
             self.assertEqual(by_key[("plain", "https://plain.example/path")]["reason"], "unmatched")
@@ -134,6 +135,20 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
             self.assertEqual(payload["open_count"], 0)
             self.assertEqual(payload["count"], 1)
             self.assertEqual(payload["items"][0]["status"], "ignored")
+        finally:
+            conn.close()
+
+    def test_introduction_sync_respects_later_manual_tracking_choice(self):
+        from project_registry_core.application import projects
+        conn = registry.open_db()
+        try:
+            self.add_project(conn, "proj:tracking", service="https://tracking.example")
+            source = post("tracking", urls=["https://tracking.example"])
+            self.sync(conn, [source])
+            self.assertEqual(project_record.fetch_project(conn, "proj:tracking")["tracking_state"], "stable")
+            projects.set_tracking_state(conn, project_key="proj:tracking", tracking_state="active")
+            self.sync(conn, [source])
+            self.assertEqual(project_record.fetch_project(conn, "proj:tracking")["tracking_state"], "active")
         finally:
             conn.close()
 
@@ -569,11 +584,13 @@ class IntroducedReviewTest(TempRegistryDbTestCase):
             item = introduced_review.review_payload(conn)["items"][0]
             introduced_review.resolve_item(conn, scope_key=item["scope_key"], target_id=item["id"], action="link",
                                            project_key="proj:source")
+            self.assertEqual(project_record.fetch_project(conn, "proj:source")["tracking_state"], "stable")
             merge.merge_projects(conn, project_key="proj:source", target_project_key="proj:target", execute=True, force=True)
             linked = introduced_review.review_payload(conn, include_resolved=True)["items"][0]
             self.assertEqual(linked["linked_project"]["project_key"], "proj:target")
             introduced_review.resolve_item(conn, scope_key=item["scope_key"], target_id=item["id"], action="reopen")
             self.assertEqual(project_record.fetch_project(conn, "proj:target")["introduced_url"], "")
+            self.assertEqual(project_record.fetch_project(conn, "proj:target")["tracking_state"], "active")
         finally:
             conn.close()
 

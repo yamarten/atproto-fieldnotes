@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from . import tracking
+
 from project_registry_core import (
     project_record,
     EvidenceBundle,
@@ -346,13 +348,11 @@ def refresh_known_collection_activity(
         if execute:
             upsert_collection_observation(project, item, source=source, merge_existing=False)
             if str(project.get("tracking_state") or "active") == "stalled":
-                previous_max = parse_iso_datetime(str(previous.get("max") or "")) if previous else None
                 current_max = parse_iso_datetime(str(item.get("max") or ""))
                 recent_signal = int(item.get("recent_count") or 0) > 0
-                newer_signal = bool(current_max and (previous_max is None or current_max > previous_max))
                 still_recent = activity_is_recent(current_max, now, inactivity_days)
-                if recent_signal or newer_signal or still_recent:
-                    project["tracking_state"] = "active"
+                if recent_signal or still_recent:
+                    tracking.reactivate(project)
                     reactivated_project_keys.append(project["project_key"])
             save_project(conn, project, enriched=bool(project.get("last_enriched_at")))
             projects_by_key[project_key] = project
@@ -676,7 +676,7 @@ def sync_introduced_entries(
                 already_introduced += 1
             project["discovery_sources"] = add_unique(project.get("discovery_sources", []), "bsky_introduced_sync")
             if not project.get("introduced_url") and item["post_web_urls"]:
-                project["introduced_url"] = item["post_web_urls"][0]
+                tracking.set_introduced_url(project, item["post_web_urls"][0])
             project = finalize_project_shape(project)
             project["duplicate_candidates"] = compute_duplicate_candidates(conn, project)
             project["merge_recommendation"] = compute_merge_recommendation(project)

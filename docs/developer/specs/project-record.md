@@ -411,12 +411,16 @@ provider別repo一覧とresource URL一覧はcanonical dataからhelperで導出
 
 `tracking_state`:
 
-- `active`: 通常の継続調査対象
-- `stable`: 安定しており通常の全件enrich頻度を下げる
-- `stalled`: 立ち消え気味だがarchivedとは確定しない
-- `out_of_scope`（スコープ外）: atprotoとの関係はあるが現在の紹介・重点調査対象外
-- `archived`: 開発終了または追跡完了
-- `ignore`（無視）: 無関係・誤登録・再評価価値の低いnoise
+- `active`（通常追跡）: 登録時の既定。通常の継続調査対象
+- `stable`（既知対象）: 内容を把握しており、細かな更新を追わず低頻度で終了や大きな変化を確認する対象。稼働の安定性や紹介済みであることを保証しない
+- `stalled`（活動停滞）: 更新が少ないため調査頻度を下げ、再始動を拾う対象。終了とは確定しない
+- `out_of_scope`（スコープ外）: 現在の関心の範囲外だが、将来の変化に備えて低頻度で調査する対象
+- `archived`（アーカイブ）: 終了した対象の定期調査を止め、記録を保持する
+- `ignore`（無視）: 無関係・誤登録等の判断を記憶し、再発見で同じ調査を繰り返さない対象
+
+追跡状態の自動変更・手動変更・紹介取消しは[追跡と再調査](project-evaluation.md#追跡と再調査)に従います。`state_json.ops.tracking_from_introduction`は、紹介によって自動で`stable`へ移ったことを示すboolです。新規の紹介登録と、紹介済み`stalled`の再始動でtrueにし、紹介URLの解除時に`stable -> active`へ戻すためだけに使います。手動の状態指定（同じ状態の再指定を含む）や他の状態変更はfalseにします。メモ・調査履歴・紹介判断の履歴とは独立し、既存rowの欠落はfalseとして読み、過去の変更主体を推測しません。既存の紹介済み`active`・`stable`を読取り・通常保存だけで再分類しません。
+
+`source_repo_records[].observed_at`はrepoの活動日時を確認した観測時刻です。`updated_at`（upstreamの更新日時）と`recorded_at`（識別情報を登録した時刻）から分離します。GitHub snapshotの取得結果で採用済みrepoの活動日時を再確認した時に更新し、古いsnapshotは新しい観測を上書きしません。既存recordの欠落は未確認として扱い、活動停滞への変更根拠には使いません。
 
 `service_status`:
 

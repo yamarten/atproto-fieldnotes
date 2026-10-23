@@ -3320,6 +3320,7 @@ class ProjectRegistryStalledReviewTest(unittest.TestCase):
                 "relation": "source_repo",
                 "source": "test",
                 "updated_at": "2025-01-01T00:00:00+00:00",
+                "observed_at": self.NOW.isoformat(),
             }
         ]
         return project

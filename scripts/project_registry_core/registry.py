@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from . import tracking
+
 from project_registry_core.transport import atproto
 
 from project_registry_core import project_review
@@ -5900,7 +5902,7 @@ def update_project_tracking_state_value(
     if project is None:
         return None
     project = project_record.ensure_project_shape(project)
-    project["tracking_state"] = tracking_state
+    tracking.set_state(project, tracking_state)
     if note:
         project["tracking_note"] = note
     project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")))

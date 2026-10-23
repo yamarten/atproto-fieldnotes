@@ -120,6 +120,7 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "project_state",
         "ownership_signal",
         "tracking_note",
+        "tracking_from_introduction",
         "manual_review_recommended",
         "manual_review_kind",
         "manual_review_priority",
@@ -702,6 +703,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "introduced_url": "",
         "tracking_state": "active",
         "tracking_note": "",
+        "tracking_from_introduction": False,
         "system_notes": [],
         "discovery_sources": [],
         "evidence_urls": [],
@@ -1001,6 +1003,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
     defaults["introduced_url"] = identifier_core.normalize_url(str(defaults.get("introduced_url") or "")) if defaults.get("introduced_url") else ""
     defaults["tracking_state"] = normalize_tracking_state(str(defaults.get("tracking_state") or "active"))
     defaults["tracking_note"] = str(defaults.get("tracking_note") or "").strip()
+    defaults["tracking_from_introduction"] = defaults.get("tracking_from_introduction") is True
     defaults["system_notes"] = unique_list([str(item).strip() for item in defaults.get("system_notes", []) if str(item).strip()])
     defaults["manual_review_recommended"] = bool(defaults.get("manual_review_recommended"))
     defaults["manual_review_kind"] = str(defaults.get("manual_review_kind") or "other").strip().lower() or "other"
@@ -2221,6 +2224,7 @@ def normalize_source_repo_records(records: list[dict[str, Any]]) -> list[dict[st
                 "evidence_kind": evidence_kind,
                 "evidence_url": identifier_core.normalize_url(str(record.get("evidence_url") or "")) if record.get("evidence_url") else "",
                 "recorded_at": str(record.get("recorded_at") or ""),
+                "observed_at": str(record.get("observed_at") or ""),
                 "updated_at": updated_at,
             }
         )

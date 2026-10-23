@@ -6,7 +6,7 @@ from project_registry_core import project_merge
 
 from project_registry_core import naming
 
-from .. import editorial
+from .. import editorial, tracking
 
 import sqlite3
 from dataclasses import asdict
@@ -230,7 +230,7 @@ def set_tracking_state(
     target_state = str(tracking_state or "").strip().lower()
     if target_state not in project_record.TRACKING_STATES:
         raise ValueError(f"invalid tracking_state: {tracking_state}")
-    project["tracking_state"] = target_state
+    tracking.set_state(project, target_state)
     if note is not None:
         project["tracking_note"] = str(note).strip()
     project_record.save_project(
@@ -273,6 +273,7 @@ def preview_profile_edit(
         "name": str(project.get("name") or ""),
         "notes": str(project.get("notes") or ""),
         "introduced_url": str(project.get("introduced_url") or ""),
+        "tracking_state": str(project.get("tracking_state") or "active"),
         **editorial.profile(project),
         "automatic_description": editorial.automatic(project),
     }
@@ -282,6 +283,9 @@ def preview_profile_edit(
         "notes": str(notes or "").strip(),
         "introduced_url": normalized_introduced_url,
     }
+    tracking_preview = dict(project)
+    tracking.set_introduced_url(tracking_preview, normalized_introduced_url)
+    after["tracking_state"] = tracking_preview["tracking_state"]
     if description is not None:
         if not isinstance(description, dict) or set(description) - set(editorial.FIELDS):
             raise ValueError("description must contain only tagline, summary and features")
@@ -347,7 +351,7 @@ def apply_profile_edit(
         naming.add_name_candidate(project, preview["after"]["name"], "operator_edit")
     project["name"] = preview["after"]["name"]
     project["notes"] = preview["after"]["notes"]
-    project["introduced_url"] = preview["after"]["introduced_url"]
+    tracking.set_introduced_url(project, preview["after"]["introduced_url"])
     if any(item["field"] in (*editorial.FIELDS, "automatic_description") for item in preview["changes"]):
         for field in editorial.FIELDS:
             project[field] = preview["after"][field]

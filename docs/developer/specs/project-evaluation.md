@@ -341,75 +341,38 @@ fingerprintのversionは`promotion-attention-v1`です。category、service状�
 
 ## 追跡と再調査
 
+### 紹介と既知対象
+
+`stable`（既知対象）は、内容を把握していて細かな更新を追う必要がない対象です。利用者の明示指定に加え、紹介URLが空から登録された時に`active -> stable`へ移します。紹介済みは既知とみなすための代理条件であり、必須条件ではありません。repo更新とcollection利用の組合せから`stable`へ移す処理はありません。
+
+紹介の自動取込み・手動紐付け・プロフィール編集・マージで紹介URLを初めて受け継ぐ経路は、共通の`tracking.set_introduced_url()`を使います。他の追跡状態を紹介登録だけで上書きしません。同じ紹介の再取込みやURLの差替えでも状態を再設定せず、紹介後に手動で`active`へ戻した指定を維持します。
+
+紹介URLの解除は、その紹介による自動移行が現在も有効な場合だけ`stable -> active`へ戻します。途中の手動指定は同じ`stable`の再指定も含めて優先します。既存の紹介紐付けの複数根拠・取消し・マージ後のcanonical keyによる復元規則を維持し、自動移行の識別情報だけを[project record](project-record.md#status-values)に保存します。追跡メモは上書きしません。
+
+既存の`stable`や紹介済み`active`を読取り・通常保存・再取込みだけで再分類しません。過去の手動判断と自動変更をメモから推測して移行せず、一括変更が必要なら対象を確認して明示的に行います。紹介URLを持たない`stable`も引き続き有効です。
+
 ### review-stalled
 
-`review-stalled`は、活動の変化に応じて次の追跡状態への変更候補を返します。
+`review-stalled`は、保存済みの活動情報から調査頻度の変更候補を返します。対象は`active / stalled`で、`--execute`・対話適用・拡大調査の後段で候補を保存します。
 
-- `active -> stalled`
-  - repositoryとcollectionの活動・調査鮮度・理由の組合せを、以下の条件で評価する
-- `active -> stable`
-  - collection は最近動いているが repo 側は止まっている
-- `stalled -> active`
-  - repo または collection に最近 activity が戻った
+- `active -> stalled`: 更新が少ない対象の通常調査を省く。
+- `stalled -> active`: 最近のrepo更新またはcollection利用を検出した未紹介対象を通常調査へ戻す。
+- `stalled -> stable`: 同じ活動再開を検出した紹介済み対象を既知対象として低頻度で追う。
 
-`service_status=unknown/none`だけでは`stalled`を提案しません。repositoryとcollectionの活動状況を優先し、service statusのうち`dead/private`を強いシグナルとして扱います。
+`stable / out_of_scope / archived / ignore`は活動だけでは変更しません。既知対象の通常の更新は、通常調査へ戻す理由にしません。
 
-#### activity の見方
+repo活動日時は`source_repo_records[].updated_at`、collection活動日時は`collection_observations[].max`の最大値です。`recent_count > 0`ならその`observed_at`も活動の手掛かりにします。活動日時からの経過日数が`inactivity_days`未満の時だけrecentとします。日時の欠落を活動停止とみなしません。
 
-- repo activity:
-  - `source_repo_records[].updated_at` の最大値
-- collection activity:
-  - `collection_observations[].max` の最大値
-  - ただし `recent_count > 0` の observation があれば、その `observed_at` も recent activity とみなします
-- `activity_is_recent()` は `age < inactivity_days` の時だけ recent 扱いです
+`active -> stalled`には、次のすべてを必要とします。
 
-#### `stalled -> active`
+- recentなrepoまたはcollection活動がない。
+- `last_enriched_at`があり、経過日数が`max_enrich_age_days`未満で、`last_run_errors`がない。
+- repo更新またはcollection活動が`inactivity_days`以上古く、その活動情報自体の`observed_at`が`max_enrich_age_days`未満である。collection側では`recent_count > 0`の観測がないことも必要。
+- 理由が2件以上ある。活動の乏しさに加え、サービス状態や採用済みの識別情報の少なさを補助理由にする。
 
-- いま `tracking_state=stalled` の project は、次のどちらかが recent なら `active` に戻す候補です
-  - recent repo activity
-  - recent collection activity
-- 片方だけ戻っていても `active` 候補にします
+`dead / private / unknown / none`や採用情報の少なさだけでは変更しません。最近のenrichでも、古い活動情報の取得時点が不明なら停滞の根拠にしません。活動再開の判定はこの降格用の鮮度ゲートより先に行うため、明確な新しい活動を他の取得失敗で抑止しません。
 
-#### `active -> stable`
-
-- 次の条件を満たす時だけ `stable` 候補です
-  - いま `tracking_state=active`
-  - repo は recent ではない
-  - collection は recent
-- これは「ソースコード更新は止まっているが、collectionはまだ実運用されている」projectを継続調査の対象に保つためです
-
-#### `active -> stalled`
-
-- まずrecent repo activityがあるprojectは`stalled`候補の対象外にします
-- そのうえで、collection も recent でない時だけ stalled 判定に進みます
-- `last_enriched_at` が無い、または `max_enrich_age_days` 以上古い場合は、停止を判断する材料が古いため降格候補から外します
-- strong signal (`hard_signal`) として扱うもの:
-  - collection が `inactivity_days` 以上止まっていて、しかも `recent_count>0` の observation が無い
-  - repo が `inactivity_days` 以上止まっている
-  - `service_status` が `dead` または `private`
-- weak signalとして理由には出すが、単独では`stalled`を提案しないもの:
-  - `service_status=unknown` または `none`
-  - confirmed identity が 1 件以下
-    - `website_url`
-    - `project_repository_urls`
-    - `resolved_nsids`
-- `stalled` を提案するには:
-  - `hard_signal` が少なくとも 1 つ必要
-  - 理由が 2 件以上必要
-
-#### 調査鮮度ゲート
-
-- `max_enrich_age_days`は、`stalled`判定に使える調査結果の最大経過日数です
-- 未enrichまたは期限超過の `active` は `stalled` 候補を返しません
-- recent activityによる `stalled -> active` と `active -> stable` は、調査鮮度ゲートより先に判定します
-
-#### review-stalled の対象範囲
-
-- `review-stalled` が見る tracking state は:
-  - `active`
-  - `stalled`
-- `stable` / `out_of_scope` / `archived` / `ignore` はこの自動判定の対象外です
-- `--execute` を付けると、提案された `suggested_tracking_state` をそのまま保存します
+collectionの取込みでも、変更された観測にrecentな活動日時または`recent_count > 0`があれば`stalled`を復帰させます。過去のrecordを初めて発見しただけでは復帰させません。紹介済みなら`stable`へ戻し、他の状態は維持します。
 
 ### review-out-of-scope / review-ignore
 

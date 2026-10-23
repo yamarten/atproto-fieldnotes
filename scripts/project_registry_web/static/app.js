@@ -102,7 +102,7 @@ const displayLabels = {
   "sync_sources_then_enrich": "新規取込み",
   "enrich_all_states": "拡大調査",
   "active": "通常追跡",
-  "stable": "安定稼働",
+  "stable": "既知対象",
   "stalled": "活動停滞",
   "out_of_scope": "スコープ外",
   "archived": "アーカイブ",
@@ -297,17 +297,17 @@ const displayLabels = {
   "Sync sources + enrich": "新規取込み",
   "All-state maintenance": "全追跡状態の調査・見直し",
   "Extended tracking maintenance": "拡大調査",
-  "Observe up to 20 confirmed service URLs last checked at least 30 days ago, including stable/stalled/out-of-scope projects. No automatic tracking changes.": "最終確認から30日以上経過した採用済みサービスURLを最大20件観測します。安定稼働・活動停滞・スコープ外も対象です。追跡状態は変更しません。",
+  "Observe up to 20 confirmed service URLs last checked at least 30 days ago, including stable/stalled/out-of-scope projects. No automatic tracking changes.": "最終確認から30日以上経過した採用済みサービスURLを最大20件観測します。既知対象・活動停滞・スコープ外も対象です。追跡状態は変更しません。",
   "Run normal enrich --all for active projects.": "通常追跡中のプロジェクトを一括調査します。",
   "Run introduced-post sync with SQLite updates.": "紹介済み投稿を取り込み、SQLiteを更新します。",
   "Run non-introduced sync sources, then enrich newly created projects only.": "紹介済み投稿以外の外部情報を取り込み、通常追跡中の未調査対象を調べます。",
-  "Run enrich --all across every tracking state, then apply stalled review updates.": "すべての追跡状態を対象に一括調査し、活動停滞・安定稼働への見直しを適用します。",
-  "Investigate active, stable, stalled and out-of-scope projects, then apply stalled review updates. Ignore and archived projects require explicit manual investigation.": "通常追跡・安定稼働・活動停滞・スコープ外を一括調査し、活動に基づく追跡状態の見直しを適用します。無視・アーカイブは対象外です。再調査が必要な場合は手動で明示的に指定してください。",
+  "Run enrich --all across every tracking state, then apply stalled review updates.": "すべての追跡状態を対象に一括調査し、活動停滞と再始動の見直しを適用します。",
+  "Investigate active, stable, stalled and out-of-scope projects, then apply stalled review updates. Ignore and archived projects require explicit manual investigation.": "通常追跡・既知対象・活動停滞・スコープ外を一括調査し、活動停滞と再始動の見直しを適用します。無視・アーカイブは対象外です。再調査が必要な場合は手動で明示的に指定してください。",
   "observe due services": "確認時期を迎えたサービスを観測",
   "enrich --all": "通常調査",
   "enrich --all --all-tracking-states": "全追跡状態の調査",
   "enrich --all --include-stable --include-stalled --include-out-of-scope": "無視・アーカイブ以外の調査",
-  "review stalled --execute": "活動停滞・安定稼働への変更を適用",
+  "review stalled --execute": "活動停滞と再始動の変更を適用",
   "sync introduced": "紹介済み投稿の取り込み",
   "sync github": "GitHubから取り込み",
   "sync collections": "コレクション一覧から取り込み",
@@ -374,6 +374,14 @@ const $ = (id) => document.getElementById(id);
 // esc(), link(), pill(), or json() before it reaches innerHTML/outerHTML.
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
 const list = (value) => Array.isArray(value) ? value : [];
+const trackingDescriptions = {
+  active: "登録時の既定です。通常調査と拡大調査の対象になり、紹介候補として扱います。紹介URLの初回登録で既知対象へ移ります。",
+  stable: "内容を把握している対象として拡大調査で低頻度に調べ、終了や大きな変化を確認します。通常の活動再開では状態を変えません。未紹介なら紹介候補に含めます。",
+  stalled: "更新が少ないため通常調査を省き、拡大調査で再始動を拾います。通常の紹介候補から外れ、活動再開で通常追跡（紹介済みなら既知対象）へ戻ります。",
+  out_of_scope: "現在の関心の範囲外ですが、将来の変化に備えて拡大調査に残します。通常の紹介候補から外れます。",
+  archived: "終了した対象の記録を残し、定期調査と通常の紹介候補から外します。再調査・復帰は明示操作で行います。",
+  ignore: "無関係だという判断を記憶します。定期調査・通常の紹介候補・マージ候補から外し、再発見しても自動復帰させません。",
+};
 // body is trusted template HTML; escape external values before passing it here.
 function helpButton(title, body) {
   return `<span class="context-help"><button type="button" class="context-help-trigger" data-help-title="${esc(title)}" aria-label="${esc(title)}の説明" aria-controls="context-help-popover" aria-expanded="false" title="${esc(title)}の説明"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v1"/></svg></button><template>${body}</template></span>`;
@@ -1771,7 +1779,7 @@ function renderDetail(data) {
       <p class="eyebrow project-key">${esc(project.project_key)}</p>
       <h2>${esc(project.name || project.project_key)}</h2>
       <div class="meta-row">${pill(project.tracking_state)}${serviceStatusPill(project.service_status)}${project.introduced_url ? pill("introduced", "confirmed") : ""}</div>
-      <div class="actions"><select id="tracking-state" aria-label="追跡状態">${(state.server?.tracking_states || []).map((value) => `<option value="${esc(value)}" ${value === project.tracking_state ? "selected" : ""}>${esc(displayLabel(value))}</option>`).join("")}</select><button id="save-tracking">追跡状態を変更</button><button id="add-project-seed">識別子を追加</button><button id="enrich-project" class="primary">調査</button><span id="merge-analysis-action"></span></div>
+      <div class="actions"><select id="tracking-state" aria-label="追跡状態">${(state.server?.tracking_states || []).map((value) => `<option value="${esc(value)}" ${value === project.tracking_state ? "selected" : ""}>${esc(displayLabel(value))}</option>`).join("")}</select><button id="save-tracking">追跡状態を変更</button>${helpButton("追跡状態", Object.entries(trackingDescriptions).map(([value, description]) => `<p><strong>${esc(displayLabel(value))}</strong>：${esc(description)}</p>`).join("") + "<p>定期実行の有効状態・日時は設定によります。どの状態もデータは削除せず、個別調査と手動変更ができます。</p>")}<button id="add-project-seed">識別子を追加</button><button id="enrich-project" class="primary">調査</button><span id="merge-analysis-action"></span></div>
       ${renderReviewChanges(data.review)}
       ${promotionActions}
       <div class="operator-feedback">
@@ -1794,7 +1802,7 @@ function renderDetail(data) {
     <div class="detail-footer">${backToListButton()}${contextualBackButton()}</div>
   `;
   bindBackToListButtons();
-  $("save-tracking")?.addEventListener("click", () => confirmMutation("追跡状態を変更", `${project.name || project.project_key}の追跡状態を「${displayLabel($("tracking-state").value)}」へ変更しますか？`, `/api/projects/${encodeURIComponent(project.project_key)}/tracking-state`, {tracking_state: $("tracking-state").value}, false));
+  $("save-tracking")?.addEventListener("click", () => confirmMutation("追跡状態を変更", `${project.name || project.project_key}の追跡状態を「${displayLabel($("tracking-state").value)}」へ変更しますか？ ${trackingDescriptions[$("tracking-state").value] || ""}`, `/api/projects/${encodeURIComponent(project.project_key)}/tracking-state`, {tracking_state: $("tracking-state").value}, false));
   $("enrich-project")?.addEventListener("click", () => startProjectEnrich(project.project_key));
   $("verify-service-browser")?.addEventListener("click", () => startBrowserServiceVerification(
     project.project_key,
@@ -2210,9 +2218,9 @@ function renderProfileFields(profile) {
 }
 
 function renderProfileChanges(changes) {
-  const value = (item) => Array.isArray(item) ? item.map(esc).join("<br>") : esc(typeof item === "boolean" ? (item ? "自動反映する" : "更新案を確認する") : item || "なし");
-  const labels = {tagline:"概要", summary:"説明", features:"特徴", name:"名前", notes:"メモ", introduced_url:"紹介投稿のURL", automatic_description:"説明の更新方法"};
-  return changes.map((change) => `<h4>${esc(labels[change.field] || change.field)}</h4><dl class="kv"><dt>変更前</dt><dd>${value(change.before)}</dd><dt>変更後</dt><dd>${value(change.after)}</dd></dl>`).join("");
+  const value = (item, field) => field === "tracking_state" ? esc(displayLabel(item)) : Array.isArray(item) ? item.map(esc).join("<br>") : esc(typeof item === "boolean" ? (item ? "自動反映する" : "更新案を確認する") : item || "なし");
+  const labels = {tagline:"概要", summary:"説明", features:"特徴", name:"名前", notes:"メモ", introduced_url:"紹介投稿のURL", tracking_state:"追跡状態", automatic_description:"説明の更新方法"};
+  return changes.map((change) => `<h4>${esc(labels[change.field] || change.field)}</h4><dl class="kv"><dt>変更前</dt><dd>${value(change.before, change.field)}</dd><dt>変更後</dt><dd>${value(change.after, change.field)}</dd></dl>`).join("");
 }
 
 function renderServiceObservations(observations) {
@@ -2606,7 +2614,7 @@ function renderOperations() {
         <label class="check-option"><input id="enrich-retry" type="checkbox"> 前回失敗分のみ</label>
       </div>
       <details class="tracking-state-options"><summary>追加する追跡状態</summary><div class="checkbox-grid">
-        <label><span><input id="enrich-stable" type="checkbox"> 安定稼働</span></label>
+        <label><span><input id="enrich-stable" type="checkbox"> 既知対象</span></label>
         <label><span><input id="enrich-stalled" type="checkbox"> 活動停滞</span></label>
         <label><span><input id="enrich-out-of-scope" type="checkbox"> スコープ外</span></label>
         <label><span><input id="enrich-archived" type="checkbox"> アーカイブ</span></label>
@@ -2626,7 +2634,7 @@ function renderOperations() {
       <button id="start-sync" class="primary">取り込みを開始</button>
     </div><code>project-registry sync-&lt;source&gt; [--execute]</code></article>
     <article class="operation-card"><h3>追跡状態の見直し</h3><p>保存済み情報で確認（通信なし）</p><div class="controls">
-      <label>レビュー<select id="review-kind"><option value="stalled">活動停滞・安定稼働</option><option value="out_of_scope">スコープ外</option><option value="ignore">無視</option></select></label>
+      <label>レビュー<select id="review-kind"><option value="stalled">活動停滞と再始動</option><option value="out_of_scope">スコープ外</option><option value="ignore">無視</option></select></label>
       <label>候補の件数上限<input id="review-limit" type="number" min="1" max="500" value="50"></label>
       <label id="review-inactivity-label">活動なしとする日数<input id="review-inactivity" type="number" min="1" max="3650" value="45"></label>
       <label id="review-freshness-label">調査結果の有効日数<input id="review-freshness" type="number" min="1" max="3650" value="30"></label>

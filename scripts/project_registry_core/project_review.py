@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from project_registry_core import atproto_usage
+from project_registry_core import atproto_usage, tracking
 from project_registry_core import service_assessment
 from project_registry_core import collection_trust, relations
 from project_registry_core.identity import identifiers as identifier_core
@@ -815,7 +815,7 @@ def stalled_review_entry(
                 "latest_collection_activity_at": latest_collection_activity.isoformat() if latest_collection_activity else "",
                 "latest_repo_activity_at": latest_repo_activity.isoformat() if latest_repo_activity else "",
                 "reasons": reasons,
-                "suggested_tracking_state": "active",
+                "suggested_tracking_state": tracking.reactivation_state(project),
             }
         return None
 
@@ -828,23 +828,6 @@ def stalled_review_entry(
     reasons: list[str] = []
     hard_signal = False
     if recent_collection_activity:
-        if tracking_state == "active" and repo_age_days is not None and repo_age_days >= inactivity_days:
-            return {
-                "project_key": project.get("project_key", ""),
-                "name": project.get("name", ""),
-                "tracking_state": tracking_state,
-                "service_status": str(project.get("service_status") or "unknown"),
-                "seed_type": project.get("seed_type", ""),
-                "seed_value": project.get("seed_value", ""),
-                "last_enriched_at": project.get("last_enriched_at", ""),
-                "latest_collection_activity_at": latest_collection_activity.isoformat() if latest_collection_activity else "",
-                "latest_repo_activity_at": latest_repo_activity.isoformat() if latest_repo_activity else "",
-                "reasons": [
-                    f"recent collection activity {collection_age_days} days ago",
-                    f"no recent repo activity for {repo_age_days} days",
-                ],
-                "suggested_tracking_state": "stable",
-            }
         return None
 
     last_enriched_at = project_record.parse_iso_datetime(str(project.get("last_enriched_at") or ""))
@@ -853,24 +836,37 @@ def stalled_review_entry(
     enrich_age = max(0, (now - last_enriched_at).days)
     if enrich_age >= max(1, int(max_enrich_age_days)):
         return None
+    if project.get("last_run_errors"):
+        return None
 
     if latest_collection_activity is not None:
         has_recent_counts = any(
             isinstance(item, dict) and int(item.get("recent_count") or 0) > 0
             for item in project.get("collection_observations", [])
         )
-        if collection_age_days is not None and collection_age_days >= inactivity_days and not has_recent_counts:
+        fresh_collection = any(
+            isinstance(item, dict) and activity_is_recent(
+                project_record.parse_iso_datetime(str(item.get("observed_at") or "")), now, max_enrich_age_days)
+            and project_record.parse_iso_datetime(str(item.get("max") or "")) is not None
+            for item in project.get("collection_observations", [])
+        )
+        if collection_age_days is not None and collection_age_days >= inactivity_days and not has_recent_counts and fresh_collection:
             reasons.append(f"no collection activity for {collection_age_days} days")
             hard_signal = True
 
-    if latest_repo_activity is not None and repo_age_days is not None and repo_age_days >= inactivity_days:
+    fresh_repo = any(
+        isinstance(item, dict) and activity_is_recent(
+            project_record.parse_iso_datetime(str(item.get("observed_at") or "")), now, max_enrich_age_days)
+        and project_record.parse_iso_datetime(str(item.get("updated_at") or "")) is not None
+        for item in project.get("source_repo_records", [])
+    )
+    if latest_repo_activity is not None and repo_age_days is not None and repo_age_days >= inactivity_days and fresh_repo:
         reasons.append(f"no repo activity for {repo_age_days} days")
         hard_signal = True
 
     service_status = str(project.get("service_status") or "unknown")
     if service_status in {"dead", "private"}:
         reasons.append(f"service_status={service_status}")
-        hard_signal = True
     elif service_status in {"unknown", "none"}:
         reasons.append(f"service_status={service_status}")
 

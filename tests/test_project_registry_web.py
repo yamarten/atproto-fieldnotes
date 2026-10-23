@@ -1839,7 +1839,7 @@ class ProjectRegistryWebTest(_ProjectRegistryWebFixtures, TempRegistryDbTestCase
         self.assertEqual(status, 200)
         self.assertEqual(
             [item["field"] for item in preview["result"]["changes"]],
-            ["name", "notes", "introduced_url"],
+            ["name", "notes", "introduced_url", "tracking_state"],
         )
 
         status, applied, _ = self.request(

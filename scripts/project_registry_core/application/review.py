@@ -85,9 +85,15 @@ def apply_review_candidate(
     default_state: str = "",
 ) -> None:
     """Save the selected snapshot; do not reload and lose its revision check."""
-    project["tracking_state"] = str(
+    from .. import tracking
+
+    target_state = str(
         item.get("suggested_tracking_state") or default_state or project.get("tracking_state") or "active"
     )
+    if project.get("tracking_state") == "stalled" and target_state in {"active", "stable"}:
+        tracking.reactivate(project)
+    else:
+        tracking.set_state(project, target_state)
     if project["tracking_state"] == "active" and str(item.get("kind") or "") == "owned_protocol_surface_detected":
         project["tracking_note"] = "reactivated after owned protocol surface detection"
     elif note and not str(project.get("tracking_note") or "").strip():

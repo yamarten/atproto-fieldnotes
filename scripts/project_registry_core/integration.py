@@ -579,6 +579,18 @@ def apply_github_repo_evidence(
                 evidence_url=repo_url,
                 updated_at=repo_updated_at,
             )
+        # Activity metadata is an observation, distinct from when a repository
+        # was admitted. Refresh it only from the fetched snapshot, including
+        # when the upstream timestamp itself has not changed.
+        if (repo_urls.canonical_repo_url(repo_url) in project.get("project_repository_urls", [])
+                and project_record.parse_iso_datetime(repo_updated_at)
+                and project_record.parse_iso_datetime(record.observed_at)):
+            for source_record in project.get("source_repo_records", []):
+                if repo_urls.canonical_repo_url(str(source_record.get("url") or "")) == repo_urls.canonical_repo_url(repo_url):
+                    prior = project_record.parse_iso_datetime(str(source_record.get("observed_at") or ""))
+                    observed = project_record.parse_iso_datetime(record.observed_at)
+                    if prior is None or observed >= prior:
+                        source_record.update(updated_at=repo_updated_at, observed_at=record.observed_at)
         if fork:
             add_investigation_log(
                 project,

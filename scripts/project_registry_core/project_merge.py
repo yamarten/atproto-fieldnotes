@@ -6,6 +6,8 @@ lookup supplied by the application. This module never finalizes or saves.
 
 from __future__ import annotations
 
+from . import tracking
+
 import copy
 import json
 from .identity import resource_identity
@@ -1087,7 +1089,7 @@ def combine_records(target: dict[str, Any], source: dict[str, Any]) -> dict[str,
         list(merged.get("candidate_developer_accounts", [])) + list(source.get("candidate_developer_accounts", []))
     )
 
-    merged["introduced_url"] = choose_preferred_scalar(merged.get("introduced_url"), source.get("introduced_url"))
+    tracking.set_introduced_url(merged, choose_preferred_scalar(merged.get("introduced_url"), source.get("introduced_url")))
 
     merged["app_category"] = choose_preferred_scalar(merged.get("app_category"), source.get("app_category"))
     merged["category"] = choose_preferred_scalar(merged.get("category"), source.get("category"))

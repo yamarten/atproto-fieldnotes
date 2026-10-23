@@ -7,6 +7,8 @@ one URL in one post (or a post with no URL).
 
 from __future__ import annotations
 
+from . import tracking
+
 import copy
 import json
 import re
@@ -527,7 +529,7 @@ def clear_auto_assignment(conn: sqlite3.Connection, scope_key: str, item: dict[s
     project = project_record.fetch_project(conn, key)
     if project is None or project.get("introduced_url") != item.get("post_web_url"):
         return ""
-    project["introduced_url"] = ""
+    tracking.set_introduced_url(project, "")
     project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True, commit=False)
     return key
 
@@ -608,7 +610,7 @@ def resolve_item(conn: sqlite3.Connection, *, scope_key: str, target_id: str, ac
                     changed = True
                     rollback_previous = ""
             if previous != web_url:
-                project["introduced_url"] = web_url
+                tracking.set_introduced_url(project, web_url)
                 project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True, commit=False)
             item.update(status="linked", reason="", project_key=project_key,
                         link_changed=changed, previous_introduced_url=rollback_previous,
@@ -629,7 +631,7 @@ def resolve_item(conn: sqlite3.Connection, *, scope_key: str, target_id: str, ac
                     other, str(item.get("project_key") or ""), str(item.get("post_web_url") or ""))]
                 if project and project.get("introduced_url") == item.get("post_web_url"):
                     if not supporting:
-                        project["introduced_url"] = str(item.get("previous_introduced_url") or "")
+                        tracking.set_introduced_url(project, str(item.get("previous_introduced_url") or ""))
                         project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True, commit=False)
                     elif not any(other.get("status") in {"open", "auto_applied"} or other.get("link_changed")
                                  for other in supporting):
@@ -641,7 +643,7 @@ def resolve_item(conn: sqlite3.Connection, *, scope_key: str, target_id: str, ac
             if auto_key:
                 project = project_record.fetch_project(conn, auto_key)
                 if project and not project.get("introduced_url"):
-                    project["introduced_url"] = str(item.get("post_web_url") or "")
+                    tracking.set_introduced_url(project, str(item.get("post_web_url") or ""))
                     project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True, commit=False)
             item.update(status="open", reason=str(item.get("previous_reason") or item.get("reason") or "reopened"),
                         reviewed_at="", project_key="", link_changed=False, cleared_auto_project_key="")
@@ -660,7 +662,7 @@ def resolve_item(conn: sqlite3.Connection, *, scope_key: str, target_id: str, ac
             if not item["reason"]:
                 project = project_record.fetch_project(conn, item["resolved_project_key"])
                 if project and not project.get("introduced_url") and item.get("post_web_url"):
-                    project["introduced_url"] = item["post_web_url"]
+                    tracking.set_introduced_url(project, item["post_web_url"])
                     project["discovery_sources"] = project_record.add_unique(project.get("discovery_sources", []), "bsky_introduced_sync")
                     project_record.save_project(conn, project, enriched=bool(project.get("last_enriched_at")), preserve_timestamps=True, commit=False)
                     item["auto_set_project_key"] = project["project_key"]

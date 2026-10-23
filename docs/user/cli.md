@@ -24,14 +24,16 @@ CLI/Webの手動確認には`project-registry dev-db`で架空データ5件を�
 
 | 保存値 | 意味 |
 | --- | --- |
-| `active` | 通常の調査・要レビュー項目の対象。 |
-| `stable` | 稼働は安定しており、調査頻度を下げる。 |
-| `stalled` | 立ち消え気味だが、archivedと確定するほどではない。 |
-| `out_of_scope` | スコープ外。atprotoとの関係は保持するが、現在の紹介・重点調査対象外。 |
-| `archived` | 終了・保管扱い。 |
-| `ignore` | 無視。調査対象として追わないノイズ。 |
+| `active` | 通常追跡。登録時の既定で、通常調査の対象。 |
+| `stable` | 既知対象。内容を把握しており、低頻度で終了や大きな変化を確認する。 |
+| `stalled` | 活動停滞。更新が少ないため調査を減らし、再始動を拾う。 |
+| `out_of_scope` | スコープ外。現在の関心の範囲外だが、将来の変化に備えて低頻度で調査する。 |
+| `archived` | アーカイブ。終了した対象の定期調査を止め、記録を残す。 |
+| `ignore` | 無視。無関係・誤登録等の判断を記憶し、再発見で調査を繰り返さない。 |
 
-追跡状態は調査対象を選ぶための区分で、データを削除したり、状態ごとに調査時刻を予約したりするものではありません。通常の`enrich --all`は`active`だけ、通常の紹介候補一覧は`active / stable`を対象にします。単体指定や追加状態の指定では通常対象外も調査でき、`--all-tracking-states`は`ignore / archived`も含みます。`stable`は活動観測に基づく継続調査上の扱いであり、現在サービスが動く保証ではありません。[追跡状態の見直し条件](../developer/specs/project-evaluation.md#追跡と再調査)と、[定期処理の対象](web-ui.md#定期実行)を確認してください。
+追跡状態は調査対象を選ぶための区分で、データを削除したり、状態ごとに調査時刻を予約したりするものではありません。通常の`enrich --all`は`active`だけ、通常の紹介候補一覧は未紹介の`active / stable`を対象にします。`stable / stalled / out_of_scope`は拡大調査で低頻度に調べます。単体指定や追加状態の指定では通常対象外も調査でき、`--all-tracking-states`は`ignore / archived`も含みます。
+
+紹介URLの初回登録で`active`は`stable`へ自動で移り、同じ紹介の再取込みでは手動の追跡指定を変えません。自動移行後に紹介URLを解除すると`active`へ戻りますが、その間に手動で状態を指定した場合は指定を維持します。既存の紹介済みprojectを一括で読み替える処理ではありません。`stable`は利用者が選ぶこともでき、紹介済みは必須条件ではありません。[追跡状態の見直し条件](../developer/specs/project-evaluation.md#追跡と再調査)と、[定期処理の対象](web-ui.md#定期実行)を確認してください。
 
 ### 副作用の表記
 
@@ -117,7 +119,7 @@ project-registry --db-path /absolute/path/survey.db enrich --all \
 | `review-ignore` | 状態、件数上限、note/reason、実行方式 | 無視する候補のJSON | 既定なし。execute/interactiveで書き込み |
 | `review-out-of-scope` | 状態、件数上限、note/reason、実行方式 | スコープ外または復帰候補のJSON | 既定なし。execute/interactiveで書き込み |
 
-`review-stalled`は活動状況と保存済み調査の鮮度から`active`、`stable`、`stalled`間の変更を提案します。`review-ignore`はatprotoの登録プロジェクトとして無視する候補、`review-out-of-scope`は関係を保持したままスコープ外にする候補です。
+`review-stalled`は活動状況と観測・調査の鮮度から`active -> stalled`と、再始動した`stalled -> active`（紹介済みなら`stable`）を提案します。`review-ignore`はatprotoの登録プロジェクトとして無視する候補、`review-out-of-scope`は関係を保持したままスコープ外にする候補です。
 
 `--interactive`では1件ずつ確認します。skipはその実行中だけ先送りし、DBへ書きません。`--execute`は表示対象の候補を一括適用します。
 

@@ -118,6 +118,7 @@ Firefox拡張のポップアップは、`embed=popup`のWeb UIをiframeへ埋め
 | `oauth_metadata.py` / `oauth_scope_parser.mjs` | 取得済みOAuth metadataを公式SDKで解析。Nodeで外部取得はしない |
 | `usage_material.py` | collection名に対応する宣言・record観測・原文の関連記述を抽出。用途判定はしない |
 | `integration.py` | 観測をprojectへ適用し、query・ログ・失敗を記録。取得済みLexicon schema・record sampleの縮約も担当。共通の正規化・開発者情報・信頼edgeは担当moduleを直接呼び、callbackは採用判断・probe／Lexicon適用に限定 |
+| `tracking.py` | 紹介登録・解除・活動再開・手動指定による追跡状態の変更。DB保存や調査頻度の判定は呼出元が担当 |
 | `project_review.py` | review signal・紹介候補の採点／保留／優先度・追跡状態の提案。DB・registry・applicationには依存しない |
 | `project_merge.py` | 重複候補の比較・推薦・batch計画、未保存recordの合成、authority domainの分割対象識別子。比較集合のDB読出しは可能だが、外部取得・finalize・保存は担当しない |
 | `evaluation.py` | ownership・protocol観測根拠の分類・service statusの純粋評価 |

@@ -39,6 +39,7 @@ class TrackingReviewTest(TempRegistryDbTestCase):
                     'url': f'https://github.com/example/{suffix}', 'provider': 'github',
                     'confidence': 'confirmed', 'relation': 'source_repo', 'source': 'fixture',
                     'updated_at': (self.now if suffix == 'c' else self.now - dt.timedelta(days=100)).isoformat(),
+                    'observed_at': self.now.isoformat(),
                 }]
                 project['last_enriched_at'] = self.now.isoformat()
                 if suffix == 'b':

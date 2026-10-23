@@ -10,6 +10,8 @@
 
 review処理で追跡状態を更新する場合は、先にdry-run planを作り、candidate IDを選択してから実行します。execute workerはplanの変更検出値（fingerprint）とcandidate IDを再計算し、候補が変化していればDB更新前に拒否します。
 
+活動による変更先は[review-stalled](project-evaluation.md#review-stalled)に従います。紹介済みの再始動は`stable`、未紹介は`active`へ戻します。保存する追跡状態の値と調査対象optionは共通で、既知対象への表示名変更によるschedule・pending step・checkpointの移行は行いません。保留中のreviewは再開時の現行規則で候補を再計算します。
+
 ## 共通契約
 
 `project_registry_core.jobs`のschema version 1を使用します。
