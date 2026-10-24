@@ -159,6 +159,7 @@ collectorの観測からrelationを作ることと、identifierの帰属・採�
   - authority domain 由来の service URL は、NSIDから直接candidate保存せず、probe結果を見てから候補化します
   - authority probe は完全一致hostと registrable parent を同一chainとして並列fetchします。完全一致hostが2xx/3xxなら親は捨て、完全一致hostが4xxまたは恒久的なDNS不在で、親が2xx/3xxの時だけ親をfallback候補として扱います。timeout、DNSの一時障害、5xx、TLS失敗、接続拒否、その他のnetwork errorでは親へ広げません
   - 完全一致hostがregistrable parentへsame-site redirectする場合は、内容比較ではなく明示的なredirectを根拠に最終URLをcanonical candidateとして扱い、redirect元を独立したauthority candidateとして重複保存しません
+  - same-site redirectが要求先と同じhost・schemeの利用画面やログイン・登録画面へ進む場合は、元のoriginをauthority candidateに残します。転送先URLはprobe観測として保持し、ログイン・登録pathを別のserviceとして候補化しません。この例外には利用画面を示す状態（`live / beta / invite_only / private`）、または`unverified`を補強するページのAT Protocol根拠・record sample URLのhost一致が必要で、HTTP 200だけの停止・空画面は候補化しません。転送先のguard、補助的な説明・文書ページ、HTTPSからHTTPへの変更は除外し、通常のauthorityとの対応・AT Protocol根拠の条件も適用します。別hostへのsame-site redirectは上記のcanonical candidate経路で扱い、authorityによる候補化だけではconfirmed帰属にしません
   - authority domain 由来probeが成功し、実service surfaceらしく、完全一致authority hostのページ自身にAT Protocolの具体的な痕跡がある、record sample URLによるhost一致がある、または上記fallback条件がある場合だけ `service_url_candidates` に残します
   - authority domain 由来の失敗probe URLや、上記の補強がない旧candidateは、confirmed/supported/manual service として残っているものを除き `finalize_project_shape()` / `repair-db` で削除します
   - ページ上のAT Protocol言及はcandidate保存にだけ使います。`supports_project`やconfirmedへの自動昇格根拠にはしません

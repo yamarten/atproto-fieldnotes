@@ -3904,9 +3904,31 @@ def authority_service_probe_candidate_allowed(project: dict[str, Any], service_u
     normalized = project_record.normalize_service_candidate_url(service_url)
     if not normalized or service_url_is_guarded(project, normalized):
         return False
-    redirect_final = project_record.normalize_service_candidate_url(str(result.get("final_url") or ""))
-    if result.get("redirect_same_site_family") and redirect_final and redirect_final != normalized:
-        return False
+    final_url = str(result.get("final_url") or "")
+    if result.get("redirect_same_site_family") and final_url and identifier_core.normalize_url(final_url) != normalized:
+        redirect_final = project_record.normalize_service_candidate_url(final_url)
+        if not redirect_final or service_url_is_guarded(project, redirect_final):
+            return False
+        requested = urllib.parse.urlparse(normalized)
+        final = urllib.parse.urlparse(redirect_final)
+        # A path change within the same host keeps the original entry URL.
+        # Cross-host canonical candidates use the separately supported redirect path.
+        if final.netloc.lower() != requested.netloc.lower() or final.scheme != requested.scheme:
+            return False
+        if (
+            not service_probe_represents_service_identity(redirect_final, result)
+            and deep_investigation_page_kind(redirect_final) not in {"login", "signup"}
+        ):
+            return False
+        redirect_status = project_record.normalize_service_status(result.get("service_status"))
+        if redirect_status not in {"live", "beta", "invite_only", "private"} and not (
+            redirect_status == "unverified"
+            and (
+                authority_service_page_has_atproto_evidence(result)
+                or authority_service_candidate_has_record_url(project, normalized)
+            )
+        ):
+            return False
     status_code = int(result.get("status_code") or 0)
     if not (0 < status_code < 400):
         return False
