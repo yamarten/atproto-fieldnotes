@@ -61,6 +61,8 @@ serviceの稼働状態とNSID ownershipを確認するレビュー表示も、�
 
 検索は一projectあたり最大4回（GitHub 2回、actor 1回、post 1回）です。材料がなければ該当検索は省略します。候補actorのauthor feed取得は別に最大2回で、失敗時のretryもこの4回には含めません。共有hostのパスから個別サービス名を推測する処理はありません。検索結果の帰属確認・採用規則は語の選択とは別に適用します。
 
+GitHub検索結果のowner加点は、採用済みrepositoryと同じGitHub ownerである場合に限ります。GitHub usernameとBluesky handle、domain、project名の綴りの類似からownerの同一性を加点しません。project名・説明・URL等の文字列による関連性評価は別に残し、検索の加点を帰属の確定へ読み替えません。
+
 ### 一括調査の先行取得
 
 一括enrichは既定で、現在projectの最初のLLM呼出し中に、選択順で直後のproject一件の初期収集を進めます。初期収集はLexicon・record sample・既知repository・service・candidate repositoryの帰属確認を含み、repository analysisより前で止めます。通常の逐次経路も同じ`collect_initial`を使い、取得対象・検索予算・prompt・model・適用規則は変えません。triage再利用hitでも、repository analysisに実呼出しがあればその区間を利用します。両方を再利用できた回にはLLM待ち時間を使う先行取得はありません。
@@ -221,6 +223,7 @@ triageへ渡す解析結果はconfirmed repoだけを対象に最大6件とし�
 - confirmed developer handleがある通常enrichでは、handle -> DID -> PDSを解決し、`com.atproto.repo.listRecords`で本人のTangled repo recordを取得します
 - 一覧の各recordはDID→repoのconfirmed `owns_repository`として保持します。これはaccountの所有観測であり、登録projectへの所属ではありません。`did_links_repo` edgeもauto-confirm対象外です。旧`project_repository`のうちDID→repoかつ`pds_list_records`の形だけを、共通relation正規化で`owns_repository`へ読み替え、元predicateをcontextへ残します。読込みは正本rowを一括更新せず、通常保存・replayでは現在の意味で保存します
 - `tangled-project-repository-v1`では、既に採用済みのrepo URL、repo名とproject名の完全一致（空白とハイフンの差を許容）、record websiteと採用済みservice／代表Websiteの正規化後の完全一致をproject固有の根拠とします。名前・websiteの一致で追加するのはcandidateまでで、project間の同一性やマージは決めません。同じowner、説明文の単語一致、過去snapshotのscoreだけでは候補登録しません。repository共通入口でもowner一致単独を候補根拠にしません
+- repo名の一致は、観測したrecord名を含むcanonical Tangled URLからcleanup・保存後も再評価します。一時的に渡されたmetadataがなくなったことや、別forgeのowner名との不一致でこの候補根拠を失わせません。現在のproject名が一致しなくなれば名前一致の根拠は解除し、他の有効な根拠があるかを通常の候補規則で確認します
 - PDS recordのwebsiteは`repository_homepage`（method: `pds_repo_website`）として保持し、保存時も現在の採用済みservice／代表Websiteとの完全一致を再評価します。同じsource・repoの新しいrecordで置換し、websiteなしも古い観測を解除します。古い観測による上書きはしません。これにより別名repoの候補は保存後も残りますが、websiteの変更や参照先の除外後にはその根拠だけで候補を維持しません。これはpageの指定観測であり、service roleやrepoの自動採用ではありません
 - PDS recordの名称・説明・website、repo inspectionのREADME本文・リンクは、現在採用済みでblock/deferされていないrepoだけからprojectの候補情報へ反映します。候補repo・所有一覧の他repoからは反映せず、ownerをdeveloperとして自動採用することもありません。PDS由来の名称・説明のsourceにはrecord sourceにrepo URLを付け、同じownerの別repoと区別します。保存済みの誤候補や候補テキストはこの変更だけで削除せず、手動判断・他sourceを保護する既存データ補正で扱います
 - accepted source repo URLがTangledの場合は、repo root HTMLを読み、READMEを`raw/{ref}/{path}` から取得して `tangled_repo_inspection` evidenceを作ります

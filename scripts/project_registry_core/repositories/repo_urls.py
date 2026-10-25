@@ -108,14 +108,16 @@ def repo_identity_key(url: str) -> str:
     return canonical_repo_url(url)
 
 
-def repo_owner_identity(url: str) -> str:
-    parsed = urllib.parse.urlparse(identifiers.normalize_url(url))
+def repo_owner_identity(url: str) -> tuple[str, str] | None:
+    """Compare global DIDs or forge-local owner labels; never resolve ownership."""
+    if not is_supported_repo_url(url):
+        return None
+    parsed = urllib.parse.urlparse(canonical_repo_url(url))
     segments = [segment for segment in parsed.path.split("/") if segment]
-    if parsed.netloc in {"github.com", "tangled.org"} and segments:
-        return segments[0].lower()
-    if parsed.netloc in KNOWN_FORGE_REPO_HOSTS | KNOWN_FORGE_REPO_HOSTS_WITH_USER_PREFIX and segments:
-        return segments[0].lower().removeprefix("~")
-    return ""
+    owner = segments[0]
+    if owner.startswith("did:"):
+        return ("did", owner) if identifiers.DID_RE.fullmatch(owner) else None
+    return parsed.netloc, owner.lower()
 
 
 def normalize_repo_collection(urls: list[str], *, provider: str | None = None) -> list[str]:

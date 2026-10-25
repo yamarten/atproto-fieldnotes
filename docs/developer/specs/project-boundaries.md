@@ -142,6 +142,10 @@ resource identityは、二つのidentifierが同じ外部resourceまたはその
 
 現行graphは観測されたidentifierをnodeとして保持し、aliasらしい値を暗黙に一つへ畳みません。identityを確認する直接relationと、projectへの帰属relationを分けます。
 
+repository ownerの比較は識別子の名前空間と値の組を使います。対応forgeのURLから得たDID表記はhostに依存しない`did + DID値`で比較し、caseを保持します。DID以外のowner表記はforgeのhostで区切り、別forgeでの同じ綴りを同一accountにせず、異なる綴りもproviderをまたぐ不一致根拠にしません。`tangled.sh`と`tangled.org`は共通のTangled hostへ正規化します。未解決のhandleとDIDは別の名前空間であり、このURL比較では解決・対応付けを行いません。
+
+この比較はURLに表記されたowner識別子の一致を扱い、repo所有者の真正性やproject帰属を確認した意味ではありません。実際の所有関係とhandle/DIDの対応には、それぞれの観測・検証が必要です。一般的なrepo候補の名前・別名照合に併用するowner filterは、同じ名前空間に有効な採用済みrepoがある場合だけ評価し、block/deferされたrepoを起点にしません。名前等のproject固有の候補根拠は別途必要で、owner一致単独では候補化・自動採用・マージを行いません。直接の構成要素relationやTangledの明示的な候補規則は、それぞれの条件で評価します。
+
 ### 収集対象の分類
 
 | 区分 | 例と扱い |

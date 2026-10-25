@@ -113,6 +113,8 @@ NSID seed は、それだけでは共有 lexicon の根拠にしません。`lex
 
 `category=lexicon` の project で `lexicon_scope=service_specific` になった場合は `category=project` へ戻します。`unknown` は無理に確定しません。LLM prompt にも、service URL 未発見を shared の根拠にしないことと、service の実態がある場合は schema 説明だけに縮退させないことを明記しています。
 
+namespaceとの対応を名前から補う規則では、project名・採用済みrepo名・projectのdomainを参照します。repository ownerのusernameとNSIDの綴りの一致は、同じ発行主体やサービスを保証しないため、この分類根拠に含めません。LLMによるscope判断と共有仕様の明示は、それぞれ既存の規則で評価します。
+
 #### Categoryの選択
 
 category値の意味は[Category](project-record.md#category)を正本とします。CLIやpluginなどの配布形式だけでは決めません。一般利用者が直接使うCLIや拡張機能は`project`、開発者が依存packageとしてcodeへ組み込むpluginは`library`、既存serviceや外部toolへ導入してATProto連携を追加するpluginは`infra_tool`です。ATProto自体を扱うCLIや運用componentも`infra_tool`です。既存projectに別物のURLが混入した場合はidentifier関係の欠陥であり、projectを`reject`にしません。

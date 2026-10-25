@@ -2617,18 +2617,6 @@ def project_merge_aliases(project: dict[str, Any]) -> set[str]:
     return aliases
 
 
-def project_repo_owner_tokens(project: dict[str, Any]) -> set[str]:
-    tokens: set[str] = set()
-    for url in project_repository_url_values(project):
-        parsed = urllib.parse.urlparse(identifier_core.normalize_url(url))
-        segs = [s for s in parsed.path.split("/") if s]
-        if segs:
-            token = identifier_core.normalize_alias_token(segs[0])
-            if token:
-                tokens.add(token)
-    return tokens
-
-
 def lexicon_brand_tokens(project: dict[str, Any]) -> set[str]:
     tokens: set[str] = set()
     for value in list(project.get("input_nsids", [])) + list(project.get("resolved_nsids", [])) + list(project.get("recorded_lexicon_namespaces", [])):
@@ -2708,7 +2696,7 @@ def compute_lexicon_scope(project: dict[str, Any]) -> dict[str, Any]:
         }
 
     namespace_tokens = lexicon_brand_tokens(project)
-    identity_tokens = project_domain_identity_tokens(project) | project_merge_aliases(project) | project_repo_owner_tokens(project)
+    identity_tokens = project_domain_identity_tokens(project) | project_merge_aliases(project)
     has_service_surface = bool(
         project.get("service_urls")
         or service_url_candidate_values(project)

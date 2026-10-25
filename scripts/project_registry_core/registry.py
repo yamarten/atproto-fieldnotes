@@ -1756,10 +1756,12 @@ def repo_link_matches_project_identity(project: dict[str, Any], url: str) -> boo
     return repo_token in identity_tokens
 
 
-def trusted_repo_owner_identities(project: dict[str, Any]) -> set[str]:
-    owners: set[str] = set()
-    trusted_urls = set(project_record.manual_repo_urls(project)) | set(project.get("project_repository_urls", []))
+def trusted_repo_owner_identities(project: dict[str, Any]) -> set[tuple[str, str]]:
+    owners: set[tuple[str, str]] = set()
+    trusted_urls = set(project_record.active_manual_repo_urls(project)) | set(project.get("project_repository_urls", []))
     for url in trusted_urls:
+        if project_record.identifier_is_blocked(project, "repo_url", url) or project_record.identifier_is_deferred(project, "repo_url", url):
+            continue
         owner = repo_url_core.repo_owner_identity(str(url or ""))
         if owner:
             owners.add(owner)
@@ -1797,7 +1799,8 @@ def repo_candidate_allowed_for_project(project: dict[str, Any], url: str, *, rep
                     or project_record.identifier_is_deferred(project, "repo_url", normalized))
     if repo_candidate_has_confirmed_component_relation(project, normalized):
         return True
-    if repository_metadata is not None and tangled_core.repository_match_reason(project, normalized, repository_metadata):
+    if (repo_url_core.normalize_tangled_repo_url(normalized)
+            and tangled_core.repository_match_reason(project, normalized, repository_metadata or {})):
         return True
     for item in relation_core.normalize_relation_records(project.get("relation_evidence", [])):
         relation = item["relation"]
@@ -1816,30 +1819,12 @@ def repo_candidate_allowed_for_project(project: dict[str, Any], url: str, *, rep
         return False
     if normalized in project_record.manual_repo_urls(project) or normalized in project.get("project_repository_urls", []):
         return True
-    trusted_owners = trusted_repo_owner_identities(project)
+    # Keys share a naming namespace only for the same forge or for global DIDs.
+    trusted_owners = {item for item in trusted_repo_owner_identities(project)
+                      if owner and item[0] == owner[0]}
     if trusted_owners:
-        return bool(owner and owner in trusted_owners)
+        return owner in trusted_owners
     return True
-
-
-def owner_matches_project(project: dict[str, Any], url: str) -> bool:
-    owner = repo_url_core.repo_owner_identity(url)
-    if not owner:
-        return False
-    known_tokens: set[str] = set()
-    for domain in project.get("authority_domains", []):
-        known_tokens.add(domain.lower())
-        known_tokens.add(domain.split(".", 1)[0].lower())
-    for handle in project.get("bluesky_handles", []):
-        known_tokens.add(handle.lower())
-        known_tokens.add(handle.split(".", 1)[0].lower())
-    for seed in project.get("manual_seeds", []):
-        value = str(seed.get("value") or "").lower()
-        if value:
-            known_tokens.add(value)
-    if project.get("name"):
-        known_tokens.add(str(project["name"]).lower())
-    return owner in known_tokens
 
 
 def github_repo_relevance(project: dict[str, Any], repo: dict[str, Any]) -> int:
@@ -1857,7 +1842,7 @@ def github_repo_relevance(project: dict[str, Any], repo: dict[str, Any]) -> int:
         if any(needle in haystack for haystack in haystacks):
             score += 3
     owner = repo_url_core.repo_owner_identity(str(repo.get("url") or ""))
-    if owner and owner_matches_project(project, str(repo.get("url") or "")):
+    if owner and owner in trusted_repo_owner_identities(project):
         score += 3
     homepage = str(repo.get("homepage") or "").strip()
     if homepage:

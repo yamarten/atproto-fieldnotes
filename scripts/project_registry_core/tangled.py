@@ -43,7 +43,11 @@ def repository_match_reason(project: dict[str, Any], url: str, record: dict[str,
     known = set(project_record.active_manual_repo_urls(project)) | set(project.get("project_repository_urls", []))
     if normalized in {repo_urls.canonical_repo_url(item) for item in known}:
         return "accepted_repository"
-    name = str(record.get("name") or "").strip().lower()
+    # The canonical URL already contains the observed record's repository name.
+    # Re-evaluate that same candidate basis when metadata is no longer present.
+    name = str(record.get("name") or urllib.parse.unquote(
+        urllib.parse.urlsplit(normalized).path.rsplit("/", 1)[-1]
+    )).strip().lower()
     project_name = str(project.get("name") or "").strip().lower()
     if project_name and name in {project_name, project_name.replace(" ", "-")}:
         return "project_name_exact"
