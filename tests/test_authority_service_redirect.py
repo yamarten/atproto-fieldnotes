@@ -106,7 +106,8 @@ class AuthorityServiceRedirectStorageTest(TempRegistryDbTestCase):
     def test_enrich_save_reload_keeps_origin_candidate_without_confirming_login(self):
         project = self.make_project("proj:enrich-authority-login")
         did = "did:plc:authorityfixture"
-        io = EnrichmentIO(dns=lambda *args, **kwargs: ["did=" + did])
+        io = EnrichmentIO(dns=lambda *args, **kwargs: ["did=" + did],
+                          browser=lambda url, **kw: {"url": url + "/login", "status_code": 200})
         io.json("https://plc.directory/" + did, {
             "id": did, "service": [{"type": "AtprotoPersonalDataServer", "serviceEndpoint": "https://pds.example.test"}],
         })

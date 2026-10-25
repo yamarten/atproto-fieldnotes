@@ -274,15 +274,21 @@ collectionの表示・検索は最大64件、schemaのfield表示は最大16項�
 
 ### OAuth client metadataの観測
 
-service pageから発見したmetadata候補（1 pageあたり最大3 URL）を従来のHTTP collectorで取得し、`scope`を公式`@atproto/oauth-scopes@0.5.12`で解析します。`oauth_metadata.py`がNode bridgeを呼び、構文・対象・操作・audienceの検証はSDKへ任せます。追加HTTP、LLM、ソースコード探索は行いません。Node処理は1回5秒まで、scopeは16,384文字まで。同一processではscope文字列ごとに成功した解析結果を128件までcacheし、DB読込・表示・replayでは保存済み解析だけを使います。
+metadata探索は、取得に成功したservice起点のページからだけ行います。未候補の完全一致authorityで観測したWeb入口も含みますが、未取得のauthorityやpublisherを列挙して探索しません。既知の関連metadataの再取得、受信済みHTML・リンク・literal `client_id`の明示参照、同一originの`/client-metadata.json`、`/oauth-client-metadata.json`、`/oauth/client-metadata.json`の順に調べます。外部JavaScript bundleの再帰取得は行いません。
+
+通常enrichの推測パス探索は1 projectにつき1 originまでです。これはprojectのURL数の制約ではなく、既知metadataの更新や明示参照は別originでも対象になります。未試行・古い試行のoriginを優先し、各surfaceのmetadata GETは最大3件、取得・解析の経過時間20秒で次のGETを止め、各GETにも残り時間を渡します。HTTP応答は256 KiBまででredirectを追いません。対応する有効なWeb metadataが得られたら推測パスを止め、明示された別clientは別々に保持します。推測先の404/410・非metadata・redirectは30日抑制し、新しい明示参照はその抑制を迂回します。ブラウザで遅れて見つかった参照は残り予算で取得し、予算切れなら保存した参照を次回探索へ渡します。
+
+`scope`は公式`@atproto/oauth-scopes@0.5.12`で解析します。`oauth_metadata.py`がNode bridgeを呼び、構文・対象・操作・audienceの検証はSDKへ任せます。Node内では追加HTTPやLLMを使いません。Node処理は1回5秒まで、scopeは16,384文字まで。同一processではscope文字列ごとの解析結果を128件までcacheし、DB読込・表示・replayでは保存済み解析だけを使います。
 
 `repo`のcollectionとcreate/update/delete、`rpc`のmethodとaudience、`blob`、`account`、`identity`、基本scope、移行用scopeを分けます。操作の省略時や複数指定、percent encodingもSDKで扱います。`include`はpermission setのNSIDとaudienceを保存しますが、参照先の取得・展開は未実装で、常に未解決と表示します。未対応／不正なtokenは捨てず`unrecognized`へ残し、部分解析とします。
 
-`oauth_client_metadata` EvidenceRecordは取得URL、取得時刻、申告されたclient_id/client_uri、元のscope、parser versionと解析状態を持ちます。client_uriをサービスの所有確認に使いません。scope欠落・空・非文字列・長さ上限・parser利用不可を区別し、未取得や`atproto`のみと混同しません。長さ超過時は先頭16,384文字と省略flagを保存し、部分文字列を解析しません。HTTP成功と解析失敗はcollectorのfetch/parseに分けます。
+`oauth_client_metadata` EvidenceRecordは取得URL・時刻、client_id/client_uri、application type、callback・grant・response宣言、DPoP、HTTP応答条件、発見元、元のscopeと解析状態を持ちます。`client_uri`は正確なservice surfaceへの対応付けであり、単独の所有証明ではありません。[service OAuth採用規則](project-boundaries.md#oauth宣言からのservice候補と採用)がpublicationと画面観測を合わせて判断します。scope欠落・空・非文字列・長さ上限・parser利用不可を区別し、未取得や`atproto`のみと混同しません。長さ超過時は先頭16,384文字と省略flagを保存し、部分文字列を解析しません。HTTP成功と解析失敗はcollectorのfetch/parseに分けます。
 
 metadataは要求できる権限の上限の宣言であり、実際のgrantや操作実績ではありません。`atproto`のみでも公開データを読め、他のclient・server accountの書込み有無も分からないため、`atproto_auth_only`や主機能での利用範囲を自動確定しません。個別のrepo NSIDと未解決includeは従来どおり`requests_permission` relationへ射影し、contextに元のtoken・操作を残します。wildcard、RPC、その他scopeをcollection NSIDや所有根拠へ変換しません。既存の寄与度評価規則と紹介順位規則は変更していません。
 
-metadata URLごとの最新観測をcurrent stateに保持します。scopeが減った場合は同じURL由来の古いpermission relationを置き換え、古い観測のreplayやmergeで復活させません。取得失敗だけなら前回観測を維持し、失敗は調査履歴へ残します。従来のrelationだけでは元のscope全体を復元できないので、新しい解析への更新にはmetadataの再取得が必要です。
+metadata URLごとの最新宣言と最新の取得試行を別々に保持します。scopeが減った場合は同じURL由来の古いpermission relationを置き換え、古い観測のreplayやmergeで復活させません。取得失敗でも前回の宣言を履歴として残しますが、後続の404/410・非metadata・redirectは採用支持を無効にし、一時失敗でも支持に使える宣言は7日以内に限ります。従来のrelationだけでは元のscope全体を復元できないので、新しい解析への更新にはmetadataの再取得が必要です。
+
+通常enrichは静的観測、metadata探索、ブラウザ確認、採用判定の順に処理し、採用後は保存済みページを説明用sourceへ再投影します。新たな完全一致authority・metadata対応先のブラウザ確認は、repository homepage確認と共有する追加1 surface・45秒の予算内です。`oauth_service_assessment`にはその実行が採用を評価したことを残し、replayでは保存された結論ではなく現在の宣言・publication・登録起点・guardから再評価します。`investigate-service-urls`は従来どおり観測と候補化だけを行い、そのreplayも自動採用しません。
 
 仕様根拠: [OAuth](https://atproto.com/specs/oauth)、[Permissions](https://atproto.com/specs/permission)、[段階的なscope要求](https://atproto.com/guides/oauth-patterns#progressive-scope-requests)。主機能との対応や寄与度の再設計は、公式の保存先説明・schema・record等を合わせて評価する別段階です。
 
@@ -312,9 +318,9 @@ metadata URLごとの最新観測をcurrent stateに保持します。scopeが�
 
 対象stateは`active / stable / stalled / out_of_scope`です。紹介予定とservice未採用projectを優先し、出所別に巡回して1 project・同一URL各1件を選びます。未試行・意味のある入力変更を4巡、期限到来の再試行を1巡で選び、空いた枠は他へ回します。rootの観測時刻だけでは再取得せず、出所・現行NSID・公開先の根拠・ページ内容hash・policyの変更で再評価します。成功したが帰属不明の観測は入力変更まで再巡回しません。一時失敗は7・30・90日後を再試行対象とし、404/410は入力変更まで保留します。
 
-ブラウザcollectorは共有し、未採用側は`browser_discovery` laneと出所付きhypothesisを保存します。最初のpageが正常に取得・可視観測され、利用画面とAT Protocol/PDSの具体的な痕跡が同じexact URLにある場合にcandidateを支持します。ログイン欄やHTTP成功だけでは確定せず、未採用観測から`website_url`・confirmed・projectの稼働状態・追跡状態・`last_enriched_at`を変えません。表示された`continue to PDS`も認証入口の観測に含めますが、認証の成功ではありません。既存candidateの取得失敗は自動block/削除にしません。
+ブラウザcollectorは共有し、未採用側は`browser_discovery` laneと出所付きhypothesisを保存します。元pageが正常に取得・可視観測され、利用画面とAT Protocol/PDSの具体的な痕跡がある場合にcandidateを支持します。元pageから開いたdialogまたは同一originのlogin pageも関係を記録し、可視formの局所的なAtmosphere/ATProto/Bluesky説明とhandle/DID欄を対応付けます。一般のhandle欄やfooterのSNSリンクだけではこの条件を満たしません。採用候補は元のservice URLであり、login URLへ置き換えません。ログイン欄やHTTP成功だけでは確定せず、未採用観測から`website_url`・confirmed・projectの稼働状態・追跡状態・`last_enriched_at`を変えません。表示された`continue to PDS`も認証入口の観測に含めますが、認証の成功ではありません。既存candidateの取得失敗は自動block/削除にしません。
 
-既定は50 URL・900秒で、件数または経過時間で新しいURLへの着手を止めます。URL内のnavigationにも残り時間を渡し、1 URLの操作予算は最大45秒、同一siteの認証入口は最大2件です。ブラウザ起動・DNS・終了処理を含む厳密なprocess終了期限や、subresource込みのHTTP request数の上限ではありません。取消しはURL境界とnavigation前で確認し、完了していない試行を成功として保存しません。個別失敗・競合後は独立したURLを続行し、共通の依存不足・DB障害は処理を止めます。ブラウザは利用者のsessionを使わず、既存outbound規則でnavigation・redirect・subresource・WebSocketの内部address宛接続を拒否します。
+既定は50 URL・900秒で、件数または経過時間で新しいURLへの着手を止めます。URL内のnavigationにも残り時間を渡し、1 URLの操作予算は最大45秒、同一originの認証入口はリンク追跡・dialog展開を合わせて最大2操作です。入力・form送信・認証同意は行いません。ブラウザ起動・DNS・終了処理を含む厳密なprocess終了期限や、subresource込みのHTTP request数の上限ではありません。取消しはURL境界とnavigation前で確認し、完了していない試行を成功として保存しません。個別失敗・競合後は独立したURLを続行し、共通の依存不足・DB障害は処理を止めます。ブラウザは利用者のsessionを使わず、既存outbound規則でnavigation・redirect・subresource・WebSocketの内部address宛接続を拒否します。
 
 試行台帳は`state_json.evidence.service_url_investigations`へ、観測32件の押出しとは独立に保持します。保存・replay・finalizeでも現在の出所とguardを確認して候補を維持します。次回enrichには上限付きの`unadopted_url_observations`を、帰属未確認の調査材料として渡し、説明用`description_sources`とは分けます。30日以内で出所とURLが一致する成功観測は、既存repository homepage判定の独立した帰属条件を満たす時にブラウザ再実行の代わりに使えます。直後の自動enrich・追跡stateの復帰は行いません。
 

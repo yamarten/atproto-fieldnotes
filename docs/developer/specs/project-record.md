@@ -159,6 +159,8 @@ registry全体のsource設定・watermark・identifier exclusionはproject snaps
 
 `evidence.oauth_client_metadata`はmetadata URLごとの最新のscope宣言と解析を保持します。履歴の正本はEvidenceBundleです。`repo`と未解決`include`から作る`requests_permission` relationはこの観測から再構成し、scope削減時に古いrelationを除きます。読込・保存時の再構成は通信やparser実行を伴いません。[観測の意味と上限](investigation.md#oauth-client-metadataの観測)を参照してください。
 
+`evidence.oauth_metadata_attempts`はmetadata URLごとの最新取得試行を最大32件保持し、宣言の最後の成功とは分けます。取得時刻・応答status・結果・発見元service URL・探索方法を保存し、推測先の再試行抑制と宣言の失効判定に使います。mergeとreplayはURLごとに新しい時刻を優先します。`oauth_service_assessment` EvidenceRecordは通常enrichがservice採用を評価した事実を示し、replayの結論は現行証拠から再計算します。
+
 `evidence.service_url_investigations`は未採用URLの現行仮説ごとの最新試行、最後の成功、出所・内容のfingerprint、再試行時刻、観測と調査run IDを保持します。詳細なbrowser観測の32件上限から独立し、押出しで未試行へ戻しません。現行の出所がなくなった仮説はcurrent stateから除き、詳細・過去の試行は調査履歴へ残します。期限内guardでは試行台帳を保持します。同じURLのmergeでは最新の試行を選び、統合後の出所・guardで再評価します。未採用URLの成功観測はprojectの稼働状態や帰属の確定を意味しません。
 
 ### 説明の編集制御と観測時点

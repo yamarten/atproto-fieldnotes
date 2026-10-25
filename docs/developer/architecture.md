@@ -116,6 +116,7 @@ Firefox拡張のポップアップは、`embed=popup`のWeb UIをiframeへ埋め
 | `html_link_context.py` / `account_links.py` / `developer_links.py` | 共有HTMLリンク文脈抽出と、websiteが案内する公式Bluesky account、開発・保守の役割を示すaccountの候補判定。developerの自己申告も根拠付き候補に限定する。repositoryの判定は`repositories/`が担当 |
 | `tangled_identity.py` | 同期用DID・handle双方向検証と取得失敗の分類。帰属・保留保存は`source_sync.py` |
 | `oauth_metadata.py` / `oauth_scope_parser.mjs` | 取得済みOAuth metadataを公式SDKで解析。Nodeで外部取得はしない |
+| `oauth_service.py` | Web metadataのsurface対応、可視画面、collectionの現行公開情報と独立登録起点からservice採用を評価。専用graph scopeと保存時競合検査 |
 | `usage_material.py` | collection名に対応する宣言・record観測・原文の関連記述を抽出。用途判定はしない |
 | `integration.py` | 観測をprojectへ適用し、query・ログ・失敗を記録。取得済みLexicon schema・record sampleの縮約も担当。共通の正規化・開発者情報・信頼edgeは担当moduleを直接呼び、callbackは採用判断・probe／Lexicon適用に限定 |
 | `tracking.py` | 紹介登録・解除・活動再開・手動指定による追跡状態の変更。DB保存や調査頻度の判定は呼出元が担当 |

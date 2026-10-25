@@ -1077,6 +1077,8 @@ def combine_records(target: dict[str, Any], source: dict[str, Any]) -> dict[str,
     merged["oauth_client_metadata"] = oauth_metadata.normalize_results(
         list(merged.get("oauth_client_metadata", [])) + list(source.get("oauth_client_metadata", []))
     )
+    merged["oauth_metadata_attempts"] = oauth_metadata.normalize_attempts(
+        list(merged.get("oauth_metadata_attempts", [])) + list(source.get("oauth_metadata_attempts", [])))
     investigations = {}
     for item in sorted(list(merged.get("service_url_investigations", [])) + list(source.get("service_url_investigations", [])),
                        key=lambda value: str(value.get("attempted_at", ""))):

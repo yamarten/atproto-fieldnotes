@@ -8,6 +8,25 @@ from project_registry_core.transport import http_transport
 
 
 class RedirectPolicyTest(unittest.TestCase):
+    def test_metadata_redirect_stops_before_second_request(self):
+        error = urllib.error.HTTPError("https://app.example/client.json", 302, "redirect",
+                                      {"Location": "https://other.example/client.json"}, io.BytesIO())
+        with mock.patch.object(http_transport, "outbound_host_is_blocked", return_value=False), \
+                mock.patch.object(http_transport.NO_REDIRECT_OPENER, "open", side_effect=error) as fetch:
+            result = http_transport.request_bytes_with_final_url("https://app.example/client.json", follow_redirects=False)
+        self.assertEqual(result[0], 302)
+        fetch.assert_called_once()
+
+    def test_response_limit_reads_only_one_extra_byte(self):
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = b"12345"
+        with mock.patch.object(http_transport, "outbound_host_is_blocked", return_value=False), \
+                mock.patch.object(http_transport.NO_REDIRECT_OPENER, "open", return_value=response):
+            with self.assertRaisesRegex(ValueError, "byte limit"):
+                http_transport.request_bytes_with_final_url("https://app.example/client.json", max_bytes=4)
+        response.read.assert_called_once_with(5)
+
     def request(self, target, *, status=307, headers=None, data=None):
         self.requests = []
 

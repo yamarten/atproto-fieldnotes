@@ -13,6 +13,24 @@ class _BrowserPageObservationFixtures:
 
 
 class BrowserPageObservationUnitTest(_BrowserPageObservationFixtures, ProjectRecordTestCase):
+    def test_dialog_and_link_share_two_entry_actions_through_navigation_adapter(self):
+        root = "https://example.com"
+        calls = []
+        def navigate(url, **options):
+            calls.append((url, options))
+            return {"url": url, "status_code": 200, "visibility_observed": True,
+                    "auth_entry_actions": [{"text": "Sign in"}] if options["allow_auth_entry"] else [],
+                    "links": [{"href": root + "/login", "text": "Log in"},
+                              {"href": root + "/other-login", "text": "Log in"}]}
+        project = self.make_project("proj:browser-budget")
+        result = service.collect_browser_service_evidence(project, root, service.BrowserDependencies(
+            navigate=navigate, now=project_record.iso_now, forward_navigation_options=True))
+        self.assertFalse(result.failures)
+        self.assertEqual([call[0] for call in calls], [root, root + "/login"])
+        self.assertTrue(calls[0][1]["allow_auth_entry"])
+        self.assertFalse(calls[1][1]["allow_auth_entry"])
+        self.assertTrue(0 < calls[1][1]["timeout_ms"] <= calls[0][1]["timeout_ms"] <= 45000)
+
     def test_hidden_and_unobserved_controls_do_not_establish_visible_surface(self):
         hidden = self.page("https://example.com", visible=False)
         self.assertTrue(service.browser_page_auth_features(hidden)["password_form_detected"])

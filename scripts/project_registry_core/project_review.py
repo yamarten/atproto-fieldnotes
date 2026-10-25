@@ -186,6 +186,16 @@ def compute_review_signals(
 ) -> list[dict[str, Any]]:
     shaped = dict(project) if assume_shaped else project_record.ensure_project_shape(dict(project))
     signals: list[dict[str, Any]] = []
+    from . import oauth_service
+    from .persistence import runtime_view
+    flagged = {row.get("value") for row in shaped.get(runtime_view.RUNTIME_ADOPTION_ROWS, [])
+               if row.get("source") == oauth_service.ADOPTION_SOURCE and row.get("review_required") and not row.get("cleared_at")}
+    unsupported = [url for url in sorted(oauth_service.adopted_urls(shaped))
+                   if url in flagged or not oauth_service.evaluate(shaped, url).get("auto_confirm")]
+    if unsupported:
+        signals.append({"kind": "service_observation_changed", "priority": 5,
+                        "reason": "OAuthによるservice採用の根拠を再確認してください",
+                        "details": {"urls": unsupported, "action_basis": ["review_service_oauth_support"]}})
     proposal = (shaped.get("editorial") or {}).get("proposal")
     if proposal:
         signals.append({"kind": "editorial_refresh", "priority": 7,

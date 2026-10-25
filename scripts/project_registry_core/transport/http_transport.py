@@ -134,6 +134,8 @@ def request_bytes_with_final_url(
     method: str | None = None,
     timeout: float = REQUEST_TIMEOUT_DEFAULT,
     allow_blocked_hosts: bool = False,
+    max_bytes: int | None = None,
+    follow_redirects: bool = True,
 ) -> tuple[int, bytes, dict[str, str], str]:
     merged_headers = dict(DEFAULT_HEADERS)
     if headers:
@@ -146,6 +148,10 @@ def request_bytes_with_final_url(
         except urllib.error.HTTPError as exc:
             status = int(exc.code or 0)
             if status in {301, 302, 303, 307, 308}:
+                if not follow_redirects:
+                    response_headers = {key.lower(): value for key, value in exc.headers.items()} if exc.headers else {}
+                    exc.close()
+                    return status, b"", response_headers, current_url
                 location = exc.headers.get("Location", "") if exc.headers else ""
                 if not location:
                     body = exc.read()
@@ -168,7 +174,9 @@ def request_bytes_with_final_url(
             raise
         with response_context as response:
             status = getattr(response, "status", 200)
-            body = response.read()
+            body = response.read() if max_bytes is None else response.read(max_bytes + 1)
+            if max_bytes is not None and len(body) > max_bytes:
+                raise ValueError("outbound response exceeds byte limit")
             response_headers = {key.lower(): value for key, value in response.headers.items()}
             final_url = identifiers.normalize_url(str(response.geturl() or current_url))
             return status, body, response_headers, final_url

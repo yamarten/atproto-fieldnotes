@@ -83,7 +83,7 @@ def select(conn: Any, *, now: str = "", limit: int = 50) -> dict[str, Any]:
     # Four first/material-change turns then one retry turn; rotate source groups.
     while any(queues.values()) and len(selected) < limit:
         for retry in (False, False, False, False, True):
-            for group in ("candidate", "repository", "authority"):
+            for group in ("candidate", "repository", "authority", "oauth_metadata"):
                 queue = queues[(group, retry)]
                 while queue:
                     item = queue.popleft()
@@ -132,16 +132,17 @@ def investigate(
         original = copy.deepcopy(project)
         observed_at = now or project_record.iso_now()
         deadline = min(started + budget_seconds, clock() + 45)
-        def bounded_navigate(url: str) -> dict[str, Any]:
+        def bounded_navigate(url: str, *, timeout_ms: int, allow_auth_entry: bool) -> dict[str, Any]:
             if cancel_requested and cancel_requested():
                 raise InterruptedError("browser investigation cancelled")
             remaining = deadline - clock()
             if remaining <= 0:
                 raise TimeoutError("browser investigation URL budget exhausted")
-            return (navigate or service.playwright_navigate)(url, timeout_ms=max(1, int(min(30, remaining) * 1000)))
+            return (navigate or service.playwright_navigate)(url,
+                timeout_ms=min(timeout_ms, max(1, int(min(30, remaining) * 1000))), allow_auth_entry=allow_auth_entry)
         attempt_run_id = f"inv:{uuid.uuid4().hex}"
         bundle = service.collect_browser_service_evidence(project, item["url"], service.BrowserDependencies(
-            navigate=bounded_navigate, now=lambda: observed_at), lane=policy.LANE,
+            navigate=bounded_navigate, now=lambda: observed_at, forward_navigation_options=True), lane=policy.LANE,
             hypothesis={**current, "run_id": attempt_run_id})
         if cancel_requested and cancel_requested():
             stop_reason = "cancelled"

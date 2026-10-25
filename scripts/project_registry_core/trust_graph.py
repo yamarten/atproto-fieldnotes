@@ -14,7 +14,7 @@ TRUST_GRAPH_VERSION = 1
 TRUST_POLICY_VERSION = "trust-graph-v2"
 TRUST_GRAPH_FIELD = "trust_graph"
 
-NODE_KINDS = {"service_url", "repo_url", "handle", "did", "domain", "collection", "nsid"}
+NODE_KINDS = {"service_url", "repo_url", "handle", "did", "domain", "collection", "nsid", "oauth_client"}
 URL_NODE_KINDS = {"service_url", "repo_url"}
 CLASSIFICATION_RANK = {"heuristic": 0, "candidate": 1, "derived": 2, "confirmed": 3}
 

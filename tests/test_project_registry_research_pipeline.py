@@ -1874,7 +1874,8 @@ class ProjectRegistryResearchStorageTest(TempRegistryDbTestCase):
         conn = registry.open_db()
         try:
             project = self.make_project("proj:researchenrich")
-            io = EnrichmentIO(dns=lambda *args, **kwargs: [])
+            io = EnrichmentIO(dns=lambda *args, **kwargs: [],
+                              browser=lambda url, **kw: {"url": url, "status_code": 200})
             io.json("https://ufos-api.microcosm.blue/records?collection=app.example.post", {"records": []})
             io.page("https://example.app", html="")
             with io:

@@ -19,9 +19,9 @@ class _OAuthMetadataFixtures:
 
     def collect(self, scope, *, date="2026-09-22T01:00:00+00:00", url=None):
         project = self.make_project("proj:oauth", "service_url", "https://app.example")
-        with mock.patch.object(registry.http_transport, "request_json", return_value={
+        with mock.patch.object(registry.http_transport, "request_bytes_with_final_url", return_value=(200, json.dumps({
             "client_id": self.url, "client_uri": "https://untrusted.example", "scope": scope,
-        }) as fetch, mock.patch.object(project_record, "iso_now", return_value=date):
+        }).encode(), {"content-type": "application/json"}, url or self.url)) as fetch, mock.patch.object(project_record, "iso_now", return_value=date):
             bundle = registry.collect_oauth_metadata_evidence(project, url or self.url)
         fetch.assert_called_once()
         return project, bundle
@@ -84,7 +84,7 @@ class OAuthMetadataUnitTest(_OAuthMetadataFixtures, ProjectRecordTestCase):
         registry.apply_investigation_evidence(project, second)
         self.assertEqual(len(project["oauth_client_metadata"]), 2)
         self.assertEqual(len(project["relation_evidence"]), 1)
-        with mock.patch.object(registry.http_transport, "request_json", side_effect=ValueError("failed")):
+        with mock.patch.object(registry.http_transport, "request_bytes_with_final_url", side_effect=ValueError("failed")):
             failure = registry.collect_oauth_metadata_evidence(project, self.url)
         registry.apply_investigation_evidence(project, failure)
         self.assertEqual(len(project["relation_evidence"]), 1)

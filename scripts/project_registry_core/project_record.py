@@ -187,6 +187,7 @@ OPS_JSON_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "source_repo_records",
         "repository_analysis_results",
         "oauth_client_metadata",
+        "oauth_metadata_attempts",
         "llm_source",
         "llm_output",
         "classification_reason",
@@ -747,6 +748,7 @@ def default_project_record(project_key: str, seed_type: str, seed_value: str) ->
         "source_repo_records": [],
         "repository_analysis_results": [],
         "oauth_client_metadata": [],
+        "oauth_metadata_attempts": [],
         "bluesky_handles": [],
         "tangled_handles": [],
         "developer_accounts": [],
@@ -1059,6 +1061,7 @@ def ensure_project_shape(project: dict[str, Any]) -> dict[str, Any]:
         defaults[field] = operator_feedback.normalize_history(defaults.get(field))
     operator_feedback.reconcile_usage(defaults)
     oauth_metadata.reconcile_relations(defaults)
+    defaults["oauth_metadata_attempts"] = oauth_metadata.normalize_attempts(defaults.get("oauth_metadata_attempts"))
     defaults["service_verification_results"] = [
         dict(item) for item in defaults.get("service_verification_results", []) if isinstance(item, dict)
     ]
@@ -1805,6 +1808,8 @@ def save_project(
         exists = conn.execute("SELECT 1 FROM projects WHERE project_key=?", (project["project_key"],)).fetchone() is not None
         runtime_view.require_complete_for_update(project, exists=exists)
         concurrency.check_projects(conn, [project])
+        from . import oauth_service
+        oauth_service.assert_new_adoptions_current(conn, project)
         operator_feedback.clear_introduced_plans(project, cleared_at=iso_now())
         pending = project.get(runtime_view.RUNTIME_PENDING_RUN)
         if pending:

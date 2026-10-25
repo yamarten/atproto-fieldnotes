@@ -262,7 +262,8 @@ class ProjectConcurrencyTest(TempRegistryDbTestCase):
                 edited = True
             raise RuntimeError("fixture: LLM unavailable")
         request = OperationRequest.create("enrich", parameters={"project_key": self.key})
-        io = EnrichmentIO(llm=edit_during_llm, dns=lambda *args, **kwargs: [])
+        io = EnrichmentIO(llm=edit_during_llm, dns=lambda *args, **kwargs: [],
+                          browser=lambda url, **kw: {"url": url, "status_code": 200})
         io.json("https://ufos-api.microcosm.blue/records?collection=app.example111111111111.post", {"records": []})
         io.page("https://example111111111111.app")
         with io:

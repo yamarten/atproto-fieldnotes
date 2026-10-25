@@ -127,6 +127,12 @@ class Responses:
         stack.enter_context(mock.patch.object(pipeline, "collect_investigation_evidence", side_effect=self.search))
         stack.enter_context(mock.patch.object(llm_transport, "run_local_llm", side_effect=self.llm))
         stack.enter_context(mock.patch.object(http_transport, "request_bytes", side_effect=AssertionError("unexpected external request")))
+        def metadata_response(url, **kwargs):
+            from project_registry_core.oauth_metadata import CONVENTIONAL_PATHS
+            if any(url.endswith(path) for path in CONVENTIONAL_PATHS):
+                return 404, b"", {}, url
+            raise AssertionError("unexpected external request: " + url)
+        stack.enter_context(mock.patch.object(http_transport, "request_bytes_with_final_url", side_effect=metadata_response))
         return stack
 
 

@@ -38,6 +38,9 @@ class EnrichmentIO:
         if url in self.responses:
             return copy.deepcopy(self.responses[url])
         parsed = urlsplit(url)
+        from project_registry_core import oauth_metadata
+        if parsed.path in oauth_metadata.CONVENTIONAL_PATHS:
+            return 404, b"", {"content-type": "text/html"}, url
         empty_searches = {
             ("api.github.com", "/search/repositories"): {"items": []},
             ("public.api.bsky.app", "/xrpc/app.bsky.actor.searchActors"): {"actors": []},

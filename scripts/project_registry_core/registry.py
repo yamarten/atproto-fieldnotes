@@ -19,6 +19,7 @@ import json
 import os
 import re
 import socket
+import time
 import sqlite3
 import urllib.error
 import urllib.parse
@@ -48,6 +49,7 @@ from project_registry_core.transport import reliability as reliability_core
 from project_registry_core.persistence import database as registry_database
 from project_registry_core.persistence import runtime_view
 from project_registry_core import oauth_metadata
+from project_registry_core import oauth_service
 from project_registry_core import llm_evidence as llm_evidence_core
 from project_registry_core.identity import domain_policy as domain_policy_core
 from project_registry_core.transport import http_transport
@@ -308,7 +310,7 @@ def authority_service_candidate_has_saved_probe_support(project: dict[str, Any],
     normalized = identifier_core.normalize_url(service_url)
     if not normalized:
         return False
-    if service_discovery.supports_candidate(project, normalized):
+    if service_discovery.supports_candidate(project, normalized) or oauth_metadata.supports_candidate(project, normalized):
         return True
     for item in project.get("service_verification_results", []):
         if not isinstance(item, dict):
@@ -3196,6 +3198,9 @@ def trusted_anchor_nodes(project: dict[str, Any]) -> list[dict[str, str]]:
     def add(identifier_type: str, value: str) -> None:
         if project_record.identifier_is_blocked(project, identifier_type, value) or project_record.identifier_is_deferred(project, identifier_type, value):
             return
+        if identifier_type == "service_url" and value in oauth_service.adopted_urls(project):
+            if not oauth_service.evaluate(project, value).get("auto_confirm"):
+                return
         kind = "collection" if identifier_type == "nsid" else identifier_type
         node = project_record.trust_node(kind, value)
         key = trust_graph_core.node_key(node)
@@ -3474,6 +3479,15 @@ def trust_auto_confirm_identifier(project: dict[str, Any], identifier_type: str,
         return evaluation
     if identifier_type == "nsid":
         return trust_collection_ownership_evaluation(project, value, context=context)
+    if identifier_type == "service_url" and value in oauth_service.adopted_urls(project):
+        evaluation = oauth_service.evaluate(project, value)
+        if any(row.get("kind") == "service_url" and row.get("value") == value
+               and row.get("source") == oauth_service.ADOPTION_SOURCE and row.get("review_required")
+               and not row.get("cleared_at") for row in project.get(runtime_view.RUNTIME_ADOPTION_ROWS, [])):
+            evaluation.update(auto_confirm=False, reason="service_oauth_support_requires_review")
+        if context is None:
+            trust_graph_core.upsert_evaluation(project, evaluation, generated_at=project_record.iso_now())
+        return evaluation
     if identifier_type in IDENTITY_TRUST_NODE_KINDS:
         if context is None:
             sync_trust_edges_from_project_identity(project)
@@ -5721,14 +5735,122 @@ def failed_collector_bundle(
     return bundle
 
 
-def collect_oauth_metadata_evidence(project: dict[str, Any], metadata_url: str) -> EvidenceBundle:
+def collect_service_oauth_evidence(project: dict[str, Any], url: str, result: dict[str, Any],
+                                 state: dict[str, Any]) -> EvidenceBundle:
+    """Only an observed service surface can initiate bounded metadata discovery."""
+    bundle = EvidenceBundle(project_key=str(project["project_key"]), collected_at=project_record.iso_now())
+    if (not service_discovery.target_url(url) or not 200 <= int(result.get("status_code") or 0) < 300
+            or result.get("fetch_error") or service_url_is_guarded(project, url)
+            or evaluation_core.service_probe_looks_parked(result)):
+        return bundle
+    surface_origin = oauth_metadata.origin(url)
+    if oauth_metadata.origin(str(result.get("final_url") or result.get("url") or url)) != surface_origin:
+        return bundle
+    allow_guesses = not state.get("guessed_origin") or state["guessed_origin"] == surface_origin
+    links = list(result.get("links", [])) + [{"url": value, "text": "OAuth client metadata"} for value in result.get("metadata_urls", [])]
+    plan = oauth_metadata.discovery_plan(project, url, links, str(result.get("html") or ""),
+        conventional=allow_guesses, observed_at=bundle.collected_at)
+    budget = state.setdefault("surfaces", {}).setdefault(url, {"requests": 0, "seconds": 0.0})
+    seen = state.setdefault("seen", set())
+    for item in plan:
+        if budget["requests"] >= 3 or budget["seconds"] >= 20:
+            break
+        metadata_url = item["metadata_url"]
+        if metadata_url in seen:
+            continue
+        if item["method"] == "conventional_path":
+            if any(oauth_metadata.origin(oauth_metadata.web_surface(obs)) == surface_origin
+                   for obs in oauth_metadata.usable_observations(project, fresh=True)):
+                break
+            state["guessed_origin"] = surface_origin
+        seen.add(metadata_url)
+        started = time.monotonic()
+        evidence = collect_oauth_metadata_evidence(project, metadata_url, discovery=item,
+            timeout=max(0.1, min(REQUEST_TIMEOUT_SHORT, 20 - budget["seconds"])))
+        budget["seconds"] += time.monotonic() - started
+        budget["requests"] += 1
+        apply_investigation_evidence(project, evidence)
+        bundle.extend(evidence)
+    reconcile_oauth_service_candidates(project)
+    return bundle
+
+
+def reconcile_oauth_service_candidates(project: dict[str, Any]) -> None:
+    for metadata in oauth_metadata.usable_observations(project, fresh=True):
+        url = oauth_metadata.web_surface(metadata)
+        if service_discovery.target_url(url) and not service_url_is_guarded(project, url) and url not in project.get("service_urls", []):
+            project_record.set_service_url_candidate_values(project,
+                project_record.add_unique(project_record.service_url_candidate_values(project), url))
+
+
+def apply_oauth_service_adoptions(project: dict[str, Any], conn: sqlite3.Connection | None = None, *,
+                                 urls: set[str] | None = None) -> list[dict[str, Any]]:
+    reconcile_oauth_service_candidates(project)
+    if urls is None:
+        urls = set(project_record.service_url_candidate_values(project)) | oauth_service.adopted_urls(project)
+    evaluations = []
+    for url in sorted(urls):
+        evaluation = oauth_service.evaluate(project, url)
+        if conn is not None:
+            guards = oauth_service.database_guards(conn, project, url)
+            evaluation["database_guards"] = guards
+            if any(guards.values()):
+                evaluation.update(auto_confirm=False, reason="ownership_conflict_or_noncurrent")
+        evaluations.append(evaluation)
+        if not evaluation.get("auto_confirm"):
+            continue
+        trust_graph_core.upsert_evaluation(project, evaluation, generated_at=project_record.iso_now())
+        if url in project.get("service_urls", []):
+            apply_oauth_service_page_support(project, url)
+            continue
+        confirm_service_url(project, url)
+        if url in project.get("service_urls", []):
+            add_confirmed_identifier_decision(project, "service_url", url, source=oauth_service.ADOPTION_SOURCE,
+                role="service", note="current collection publication, bound OAuth declaration and visible service",
+                source_ref=project_record.dump_json(evaluation), policy_version=oauth_service.POLICY_VERSION)
+            apply_oauth_service_page_support(project, url)
+    return evaluations
+
+
+def apply_oauth_service_page_support(project: dict[str, Any], url: str) -> None:
+    """Project already-observed material after current role adoption, without I/O."""
+    bundle = EvidenceBundle(project_key=str(project["project_key"]), collected_at=project_record.iso_now())
+    for value in list(project.get("service_verification_results", [])):
+        if identifier_core.normalize_url(str(value.get("requested_url") or "")) != url:
+            continue
+        bound = {**value, "supports_project": True}
+        if bound.get("lane") == "browser_discovery":
+            bound["lane"] = "browser"
+            bound["attribution_policy"] = oauth_service.POLICY_VERSION
+        bundle.add_record(EvidenceRecord(kind="service_verification", source="service_oauth_publication",
+            classification="derived", observed_at=str(value.get("observed_at") or ""), value=bound))
+    apply_saved_service_evidence(project, bundle)
+
+
+def collect_oauth_metadata_evidence(project: dict[str, Any], metadata_url: str, *,
+                                    discovery: dict[str, str] | None = None,
+                                    timeout: float = REQUEST_TIMEOUT_SHORT) -> EvidenceBundle:
     observed_at = project_record.iso_now()
     bundle = EvidenceBundle(project_key=str(project.get("project_key") or ""), collected_at=observed_at)
+    attempt = {"metadata_url": metadata_url, "observed_at": observed_at,
+               "status": "failed", "discovery": dict(discovery or {})}
     try:
-        metadata = http_transport.request_json(metadata_url, timeout=REQUEST_TIMEOUT_SHORT)
-        if not isinstance(metadata, dict):
-            raise ValueError("OAuth client metadata must be a JSON object")
-        observation = oauth_metadata.observe(metadata_url, metadata, observed_at)
+        status, body, headers, final_url = http_transport.request_bytes_with_final_url(
+            metadata_url, timeout=timeout, max_bytes=oauth_metadata.MAX_RESPONSE_BYTES, follow_redirects=False)
+        content_type = next((str(v) for k, v in headers.items() if k.lower() == "content-type"), "")
+        attempt["status_code"] = status
+        if status != 200 or content_type.split(";", 1)[0].strip().lower() != "application/json":
+            attempt["status"] = ("redirected" if 300 <= status < 400 else
+                                 "missing" if status in {404, 410} else "not_metadata" if status == 200 else "failed")
+            raise ValueError(f"OAuth metadata response is not a direct JSON document (HTTP {status})")
+        attempt["status"] = "not_metadata"
+        metadata = json.loads(body)
+        if not isinstance(metadata, dict) or not isinstance(metadata.get("client_id"), str) or not metadata["client_id"]:
+            raise ValueError("OAuth client metadata must declare a client_id")
+        observation = oauth_metadata.observe(metadata_url, metadata, observed_at,
+            response={"status_code": status, "content_type": content_type, "redirected": final_url != metadata_url},
+            discovery=discovery)
+        attempt["status"] = "success"
         bundle.add_record(EvidenceRecord(
             kind="oauth_client_metadata", source=f"oauth_client_metadata:{metadata_url}",
             classification="derived", observed_at=observed_at, value=observation,
@@ -5750,17 +5872,17 @@ def collect_oauth_metadata_evidence(project: dict[str, Any], metadata_url: str) 
             result_count=len(observation["analysis"]["permissions"]), stop_reason=parse_status,
         ))
     except Exception as exc:
-        bundle.add_failure(investigation_core.collector_failure(
-            source="oauth_client_metadata", operation="fetch", target=metadata_url,
-            message=f"OAuth client metadata fetch failed for {metadata_url}: {exc}", error=exc,
-        ))
-        add_collector_result_summary(
-            bundle,
-            source="oauth_client_metadata",
-            operation="fetch",
-            observed_at=observed_at,
-            request_count=1,
-        )
+        if isinstance(exc, urllib.error.HTTPError) and exc.code in {404, 410}:
+            attempt.update(status="missing", status_code=exc.code)
+        if attempt["status"] == "failed":
+            bundle.add_failure(investigation_core.collector_failure(
+                source="oauth_client_metadata", operation="fetch", target=metadata_url,
+                message=f"OAuth client metadata fetch failed for {metadata_url}: {exc}", error=exc))
+        bundle.add_collector_result(CollectorResult(source="oauth_client_metadata", operation="fetch",
+            status="failed" if attempt["status"] == "failed" else "skipped", observed_at=observed_at,
+            request_count=1, stop_reason=attempt["status"]))
+    bundle.add_record(EvidenceRecord(kind="oauth_metadata_attempt", source=f"oauth_client_metadata:{metadata_url}",
+                                    classification="derived", observed_at=observed_at, value=attempt))
     return bundle
 
 
@@ -6165,6 +6287,11 @@ def apply_replay_evidence(project: dict[str, Any], bundle: EvidenceBundle) -> No
                 )
     apply_publication_candidates(project)
     apply_homepage_role_evidence(project, bundle)
+    oauth_urls = {record.value.get("candidate", {}).get("value", "") for record in bundle.records
+                  if record.kind == "oauth_service_assessment" and isinstance(record.value, dict)
+                  and record.value.get("policy_version") == oauth_service.POLICY_VERSION}
+    if oauth_urls:
+        apply_oauth_service_adoptions(project, urls=oauth_urls)
     if legacy_homepage_compatibility_applied:
         trust_graph_core.remove_edges(
             project,

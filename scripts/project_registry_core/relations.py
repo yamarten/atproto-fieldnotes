@@ -200,15 +200,28 @@ def oauth_metadata_candidates(base_url: str, links: Any, html: str = "") -> list
     for item in links if isinstance(links, list) else []:
         if not isinstance(item, dict):
             continue
-        href = urllib.parse.urljoin(base_url, str(item.get("href") or ""))
+        raw = str(item.get("href") or item.get("url") or "")
+        if not raw:
+            continue
+        href = urllib.parse.urljoin(base_url, raw)
         label = f"{href} {item.get('text', '')}".lower()
-        if href and "oauth" in label and ("client" in label or "metadata" in label):
+        if ("oauth" in label and ("client" in label or "metadata" in label)) or "client-metadata" in label:
             candidates.append(href)
     for match in re.findall(r"https?://[^\s\"'<>]+", str(html or "")):
         lowered = match.lower()
-        if "oauth" in lowered and ("client" in lowered or "metadata" in lowered):
+        if ("oauth" in lowered and ("client" in lowered or "metadata" in lowered)) or "client-metadata" in lowered:
             candidates.append(match.rstrip(".,);"))
-    return list(dict.fromkeys(candidates))[:3]
+    for match in re.finditer(r'''(?:["']client_id["']|\bclient_id)\s*[:=]\s*["']([^"']+)["']''', str(html or "")):
+        candidates.append(urllib.parse.urljoin(base_url, match.group(1)))
+    valid = []
+    for url in candidates:
+        try:
+            parsed = urllib.parse.urlsplit(url)
+            if parsed.scheme == "https" and parsed.hostname and not parsed.fragment and not parsed.username and not parsed.password:
+                valid.append(url)
+        except ValueError:
+            continue
+    return list(dict.fromkeys(valid))[:3]
 
 
 def identifier_is_guarded(project: dict[str, Any], identifier_type: str, value: str) -> bool:

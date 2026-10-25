@@ -260,6 +260,22 @@ role確定済み候補を作れるのは、原則としてconfirmedなproject id
 
 この原則の対象は、自動調査で既存projectへ別kindのidentifierを候補として追加する処理です。collectorがcollection観測から暫定projectを作る処理には、次節の収集入口ごとの登録規則を使います。
 
+#### OAuth宣言からのservice候補と採用
+
+完全一致authorityのWeb入口は、既存のHTTP・parked・ページrole・guardの検査に加え、そのページまたは直接開いたloginの局所的なAT Protocolアカウント入力をcandidateの根拠にできます。これは前節の一般的な直接帰属原則に対する、service入口調査の限定された拡張です。service起点で見つかったWeb client metadataが同一originの正確な`client_uri`を宣言し、`atproto`を含む場合もcandidateを支持します。`client_uri`が別pathならそのpathを調べ、origin rootへ潰しません。別originのmetadataは宣言観測として残し、そのserviceへの対応付けには使いません。
+
+`service-oauth-publication-v1`による自動採用には、次の条件をすべて要求します。
+
+- 現行confirmed owned collectionがあり、operator/bootstrapの独立した登録起点、または同じauthority・publisherの検証済み公開情報からその登録起点へ戻れること。対象collectionと起点のpublicationは7日以内で、現行catalogueに矛盾しないこと。
+- metadataをHTTPS・HTTP 200・redirectなし・JSON MIMEで取得し、`client_id`が取得URLそのもの、application typeがweb（省略時web）、`client_uri`が発見元と同一originの対象surfaceであること。DPoP、authorization code、code response、同一originのcallback宣言が整合すること。
+- 7日以内の有効な宣言に、所有するrecord collectionのfull NSIDを指定したSDK検証済み`repo` permissionがあること。`atproto`だけ、wildcard、未解決includeでは自動採用しないこと。
+- collection authorityとservice hostが完全一致し、30日以内のブラウザ観測がその正確なsurfaceまたは直接開いたloginの可視利用画面を示し、描画エラーや後続の失敗・別URLへの移動がないこと。
+- block/defer、非現行指定、他projectのservice・site・collection所有、競合するrepository公開先がないこと。保存transactionでも現行条件を再確認すること。
+
+専用scopeで`登録起点collection → authority → service`と`service → 対応するOAuth client → requests_permission → owned collection → authority → 登録起点`を評価します。OAuth clientはgraph-only nodeであり、登録起点にはしません。このscopeへ`service → domain`の近道を入れず、既存の一般URL自動採用policyを広げません。`client_uri`とscopeは最大権限の宣言であり、grantや実際の書込み、単独の運営主体証明ではありません。
+
+採用理由は`trust_policy:service_oauth_publication`と検証経路を保存します。以後も現在のpublication・宣言・guardから再評価し、scope削除や起点喪失では独立anchorに使いません。既存serviceの採用は自動取消しせず要レビューとし、保存時にはこの採用理由の`review_required`も更新します。新規採用時の競合は保存を拒否します。
+
 #### Sync時の既存projectへの取込を分ける
 
 source syncが観測を既存projectへ割り当てる処理は、新しいidentifierを追加する場合に帰属と採用の判断も行います。次の四つを分け、取り込み時点でprojectとの対応を評価します。

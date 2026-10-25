@@ -19,6 +19,7 @@ from project_registry_core import relations as relation_core
 from project_registry_core.persistence import runtime_view
 from project_registry_core.transport import llm_transport
 from project_registry_core import triage_reuse, enrich_observations
+from project_registry_core import oauth_metadata, oauth_service, service, service_discovery
 from project_registry_core.identity import identifiers as identifier_core
 from project_registry_core.repositories import repo_urls as repo_url_core
 from project_registry_core.repositories import repository_analysis as repository_analysis_core
@@ -45,7 +46,8 @@ from project_registry_core.registry import (
     apply_publication_candidates,
     collect_codeberg_repo_evidence,
     collect_investigation_evidence,
-    collect_oauth_metadata_evidence,
+    collect_service_oauth_evidence,
+    apply_oauth_service_adoptions,
     collect_service_evidence_with_followups,
     collect_tangled_account_evidence,
     collect_tangled_repo_evidence,
@@ -113,6 +115,7 @@ class InitialCollection:
     initial_service_urls: list[str]
     probe_results: dict[str, dict[str, Any]]
     homepage_results: dict[str, dict[str, Any]]
+    oauth_discovery_state: dict[str, Any]
 
 
 def collect_initial(project: dict[str, Any]) -> InitialCollection:
@@ -242,6 +245,7 @@ def collect_initial(project: dict[str, Any]) -> InitialCollection:
         if identifier_core.normalize_url(url)
     )
     probe_results: dict[str, dict[str, Any]] = {}
+    oauth_discovery_state: dict[str, Any] = {}
     if initial_service_urls:
         with ThreadPoolExecutor(max_workers=min(ENRICH_IO_MAX_WORKERS, len(initial_service_urls))) as executor:
             service_futures = {
@@ -259,6 +263,21 @@ def collect_initial(project: dict[str, Any]) -> InitialCollection:
                 except Exception as exc:
                     probe_errors[service_url] = exc
             selected_authority_probe_urls = select_authority_probe_urls(authority_probe_chains, probe_results)
+            guess_surfaces = [url for url, result in probe_results.items()
+                if service_discovery.target_url(url) and 200 <= int(result.get("status_code") or 0) < 300
+                and not result.get("fetch_error")
+                and (url not in authority_probe_urls or url in selected_authority_probe_urls)
+                and not oauth_metadata.supports_candidate(project, identifier_core.normalize_url(url))
+                and any(item["method"] == "conventional_path" for item in oauth_metadata.discovery_plan(
+                    project, url, result.get("links", []), str(result.get("html") or ""),
+                    conventional=True, observed_at=iso_now()))]
+            if guess_surfaces:
+                attempts = oauth_metadata.normalize_attempts(project.get("oauth_metadata_attempts"))
+                def last_guess(url: str) -> str:
+                    return max((str(item.get("observed_at") or "") for item in attempts
+                        if item.get("discovery", {}).get("method") == "conventional_path"
+                        and oauth_metadata.origin(item["metadata_url"]) == oauth_metadata.origin(url)), default="")
+                oauth_discovery_state["guessed_origin"] = oauth_metadata.origin(min(guess_surfaces, key=lambda url: (last_guess(url), url)))
             for service_url in initial_service_urls:
                 normalized_service_url = identifier_core.normalize_url(service_url)
                 is_authority_probe = normalized_service_url in authority_probe_urls
@@ -281,21 +300,8 @@ def collect_initial(project: dict[str, Any]) -> InitialCollection:
                     run_evidence.extend(service_evidence)
                     if lane == "repository_homepage":
                         homepage_results[service_url] = probe_result
-                        continue
-                    for metadata_url in relation_core.oauth_metadata_candidates(
-                        service_url,
-                        probe_result.get("links", []),
-                        str(probe_result.get("html") or ""),
-                    ):
-                        try:
-                            oauth_evidence = operation_timer.call("collect_oauth_metadata_evidence", collect_oauth_metadata_evidence, project, metadata_url)
-                            apply_investigation_evidence(project, oauth_evidence)
-                            run_evidence.extend(oauth_evidence)
-                        except Exception as exc:
-                            note_failure(project, f"OAuth client metadata failed for {metadata_url}: {exc}")
-                            run_evidence.extend(failed_collector_bundle(
-                                project, source="oauth_client_metadata", operation="fetch", target=metadata_url, exc=exc,
-                            ))
+                    run_evidence.extend(operation_timer.call("collect_service_oauth_evidence", collect_service_oauth_evidence,
+                        project, service_url, probe_result, oauth_discovery_state))
                 except Exception as exc:
                     normalized_service_url = identifier_core.normalize_url(service_url)
                     if normalized_service_url and lane not in {"authority", "repository_homepage"}:
@@ -366,7 +372,7 @@ def collect_initial(project: dict[str, Any]) -> InitialCollection:
     return InitialCollection(
         project, run_input_project, run_started_at, time.perf_counter() - started,
         run_evidence, operation_timer, initial_repo_urls, collected_repo_evidence,
-        trust_inspected_repo_urls, initial_service_urls, probe_results, homepage_results,
+        trust_inspected_repo_urls, initial_service_urls, probe_results, homepage_results, oauth_discovery_state,
     )
 
 
@@ -489,6 +495,7 @@ def enrich_project(
         apply_service_evidence(project, evidence)
         run_evidence.extend(evidence)
         homepage_results[url] = result
+        run_evidence.extend(collect_service_oauth_evidence(project, url, result, initial.oauth_discovery_state))
 
     previous_homepage_browser_order = {
         str(value.get("requested_url") or ""): index
@@ -503,6 +510,40 @@ def enrich_project(
         apply_service_evidence(project, role_evidence)
         apply_homepage_role_evidence(project, role_evidence)
         run_evidence.extend(role_evidence)
+
+    # Share the extra browser visit with the repository-homepage lane.
+    hypotheses = service_discovery.hypotheses(project)
+    prior_attempts = {item["url"]: item for item in project.get("service_url_investigations", [])}
+    for url in sorted(hypotheses, key=lambda value: (prior_attempts.get(value, {}).get("attempted_at", ""), value)):
+        if homepage_browser_attempted:
+            break
+        kinds = {source["kind"] for source in hypotheses[url]["sources"]}
+        if (url in homepage_results and "oauth_metadata" not in kinds) or not kinds.intersection({"authority", "oauth_metadata"}):
+            continue
+        prior = prior_attempts.get(url, {})
+        now = oauth_metadata._time(iso_now())
+        if (prior and not service_discovery.due(hypotheses[url], prior, now)
+                and (prior.get("status") == "failed" or
+                     (now - oauth_metadata._time(prior.get("attempted_at"))).total_seconds() < 30 * 86400)):
+            continue
+        guards = oauth_service.database_guards(conn, project, url)
+        if any(guards.values()) or oauth_service.browser_support(project, url):
+            continue
+        browser = operation_timer.call("collect_browser_service_evidence", service.collect_browser_service_evidence,
+            project, url, service.BrowserDependencies(navigate=service.playwright_navigate, now=iso_now),
+            lane=service_discovery.LANE, hypothesis=hypotheses[url])
+        homepage_browser_attempted = True
+        apply_service_evidence(project, browser)
+        run_evidence.extend(browser)
+        for record in browser.records:
+            if record.kind != "service_verification":
+                continue
+            for page in record.value.get("pages", []):
+                run_evidence.extend(collect_service_oauth_evidence(project, url,
+                    {**page, "final_url": page.get("url"), "html": page.get("html", "")}, initial.oauth_discovery_state))
+    for assessment in apply_oauth_service_adoptions(project, conn):
+        run_evidence.add_record(EvidenceRecord(kind="oauth_service_assessment", source=oauth_service.POLICY_VERSION,
+            classification="derived", observed_at=iso_now(), value=assessment))
 
     collected_repo_urls = set(collected_repo_evidence)
     for repo_url in initial_repo_urls:

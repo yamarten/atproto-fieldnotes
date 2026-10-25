@@ -179,7 +179,7 @@ class HomepageAdoptionTest(_HomepageAdoptionFixtures, TempRegistryDbTestCase):
     def test_normal_enrich_connects_observation_to_adoption(self):
         project = self.project()
         project["website_url"] = ""
-        io = EnrichmentIO(browser=lambda url: self.browser_page(url))
+        io = EnrichmentIO(browser=lambda url, **kw: self.browser_page(url))
         io.github_repo(self.repo, homepage=self.url)
         io.page(self.url, html=self.result()["html"])
         conn = registry.open_db()

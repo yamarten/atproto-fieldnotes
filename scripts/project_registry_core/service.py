@@ -13,7 +13,7 @@ from typing import Any, Callable
 from .identity import domain_policy, identifiers
 from .repositories import project_repository_policy
 from .evidence import CollectorFailure, CollectorResult, EvidenceBundle, EvidenceRecord
-from .relations import relation_record
+from .relations import relation_record, oauth_metadata_candidates
 from . import account_links, developer_links, usage_material
 from .transport import http_transport
 
@@ -469,6 +469,7 @@ def collect_service_probe_evidence(
 class BrowserDependencies:
     navigate: Callable[[str], dict[str, Any]]
     now: Callable[[], str]
+    forward_navigation_options: bool = False
 
 
 def normalized_browser_forms(value: Any) -> list[dict[str, Any]]:
@@ -486,8 +487,10 @@ def normalized_browser_forms(value: Any) -> list[dict[str, Any]]:
                 "name": bounded_text(str(raw_input.get("name") or ""), 128),
                 "autocomplete": bounded_text(str(raw_input.get("autocomplete") or ""), 64),
                 "placeholder": bounded_text(str(raw_input.get("placeholder") or ""), 256),
+                "label": bounded_text(str(raw_input.get("label") or ""), 256),
             })
         forms.append({
+            "context": bounded_text(str(item.get("context") or ""), 2000),
             "visible": item.get("visible") if isinstance(item.get("visible"), bool) else None,
             "visible_submit_texts": [bounded_text(str(text), 256) for text in
                                      (item.get("visible_submit_texts") if isinstance(item.get("visible_submit_texts"), list) else [])[:8]],
@@ -537,7 +540,7 @@ def browser_page_auth_features(page: dict[str, Any]) -> dict[str, bool]:
     for form in forms:
         inputs = list(form.get("inputs") or [])
         submit_text = " ".join(str(item) for item in form.get("submit_texts") or []).lower()
-        form_context = f"{page_context} {form.get('action', '')} {submit_text}".lower()
+        form_context = f"{page_context} {form.get('action', '')} {submit_text} {form.get('context', '')}".lower()
         has_submit = bool(form.get("submit_texts")) or any(
             str(item.get("type") or "").lower() in {"submit", "image"}
             for item in inputs if isinstance(item, dict)
@@ -549,7 +552,7 @@ def browser_page_auth_features(page: dict[str, Any]) -> dict[str, bool]:
         has_identity = any(
             str(item.get("type") or "").lower() == "email"
             or any(
-                token in " ".join(str(item.get(field) or "") for field in ("name", "autocomplete", "placeholder")).lower()
+                token in " ".join(str(item.get(field) or "") for field in ("name", "autocomplete", "placeholder", "label")).lower()
                 for token in ("email", "username", "user name", "handle", "identifier", "login")
             )
             for item in inputs if isinstance(item, dict)
@@ -643,6 +646,44 @@ def browser_page_visible_surface_features(page: dict[str, Any]) -> dict[str, Any
     }
 
 
+def browser_page_atproto_auth(page: dict[str, Any]) -> bool:
+    """An account prompt's local context, not an arbitrary page/profile mention."""
+    for form in normalized_browser_forms(page.get("forms")):
+        inputs = [item for item in form["inputs"] if item.get("visible") is True]
+        labels = " ".join(str(item.get(key) or "") for item in inputs for key in ("name", "label", "placeholder"))
+        context = f"{form['context']} {labels}"
+        if (inputs and form["visible_submit_texts"]
+                and re.search(r"atproto|at protocol|atmosphere|bluesky|personal data server|\bpds\b", context, re.I)
+                and re.search(r"account|handle|\bdid\b|sign[ -]?in|log[ -]?in", context, re.I)
+                and re.search(r"handle|\bdid\b|\.bsky\.social", labels, re.I)):
+            return True
+    return False
+
+
+def browser_surface_assessment(value: dict[str, Any]) -> dict[str, Any]:
+    """Associate an opened login resource with its observed originating surface."""
+    pages = [page for page in value.get("pages", []) if isinstance(page, dict)]
+    first = next(iter(pages), {})
+    url = str(first.get("url") or "")
+    origin = urllib.parse.urlsplit(url)
+    related = [first] + [page for page in pages[1:] if (
+        page.get("auth_entry_from") == url
+        and urllib.parse.urlsplit(str(page.get("url") or ""))[:2] == origin[:2]
+        and 200 <= int(page.get("status_code") or 0) < 400
+    )]
+    visible = [page for page in related if page.get("visibility_observed") is True]
+    text = str(first.get("text_extract") or first.get("text") or "")
+    return {
+        "url": url, "status_code": int(first.get("status_code") or 0),
+        "successful_page": 200 <= int(first.get("status_code") or 0) < 400 and not value.get("fetch_error"),
+        "positive_surface": any(browser_page_visible_surface_features(page)["positive_surface"] for page in visible),
+        "atproto_evidence": bool(re.search(r"atproto|at protocol|\bpds\b|personal data server|did:plc:|com\.atproto", text, re.I)
+                                  or any(browser_page_atproto_auth(page) for page in visible)),
+        "rendered_errors": any(page.get("network_errors") or page.get("console_errors") for page in related),
+        "excerpt": text[:1500], "links": list(first.get("links", []))[:16],
+    }
+
+
 def browser_service_observation(value: dict[str, Any]) -> dict[str, Any]:
     pages = [item for item in value.get("pages", []) if isinstance(item, dict)]
     evidence: list[str] = []
@@ -679,20 +720,38 @@ def collect_browser_service_evidence(
     bundle = EvidenceBundle(project_key=str(project.get("project_key") or ""), collected_at=observed_at)
     try:
         pages: list[dict[str, Any]] = []
-        first = dict(dependencies.navigate(service_url))
+        deadline = time.monotonic() + 45
+        def navigate(url: str, *, allow_auth_entry: bool = True) -> dict[str, Any]:
+            remaining = int(1000 * (deadline - time.monotonic()))
+            if remaining <= 0:
+                raise TimeoutError("browser surface budget exhausted")
+            if dependencies.navigate is playwright_navigate or dependencies.forward_navigation_options:
+                return dict(dependencies.navigate(url, timeout_ms=remaining, allow_auth_entry=allow_auth_entry))
+            return dict(dependencies.navigate(url))
+        first = navigate(service_url)
         first["requested_url"] = service_url
+        opened = first.pop("auth_pages", [])
         pages.append(first)
+        pages.extend(opened)
         candidates: list[str] = []
         for link in first.get("links", []):
             href = str(link.get("href") if isinstance(link, dict) else link or "")
             text = str(link.get("text") if isinstance(link, dict) else "").lower()
-            if href and same_site_url(service_url, href) and any(token in f"{text} {href.lower()}" for token in ("login", "log in", "sign in", "signup", "sign up", "register")):
+            if href and urllib.parse.urlsplit(service_url)[:2] == urllib.parse.urlsplit(href)[:2] and any(token in f"{text} {href.lower()}" for token in ("login", "log in", "sign in")):
                 candidates.append(href)
         first_url = str(first.get("url") or service_url).rstrip("/")
-        for url in list(dict.fromkeys(candidates))[:2]:
+        actions_left = max(0, 2 - len(first.get("auth_entry_actions", [])))
+        for url in list(dict.fromkeys(candidates)):
+            if actions_left <= 0:
+                break
             if url.rstrip("/") == first_url:
                 continue
-            pages.append({**dict(dependencies.navigate(url)), "requested_url": url})
+            actions_left -= 1
+            login = navigate(url, allow_auth_entry=actions_left > 0)
+            actions_left -= len(login.get("auth_entry_actions", []))
+            nested = login.pop("auth_pages", [])
+            pages.append({**login, "requested_url": url, "auth_entry_from": str(first.get("url") or service_url)})
+            pages.extend({**page, "auth_entry_from": str(first.get("url") or service_url)} for page in nested)
         page_features = [browser_page_auth_features(page) for page in pages]
         public_surface_features = [browser_page_public_surface_features(page, service_url) for page in pages]
         password_form_detected = any(item["password_form_detected"] for item in page_features)
@@ -723,6 +782,9 @@ def collect_browser_service_evidence(
                 {
                     "url": str(page.get("url") or ""),
                     "requested_url": str(page.get("requested_url") or ""),
+                    "auth_entry_from": str(page.get("auth_entry_from") or ""),
+                    "auth_entry_actions": list(page.get("auth_entry_actions") or [])[:2],
+                    "metadata_urls": list(page.get("metadata_urls") or [])[:3],
                     "status_code": int(page.get("status_code") or 0),
                     "visibility_observed": page.get("visibility_observed") is True,
                     "title": str(page.get("title") or ""),
@@ -796,6 +858,7 @@ def playwright_page_payload(
     timeout_ms: int,
     browser_args: list[str] | None = None,
     transport_fallback: str = "",
+    allow_auth_entry: bool = True,
 ) -> dict[str, Any]:
     deadline = time.monotonic() + timeout_ms / 1000
     def remaining_timeout() -> int:
@@ -807,9 +870,16 @@ def playwright_page_payload(
     browser = playwright.chromium.launch(headless=True, args=list(browser_args or []), timeout=remaining_timeout())
     try:
         page = browser.new_page(service_workers="block")
+        opening_auth = False
         def allow_request(route: Any) -> None:
             try:
                 http_transport.validate_outbound_fetch_url(route.request.url)
+                if opening_auth and (route.request.method not in {"GET", "HEAD"} or (
+                    route.request.is_navigation_request() and route.request.frame == page.main_frame
+                    and urllib.parse.urlsplit(route.request.url)[:2] != urllib.parse.urlsplit(url)[:2]
+                )):
+                    route.abort("blockedbyclient")
+                    return
             except ValueError:
                 route.abort("blockedbyclient")
             else:
@@ -840,61 +910,94 @@ def playwright_page_payload(
         )
         if menu_expanded_count:
             page.wait_for_timeout(200)
-        return {
-            "status_code": response.status if response else 0,
-            "visibility_observed": True,
-            "url": page.url,
-            "title": page.title(),
-            "text": page.locator("body").inner_text(timeout=remaining_timeout()),
-            "links": page.locator("a[href]").evaluate_all(
-                "els => els.slice(0, 100).map(a => ({href: a.href, text: (a.innerText || '').trim(), visible: a.checkVisibility({opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true})}))"
-            ),
-            "forms": page.locator("form").evaluate_all(
-                """els => els.slice(0, 12).map(form => ({
-                    visible: form.checkVisibility({opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true}),
-                    action: form.action || '',
-                    method: (form.method || 'get').toLowerCase(),
-                    inputs: Array.from(form.querySelectorAll('input')).slice(0, 24).map(input => ({
-                        visible: input.checkVisibility({opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true}),
-                        type: (input.type || 'text').toLowerCase(),
-                        name: input.name || '',
-                        autocomplete: input.autocomplete || '',
-                        placeholder: input.placeholder || ''
-                    })),
-                    visible_submit_texts: Array.from(form.querySelectorAll('button, input[type=submit], input[type=image]'))
-                        .filter(item => item.checkVisibility({opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true}))
-                        .slice(0, 8).map(item => (item.innerText || item.value || item.getAttribute('aria-label') || '').trim()),
-                    submit_texts: Array.from(form.querySelectorAll('button, input[type=submit], input[type=image]'))
-                        .slice(0, 8).map(item => (item.innerText || item.value || item.getAttribute('aria-label') || '').trim())
-                }))"""
-            ),
-            "auth_actions": page.locator("a[href], button").evaluate_all(
-                """els => els.map(item => ({
-                    visible: item.checkVisibility({opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true}),
-                    kind: item.tagName.toLowerCase(),
-                    href: item.href || '',
-                    text: (item.innerText || item.getAttribute('aria-label') || '').trim()
-                })).filter(item => /oauth|authorize|continue|log[ -]?in|sign[ -]?in|github|google|apple|bluesky|atproto|discord|microsoft/i.test(`${item.href} ${item.text}`)).slice(0, 24)"""
-            ),
-            "service_actions": page.locator("a[href], button").evaluate_all(
-                """els => els.map(item => ({
-                    visible: item.checkVisibility({opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true}),
-                    kind: item.tagName.toLowerCase(),
-                    href: item.href || '',
-                    text: (item.innerText || item.getAttribute('aria-label') || '').trim()
-                })).filter(item => /post new entry|new entry|new post|create (entry|post)|write (entry|post)|compose|publish|upload/i.test(item.text)).slice(0, 24)"""
-            ),
-            "network_errors": network_errors,
-            "console_errors": console_errors,
-            "menu_expanded_count": menu_expanded_count,
-            "transport_fallback": transport_fallback,
-            "js_rendered": True,
-        }
+        auth_entry_actions = []
+        response_status = response.status if response else 0
+        def snapshot():
+            return {
+                "status_code": response_status,
+                "visibility_observed": True,
+                "url": page.url,
+                "title": page.title(),
+                "auth_entry_actions": list(auth_entry_actions),
+                "metadata_urls": oauth_metadata_candidates(page.url, [], page.locator("script:not([src])").evaluate_all(
+                    "els => els.slice(0, 32).map(el => (el.textContent || '').slice(0, 16384)).join('\\n')")),
+                "text": page.locator("body").inner_text(timeout=remaining_timeout()),
+                "links": page.locator("a[href]").evaluate_all(
+                    "els => els.slice(0, 100).map(a => ({href: a.href, text: (a.innerText || '').trim(), visible: a.checkVisibility({opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true})}))"
+                ),
+                "forms": page.locator("form").evaluate_all(
+                    """els => els.slice(0, 12).map(form => ({
+                        context: ((form.closest('[role=dialog],dialog') || form).innerText || '').slice(0, 2000),
+                        visible: form.checkVisibility({opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true}),
+                        action: form.action || '',
+                        method: (form.method || 'get').toLowerCase(),
+                        inputs: Array.from(form.querySelectorAll('input')).slice(0, 24).map(input => ({
+                            visible: input.checkVisibility({opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true}),
+                            type: (input.type || 'text').toLowerCase(),
+                            name: input.name || '',
+                            autocomplete: input.autocomplete || '',
+                            placeholder: input.placeholder || '',
+                            label: Array.from(input.labels || []).map(label => label.innerText || '').join(' ').slice(0, 256)
+                        })),
+                        visible_submit_texts: Array.from(form.querySelectorAll('button, input[type=submit], input[type=image]'))
+                            .filter(item => item.checkVisibility({opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true}))
+                            .slice(0, 8).map(item => (item.innerText || item.value || item.getAttribute('aria-label') || '').trim()),
+                        submit_texts: Array.from(form.querySelectorAll('button, input[type=submit], input[type=image]'))
+                            .slice(0, 8).map(item => (item.innerText || item.value || item.getAttribute('aria-label') || '').trim())
+                    }))"""
+                ),
+                "auth_actions": page.locator("a[href], button").evaluate_all(
+                    """els => els.map(item => ({
+                        visible: item.checkVisibility({opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true}),
+                        kind: item.tagName.toLowerCase(),
+                        href: item.href || '',
+                        text: (item.innerText || item.getAttribute('aria-label') || '').trim()
+                    })).filter(item => /oauth|authorize|continue|log[ -]?in|sign[ -]?in|github|google|apple|bluesky|atproto|discord|microsoft/i.test(`${item.href} ${item.text}`)).slice(0, 24)"""
+                ),
+                "service_actions": page.locator("a[href], button").evaluate_all(
+                    """els => els.map(item => ({
+                        visible: item.checkVisibility({opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true}),
+                        kind: item.tagName.toLowerCase(),
+                        href: item.href || '',
+                        text: (item.innerText || item.getAttribute('aria-label') || '').trim()
+                    })).filter(item => /post new entry|new entry|new post|create (entry|post)|write (entry|post)|compose|publish|upload/i.test(item.text)).slice(0, 24)"""
+                ),
+                "network_errors": network_errors,
+                "console_errors": console_errors,
+                "menu_expanded_count": menu_expanded_count,
+                "transport_fallback": transport_fallback,
+                "js_rendered": True,
+            }
+        initial = snapshot()
+        navigations = []
+        page.on("response", lambda r: navigations.append(r) if r.request.is_navigation_request() and r.request.frame == page.main_frame else None)
+        # Reveal an anonymous login dialog. Never activate a submit/consent button.
+        buttons = page.locator("button")
+        openers = buttons.evaluate_all("""els => els.map((el, index) => ({index,
+            text: (el.innerText || el.getAttribute('aria-label') || '').trim(),
+            visible: el.checkVisibility({opacityProperty: true, visibilityProperty: true}),
+            submits: !!el.form && el.type === 'submit'})).filter(el => el.visible && !el.submits
+            && /^(sign[ -]?in|log[ -]?in)$/i.test(el.text)).slice(0, 1)""")
+        for opener in openers if allow_auth_entry else []:
+            before = page.url
+            opening_auth = True
+            buttons.nth(opener["index"]).click(timeout=remaining_timeout())
+            page.wait_for_timeout(min(200, remaining_timeout()))
+            auth_entry_actions.append({"from_url": before, "url": page.url, "text": opener["text"]})
+        if navigations:
+            response_status = navigations[-1].status
+        observed = snapshot()
+        if observed["url"] != initial["url"]:
+            observed["auth_entry_from"] = initial["url"]
+            initial["auth_entry_actions"] = list(auth_entry_actions)
+            initial["auth_pages"] = [observed]
+            return initial
+        return observed
     finally:
         browser.close()
 
 
-def playwright_navigate(url: str, *, timeout_ms: int = 30000) -> dict[str, Any]:
+def playwright_navigate(url: str, *, timeout_ms: int = 30000, allow_auth_entry: bool = True) -> dict[str, Any]:
     started = time.monotonic()
     try:
         from playwright.sync_api import sync_playwright
@@ -902,7 +1005,7 @@ def playwright_navigate(url: str, *, timeout_ms: int = 30000) -> dict[str, Any]:
         raise RuntimeError("browser verification requires requirements-browser.txt") from exc
     with sync_playwright() as playwright:  # pragma: no cover - integration path
         try:
-            return playwright_page_payload(playwright, url, timeout_ms=timeout_ms)
+            return playwright_page_payload(playwright, url, timeout_ms=timeout_ms, allow_auth_entry=allow_auth_entry)
         except Exception as exc:
             if "ERR_SOCKET_NOT_CONNECTED" not in str(exc):
                 raise
@@ -915,6 +1018,7 @@ def playwright_navigate(url: str, *, timeout_ms: int = 30000) -> dict[str, Any]:
                 timeout_ms=remaining,
                 browser_args=["--disable-http2"],
                 transport_fallback="disable_http2_after_socket_not_connected",
+                allow_auth_entry=allow_auth_entry,
             )
 
 

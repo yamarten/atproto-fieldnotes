@@ -366,6 +366,10 @@ def apply_investigation_evidence(
         raise ValueError("evidence project_key does not match target project")
 
     for record in bundle.records:
+        if record.kind == "oauth_metadata_attempt" and isinstance(record.value, dict):
+            project["oauth_metadata_attempts"] = oauth_metadata.normalize_attempts(
+                list(project.get("oauth_metadata_attempts", [])) + [record.value])
+            continue
         if record.kind == "oauth_client_metadata" and isinstance(record.value, dict):
             project["oauth_client_metadata"] = oauth_metadata.normalize_results(
                 list(project.get("oauth_client_metadata", [])) + [record.value]

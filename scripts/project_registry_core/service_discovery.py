@@ -13,12 +13,12 @@ import re
 import urllib.parse
 from typing import Any
 
-from . import collector_relation_policy, project_record, service, evaluation
+from . import collector_relation_policy, project_record, service, evaluation, oauth_metadata
 from .identity import identifiers
 from .persistence import identifier_storage, runtime_view
 from .repositories import repository_analysis
 
-POLICY_VERSION = "service-url-investigation-v1"
+POLICY_VERSION = "service-url-investigation-v2"
 STATE_FIELD = "service_url_investigations"
 LANE = "browser_discovery"
 TRACKING_STATES = {"active", "stable", "stalled", "out_of_scope"}
@@ -70,6 +70,9 @@ def hypotheses(project: dict[str, Any], *, include_guarded: bool = False) -> dic
 
     for url in project_record.service_url_candidate_values(project):
         add(url, {"kind": "candidate"})
+    for metadata in oauth_metadata.usable_observations(project, fresh=True):
+        add(oauth_metadata.web_surface(metadata), {"kind": "oauth_metadata", "metadata_url": metadata["metadata_url"],
+                                                  "declaration": digest(metadata["analysis"])})
     repositories = set(project.get("project_repository_urls", []))
     if runtime_view.RUNTIME_ADOPTION_ROWS in project:
         repositories &= {value for kind, value, role in identifier_storage.active_adoption_claims(project)
@@ -144,7 +147,7 @@ def hypotheses(project: dict[str, Any], *, include_guarded: bool = False) -> dic
                                    page.get("status_code", 0), page.get("fetch_error", "")]
                                   if page else previous.get(url, {}).get("page_semantics", []))
         item["fingerprint"] = digest([POLICY_VERSION, url, sorted(meaningful, key=digest), item["page_semantics"]])
-        item["group"] = next((kind for kind in ("repository", "authority", "candidate")
+        item["group"] = next((kind for kind in ("repository", "authority", "oauth_metadata", "candidate")
                                if any(s["kind"] == kind for s in meaningful)), "")
     return {url: item for url, item in result.items() if item["sources"]}
 
@@ -157,17 +160,7 @@ def due(item: dict[str, Any], previous: dict[str, Any], now: dt.datetime) -> boo
 
 
 def assessment(value: dict[str, Any]) -> dict[str, Any]:
-    first = next(iter(value.get("pages", [])), {})
-    text = str(first.get("text_extract") or "")
-    features = service.browser_page_visible_surface_features(first)
-    status = int(first.get("status_code") or 0)
-    success = bool(200 <= status < 400 and not value.get("fetch_error"))
-    atproto = bool(re.search(r"atproto|at protocol|\bpds\b|personal data server|did:plc:|com\.atproto", text, re.I))
-    return {"url": str(first.get("url") or ""), "status_code": status,
-            "successful_page": success, "positive_surface": bool(features["visibility_observed"] and features["positive_surface"]),
-            "atproto_evidence": atproto, "excerpt": text[:1500],
-            "rendered_errors": bool(first.get("network_errors") or first.get("console_errors")),
-            "links": list(first.get("links", []))[:16]}
+    return service.browser_surface_assessment(value)
 
 
 def apply(project: dict[str, Any], value: dict[str, Any], observed_at: str) -> None:

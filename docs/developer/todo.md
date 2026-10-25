@@ -51,7 +51,7 @@ atprotoの活用事例として、現在の内容の価値と、登場直後の�
 
 再調査で終了・機能変更・誤記が分かった時に説明を適切に更新し、紹介前の確認・訂正を減らすため、通常triage内の改善と説明専用処理への分離のどちらを採るかが未決です。2026-09-23の[比較方法・結果・限界](../../tests/fixtures/project_registry/description-refresh-evaluation/README.md)では共通prompt整理案を不採用とし、説明専用案も時制改善と情報欠落の交換条件、実際の訂正負担を判断できず現行を暫定維持しています。再開時は許容できる欠落と訂正負担、新方式を試す理由、未使用素材、費用上限を定めます。既存profileの編集来歴を推定で補わず、保護と人による更新案確認を維持します。
 
-JavaScript描画後のログイン動線から利用可能性・atprotoアカウント利用・OAuth scope等の手掛かりを日常調査へ取り込むことが目標です。[サービス巡回](specs/background-jobs.md#scheduled-preset)では採用済みservice URLの再確認と未採用URLのbrowser調査を連続実行でき、定期運用での評価に進んでいます。候補の発見・更新から人の判断につながるか、匿名browserによる取得範囲で不足する実例があるかを確認します。
+[サービス巡回](specs/background-jobs.md#scheduled-preset)では採用済みservice URLの再確認と未採用URLのbrowser調査を連続実行できます。通常enrichにもservice起点の[OAuth metadata探索](specs/investigation.md#oauth-client-metadataの観測)、ログイン画面による候補支持、collection公開情報を組み合わせたservice採用を接続しています。定期運用では候補の発見・更新から人の判断につながるか、匿名browserの取得範囲で不足する実例があるかを確認します。
 
 対象規模に対する巡回件数・時間予算、長期失敗率、再観測noise、review負担、連続運転の実効果は未確認です。[過去の観測資料](../notes/service-observation-review.md)は規模と制約の参考に留め、現在の対象数・失敗時の再試行間隔・候補の更新実績から上限を再評価します。月次全巡回は確定要件ではなく、全件再調査や運用予算の拡大は別判断です。
 
