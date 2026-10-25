@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import urllib.parse
+from unittest import mock
+
 from helpers import ProjectRecordTestCase, TempRegistryDbTestCase
-from project_registry_core import project_record, registry, tangled
+from enrichment_io import EnrichmentIO
+from project_registry_core import project_record, registry, source_sync, tangled, tangled_identity
+from project_registry_core.application import enrichment
 from project_registry_core.evidence import EvidenceBundle, EvidenceRecord
+from project_registry_core.jobs import OperationRequest
 from project_registry_core.relations import relation_record
 
 
@@ -11,6 +17,28 @@ OWNER = "did:plc:ephkzpinhaqcabtkugtbzrwu"
 
 
 class TangledRepositoryAttributionTest(ProjectRecordTestCase):
+    def test_official_account_ownership_and_exact_name_do_not_confirm_repository(self):
+        github = "https://github.com/example/atproto-deeplink"
+        site = "https://byjp.me/atproto-deeplink"
+        project = self.make_project("proj:official-account", "repo_url", github)
+        registry.add_manual_seed(project, "repo_url", github, source="test")
+        registry.add_manual_seed(project, "service_url", site, source="test")
+        project["name"] = "atproto-deeplink"
+        project["developer_accounts"] = [{"handle": "byjp.me", "did": OWNER, "source": "test"}]
+        official = EvidenceBundle(project_key=project["project_key"], collected_at="2026-10-25T00:00:00Z")
+        official.add_record(relation_record(
+            source=f"service_page:{site}", classification="confirmed", observed_at=official.collected_at,
+            subject_type="website", subject_value=site, predicate="official_account",
+            object_type="handle", object_value="byjp.me", locator=site,
+            method="bounded_first_party_link", context={"policy_version": "official-account-v2"},
+        ))
+        registry.apply_tangled_evidence(project, official)
+        registry.apply_tangled_evidence(project, self.collect(project, [{"name": "atproto-deeplink"}]))
+        self.assertIn(ROOT, project["candidate_project_repository_urls"])
+        project = registry.finalize_project_shape(project)
+        registry.reconcile_trust_supported_url_candidates(project)
+        self.assertEqual(project["project_repository_urls"], [github])
+
     def project(self):
         project = self.make_project("proj:attribution", "repo_url", ROOT)
         project.update(name="atproto-deeplink", project_repository_urls=[ROOT],
@@ -171,6 +199,67 @@ class TangledRepositoryAttributionTest(ProjectRecordTestCase):
 
 
 class TangledOwnershipStorageTest(TempRegistryDbTestCase):
+    def official_account_project(self):
+        github, site = "https://github.com/example/atproto-deeplink", "https://byjp.me/atproto-deeplink"
+        project = self.make_project("proj:official-account", "repo_url", github)
+        registry.add_manual_seed(project, "repo_url", github, source="test")
+        registry.add_manual_seed(project, "service_url", site, source="test")
+        project["name"] = "atproto-deeplink"
+        record = relation_record(
+            source=f"service_page:{site}", classification="confirmed", observed_at="2026-10-25T00:00:00Z",
+            subject_type="website", subject_value=site, predicate="official_account",
+            object_type="handle", object_value="byjp.me", locator=site,
+            method="bounded_first_party_link", context={"policy_version": "official-account-v2"},
+        )
+        registry.apply_tangled_evidence(project, EvidenceBundle(
+            project_key=project["project_key"], collected_at=record.observed_at, records=[record],
+        ))
+        return project
+
+    def test_normal_sync_does_not_attach_by_official_owner_and_name(self):
+        conn = registry.open_db()
+        self.addCleanup(conn.close)
+        target = self.official_account_project()
+        project_record.save_project(conn, target)
+        conn.commit()
+        entry = {"owner_did": OWNER, "rkey": "source", "seq": 101, "operation": "create",
+                 "record": {"name": "atproto-deeplink", "description": "atproto application"},
+                 "atproto_relevant": True}
+        with mock.patch.object(source_sync, "fetch_tangled_jetstream_snapshot", return_value={
+            "events": [entry], "sealed_tip_seq": 101, "last_event_seq": 101,
+        }), mock.patch.object(tangled_identity, "resolve_owner_handle", return_value="byjp.me"):
+            result = source_sync.sync_tangled_repos(conn, execute=True)
+        self.assertEqual((result["created"], result["matched"]), (1, 0))
+        saved = project_record.fetch_project(conn, target["project_key"])
+        self.assertNotIn(ROOT, saved["project_repository_urls"])
+        self.assertNotEqual(result["results"][0]["project_key"], target["project_key"])
+
+    def test_normal_enrich_does_not_merge_by_official_owner_and_name(self):
+        conn = registry.open_db()
+        self.addCleanup(conn.close)
+        project_record.save_project(conn, self.official_account_project())
+        source = self.make_project("proj:fragment", "repo_url", ROOT)
+        registry.add_manual_seed(source, "repo_url", ROOT, source="tangled_jetstream")
+        project_record.add_developer_account(source, "byjp.me", "tangled_jetstream", did=OWNER)
+        project_record.save_project(conn, source)
+        conn.commit()
+        io = EnrichmentIO()
+        io.page(ROOT, html='<title>byjp.me/atproto-deeplink at main &middot; Tangled</title>')
+        io.page(ROOT + "/raw/main/README.md", html="# atproto-deeplink\nAn application.")
+        io.json("https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=byjp.me", {"did": OWNER, "handle": "byjp.me"})
+        io.json("https://plc.directory/" + OWNER, {"id": OWNER, "alsoKnownAs": ["at://byjp.me"],
+            "service": [{"id": "#atproto_pds", "type": "AtprotoPersonalDataServer", "serviceEndpoint": "https://pds.example"}]})
+        io.json("https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=byjp.me", {"did": OWNER})
+        io.json("https://pds.example/xrpc/com.atproto.repo.listRecords?" + urllib.parse.urlencode({"repo": OWNER, "collection": "sh.tangled.repo", "limit": 100}),
+            {"records": [{"uri": f"at://{OWNER}/sh.tangled.repo/source", "value": {"name": "atproto-deeplink"}}]})
+        with io:
+            result = enrichment.run(conn, OperationRequest.create("enrich", execute=True,
+                parameters={"project_key": "proj:fragment"}))
+        self.assertEqual(result.status, "completed")
+        self.assertIsNotNone(project_record.fetch_project(conn, "proj:fragment"))
+        self.assertEqual(conn.execute("SELECT count(*) FROM project_key_aliases").fetchone()[0], 0)
+        self.assertNotIn(ROOT, project_record.fetch_project(conn, "proj:official-account")["project_repository_urls"])
+
     def test_exact_website_candidate_survives_save_fetch_without_becoming_confirmed(self):
         project = self.make_project("proj:homepage", "service_url", "https://app.invalid/demo")
         registry.add_manual_seed(project, "service_url", "https://app.invalid/demo", source="test")
